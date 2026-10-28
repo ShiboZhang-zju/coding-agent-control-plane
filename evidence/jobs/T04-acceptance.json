@@ -1,0 +1,92 @@
+{
+  "test": "T04-acceptance",
+  "tasks": [
+    {
+      "key": "A1",
+      "worker_state": "succeeded",
+      "verdict": "verified",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "a1.txt",
+          "value": null,
+          "passed": true,
+          "observed": "exists"
+        },
+        {
+          "kind": "file_contains",
+          "target": "a1.txt",
+          "value": "a1-ok",
+          "passed": true,
+          "observed": "a1-ok"
+        },
+        {
+          "kind": "git_commit",
+          "target": "HEAD",
+          "value": "A1_artifact",
+          "passed": true,
+          "observed": "33a0286 A1_artifact"
+        }
+      ]
+    },
+    {
+      "key": "A2",
+      "worker_state": "succeeded",
+      "verdict": "rejected",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "a2_expected.txt",
+          "value": null,
+          "passed": false,
+          "observed": "missing"
+        }
+      ]
+    },
+    {
+      "key": "B1",
+      "worker_state": "succeeded",
+      "verdict": "verified",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "b1.txt",
+          "value": null,
+          "passed": true,
+          "observed": "exists"
+        }
+      ]
+    },
+    {
+      "key": "B2",
+      "worker_state": "succeeded",
+      "verdict": "verified",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "b2.txt",
+          "value": null,
+          "passed": true,
+          "observed": "exists"
+        },
+        {
+          "kind": "git_commit",
+          "target": "HEAD",
+          "value": "B2_artifact",
+          "passed": true,
+          "observed": "a69df94 B2_artifact"
+        }
+      ]
+    }
+  ],
+  "counts": {
+    "by_state": {
+      "succeeded": 4
+    },
+    "running": 0,
+    "waiting_for_approval": 0,
+    "verified": 3,
+    "rejected": 1,
+    "inconclusive": 0
+  }
+}

@@ -1,0 +1,215 @@
+{
+  "test": "T00f-settle-probe",
+  "cmd": "timeout /t 5 /nobreak >nul & echo settle-ok > settle_probe.txt",
+  "samples": [
+    {
+      "t": 0,
+      "state": "working",
+      "alive": true,
+      "settled": false,
+      "pid": 45292,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 2,
+      "state": "working",
+      "alive": true,
+      "settled": false,
+      "pid": 45292,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 4,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 6,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 8,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 10,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 12,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 14,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 16,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 18,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 20,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 22,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 24,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 26,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 28,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 30,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 32,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 34,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 36,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    },
+    {
+      "t": 38,
+      "state": "working",
+      "alive": false,
+      "settled": false,
+      "pid": null,
+      "detail": "running",
+      "artifact": true
+    }
+  ],
+  "dispatch": {
+    "http": 200,
+    "body": {
+      "data": {
+        "id": "a419fb8c",
+        "shortId": "a419fb8c",
+        "state": "working",
+        "tempo": "active",
+        "startedAt": 1793198576905,
+        "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+        "kind": "background",
+        "intent": "timeout /t 5 /nobreak >nul & echo settle-ok > settle_probe.txt",
+        "detail": "running",
+        "webUrl": null,
+        "alive": true,
+        "settled": false,
+        "activity": "working",
+        "sessionId": "a419fb8c-8069-4999-9aa0-8c902c1a3a11",
+        "initialSessionId": "a419fb8c-8069-4999-9aa0-8c902c1a3a11",
+        "name": "timeout /t 5 /nobreak >nul & echo settle",
+        "updatedAt": 1793198581260,
+        "pid": 45292,
+        "exec": "timeout /t 5 /nobreak >nul & echo settle-ok > settle_probe.txt"
+      }
+    }
+  },
+  "job_id": "a419fb8c",
+  "final_artifact": true,
+  "artifact_content": "settle-ok \n"
+}

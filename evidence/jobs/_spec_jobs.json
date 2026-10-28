@@ -1,0 +1,312 @@
+{
+  "dispatch": {
+    "tags": [
+      "AgentJobs"
+    ],
+    "summary": "派发智能体",
+    "description": "默认派发后台 Agent 会话；bash=true 时派发 shell job。sourceSessionId 用于受限的上下文继承，bgIsolation 可按 job 覆盖后台写隔离。",
+    "operationId": "dispatchAgentJob",
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "prompt": {
+                "type": "string",
+                "description": "任务意图或 shell 命令"
+              },
+              "cwd": {
+                "type": "string",
+                "description": "运行项目目录"
+              },
+              "agent": {
+                "type": "string",
+                "description": "自定义 Agent 名称"
+              },
+              "model": {
+                "type": "string"
+              },
+              "effort": {
+                "type": "string",
+                "enum": [
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              },
+              "permissionMode": {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "acceptEdits",
+                  "plan",
+                  "auto",
+                  "dontAsk",
+                  "bypassPermissions"
+                ],
+                "description": "外部/远程调用不含 fullAccess；仅本机 Web UI 发起的派发可传 fullAccess"
+              },
+              "name": {
+                "type": "string",
+                "description": "智能体显示名"
+              },
+              "bash": {
+                "type": "boolean",
+                "default": false
+              },
+              "sourceSessionId": {
+                "type": "string",
+                "description": "继承上下文的源会话 ID"
+              },
+              "bgIsolation": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "worktree"
+                ],
+                "description": "首次写文件时是否自动进入隔离 worktree；缺省跟随全局设置"
+              }
+            },
+            "required": [
+              "prompt"
+            ]
+          }
+        }
+      }
+    },
+    "responses": {
+      "200": {
+        "description": "已创建的智能体",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "data": {
+                  "$ref": "#/components/schemas/AgentJob"
+                }
+              },
+              "required": [
+                "data"
+              ]
+            }
+          }
+        }
+      },
+      "400": {
+        "description": "请求参数错误",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "500": {
+        "description": "派发失败",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    }
+  },
+  "stop": {
+    "post": {
+      "tags": [
+        "AgentJobs"
+      ],
+      "summary": "停止智能体",
+      "description": "先发送 SIGTERM，超时后使用 SIGKILL，并将实例标记为 stopped。",
+      "operationId": "stopAgentJob",
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "智能体 job ID"
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "停止成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "stopped": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "required": [
+                      "stopped"
+                    ]
+                  }
+                },
+                "required": [
+                  "data"
+                ]
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "智能体不存在",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "events": {
+    "get": {
+      "tags": [
+        "AgentJobs"
+      ],
+      "summary": "订阅智能体列表变化",
+      "description": "首帧为 snapshot，后续推送 added / changed / removed / keepalive。事件帧形式为 `event: <name>\\ndata: <JSON>`。",
+      "operationId": "subscribeAgentJobEvents",
+      "responses": {
+        "200": {
+          "description": "SSE 智能体集合事件流",
+          "content": {
+            "text/event-stream": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "get_one": {
+    "get": {
+      "tags": [
+        "AgentJobs"
+      ],
+      "summary": "获取智能体详情",
+      "operationId": "getAgentJob",
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "智能体 job ID，支持唯一短 ID"
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "智能体详情",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "data": {
+                    "type": "object",
+                    "properties": {
+                      "job": {
+                        "$ref": "#/components/schemas/AgentJob"
+                      }
+                    },
+                    "required": [
+                      "job"
+                    ]
+                  }
+                },
+                "required": [
+                  "data"
+                ]
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "智能体不存在",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          }
+        }
+      }
+    },
+    "delete": {
+      "tags": [
+        "AgentJobs"
+      ],
+      "summary": "删除智能体",
+      "description": "执行与 TUI 相同的 worktree 安全检查。守卫拒绝时仍返回 200，但 deleted=false 并附带 reason。",
+      "operationId": "deleteAgentJob",
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "智能体 job ID"
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "删除结果",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "data": {
+                    "$ref": "#/components/schemas/AgentJobDeleteResult"
+                  }
+                },
+                "required": [
+                  "data"
+                ]
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "智能体不存在",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

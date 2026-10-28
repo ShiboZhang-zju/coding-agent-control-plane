@@ -1,0 +1,104 @@
+{
+  "test": "T09-permission-request",
+  "target": "F:\\coding-agent-control-plane\\sandbox\\repo-b\\approval_probe.txt",
+  "job": {
+    "task_id": "cp-e835476139d8",
+    "worker_job_id": "f3ef42d1",
+    "dispatch_http": 200
+  },
+  "samples": [
+    {
+      "t": 4.0,
+      "state": "running",
+      "worker_state": "working",
+      "status": null,
+      "tempo": "active",
+      "waitingFor": null,
+      "needs": null,
+      "block": null,
+      "webUrl": null
+    },
+    {
+      "t": 8.5,
+      "state": "running",
+      "worker_state": "working",
+      "status": "idle",
+      "tempo": "active",
+      "waitingFor": null,
+      "needs": null,
+      "block": null,
+      "webUrl": "http://127.0.0.1:52059/"
+    },
+    {
+      "t": 12.9,
+      "state": "running",
+      "worker_state": "working",
+      "status": "busy",
+      "tempo": "active",
+      "waitingFor": null,
+      "needs": null,
+      "block": null,
+      "webUrl": "http://127.0.0.1:52059/"
+    },
+    {
+      "t": 17.5,
+      "state": "running",
+      "worker_state": "working",
+      "status": "busy",
+      "tempo": "active",
+      "waitingFor": null,
+      "needs": null,
+      "block": null,
+      "webUrl": "http://127.0.0.1:52059/"
+    },
+    {
+      "t": 21.6,
+      "state": "running",
+      "worker_state": "working",
+      "status": "busy",
+      "tempo": "active",
+      "waitingFor": null,
+      "needs": null,
+      "block": null,
+      "webUrl": "http://127.0.0.1:52059/"
+    },
+    {
+      "t": 25.9,
+      "state": "running",
+      "worker_state": "working",
+      "status": "busy",
+      "tempo": "active",
+      "waitingFor": null,
+      "needs": null,
+      "block": null,
+      "webUrl": "http://127.0.0.1:52059/"
+    },
+    {
+      "t": 30.1,
+      "state": "succeeded",
+      "worker_state": "done",
+      "status": "idle",
+      "tempo": "idle",
+      "waitingFor": null,
+      "needs": null,
+      "block": null,
+      "webUrl": "http://127.0.0.1:52059/"
+    }
+  ],
+  "reached_waiting_for_approval": false,
+  "worker_job": {
+    "id": "f3ef42d1",
+    "state": "done",
+    "status": "idle",
+    "tempo": "idle",
+    "alive": true,
+    "waitingFor": null,
+    "needs": null,
+    "block": null,
+    "webUrl": "http://127.0.0.1:52059/",
+    "sessionId": "f3ef42d1-031f-44bc-8586-7d9afd11d6fc"
+  },
+  "ui_hint": "Web UI: http://127.0.0.1:8787/ (password is in the serve banner, not in git)",
+  "next_step": "human must click 拒绝 for this job; then run python scripts/t09b_permission_verify.py",
+  "verdict_while_waiting": "inconclusive"
+}

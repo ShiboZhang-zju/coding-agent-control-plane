@@ -1,0 +1,148 @@
+{
+  "test": "T05-sse-reconnect",
+  "phases": {
+    "connected_before_disconnect": {
+      "http": 200,
+      "content_type": "text/event-stream",
+      "connected_at": 1793196447.8931355,
+      "events": [
+        {
+          "dt": 0.0,
+          "line": "event: snapshot"
+        },
+        {
+          "dt": 0.0,
+          "line": "data: [{\"cwd\":\"F:\\\\coding-agent-control-plane\\\\sandbox\\\\repo-b\",\"kind\":\"background\",\"startedAt\":1793196347020,\"id\":\"469a5e8f\",\"state\":\"done\",\"sessionId\":\"469a5e8f-e524-4915-bafb-994f36ba6f88\",\"initialSessionId\":\"469a5e8f-e524-4915-bafb-994f36ba6f88\",\"name\":\"timeout /t 40 /nobreak >nul & echo b2-ok\","
+        },
+        {
+          "dt": 3.03,
+          "line": "event: added"
+        },
+        {
+          "dt": 3.03,
+          "line": "data: {\"cwd\":\"F:\\\\coding-agent-control-plane\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793196449915,\"id\":\"8d33094b\",\"state\":\"working\",\"sessionId\":\"8d33094b-a703-477d-97bb-9d3664727db1\",\"initialSessionId\":\"8d33094b-a703-477d-97bb-9d3664727db1\",\"name\":\"timeout /t 25 /nobreak >nul & echo sse-o"
+        },
+        {
+          "dt": 5.07,
+          "line": "event: changed"
+        },
+        {
+          "dt": 5.07,
+          "line": "data: {\"cwd\":\"F:\\\\coding-agent-control-plane\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793196449915,\"id\":\"8d33094b\",\"state\":\"working\",\"sessionId\":\"8d33094b-a703-477d-97bb-9d3664727db1\",\"initialSessionId\":\"8d33094b-a703-477d-97bb-9d3664727db1\",\"name\":\"timeout /t 25 /nobreak >nul & echo sse-o"
+        },
+        {
+          "dt": 15.01,
+          "line": "event: keepalive"
+        }
+      ],
+      "closed_at": 1793196462.904408
+    },
+    "reconnected": {
+      "error": "TimeoutError: timed out"
+    }
+  },
+  "job": {
+    "task_id": "cp-bc4c96c7e63c",
+    "worker_job_id": "8d33094b",
+    "dispatch_raw": {
+      "attempts": [
+        {
+          "attempt": 1,
+          "http": 200,
+          "body": {
+            "data": {
+              "id": "8d33094b",
+              "shortId": "8d33094b",
+              "state": "working",
+              "tempo": "active",
+              "startedAt": 1793196449915,
+              "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+              "kind": "background",
+              "intent": "timeout /t 25 /nobreak >nul & echo sse-ok > sse_t05.txt",
+              "detail": "running",
+              "webUrl": null,
+              "alive": true,
+              "settled": false,
+              "activity": "working",
+              "sessionId": "8d33094b-a703-477d-97bb-9d3664727db1",
+              "initialSessionId": "8d33094b-a703-477d-97bb-9d3664727db1",
+              "name": "timeout /t 25 /nobreak >nul & echo sse-o",
+              "updatedAt": 1793196451100,
+              "pid": 21940,
+              "exec": "timeout /t 25 /nobreak >nul & echo sse-ok > sse_t05.txt"
+            }
+          }
+        }
+      ],
+      "dispatch_http": 200,
+      "dispatch_body": {
+        "data": {
+          "id": "8d33094b",
+          "shortId": "8d33094b",
+          "state": "working",
+          "tempo": "active",
+          "startedAt": 1793196449915,
+          "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+          "kind": "background",
+          "intent": "timeout /t 25 /nobreak >nul & echo sse-ok > sse_t05.txt",
+          "detail": "running",
+          "webUrl": null,
+          "alive": true,
+          "settled": false,
+          "activity": "working",
+          "sessionId": "8d33094b-a703-477d-97bb-9d3664727db1",
+          "initialSessionId": "8d33094b-a703-477d-97bb-9d3664727db1",
+          "name": "timeout /t 25 /nobreak >nul & echo sse-o",
+          "updatedAt": 1793196451100,
+          "pid": 21940,
+          "exec": "timeout /t 25 /nobreak >nul & echo sse-ok > sse_t05.txt"
+        }
+      },
+      "recovered_by": "list-jobs diff"
+    }
+  },
+  "state_at_disconnect": "running",
+  "state_after_gap": "running",
+  "reconcile": {
+    "adapter": {
+      "source": "GET /api/v1/jobs?all=1",
+      "total": 13,
+      "new": [
+        "43dc7110",
+        "469a5e8f",
+        "6cbd6cd4",
+        "68861e00",
+        "ae335d3d",
+        "67504c4a",
+        "dda97d98",
+        "e2a3d10e",
+        "bf6612c1",
+        "b4519761",
+        "28c046b5",
+        "8237c25f"
+      ],
+      "changed": [],
+      "lost": []
+    },
+    "local_before": {
+      "cp-bc4c96c7e63c": "running"
+    },
+    "local_after": {
+      "cp-bc4c96c7e63c": "lost"
+    },
+    "http": "GET /api/v1/jobs?all=1"
+  },
+  "analysis": {
+    "event_types_seen": [
+      "added",
+      "changed",
+      "keepalive",
+      "snapshot"
+    ],
+    "has_id_field": false,
+    "replay_supported": false,
+    "replay_evidence": "reconnect only delivers a fresh `snapshot` of current state; no `id:`/Last-Event-ID cursor exists, so events missed while disconnected are unrecoverable",
+    "reconnect_event_types": [],
+    "state_recovered_by": "GET /api/v1/jobs?all=1 (reconcile)"
+  }
+}

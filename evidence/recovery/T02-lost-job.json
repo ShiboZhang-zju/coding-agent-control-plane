@@ -1,0 +1,47 @@
+{
+  "test": "T02-lost-job",
+  "samples": [
+    {
+      "t": 0.0,
+      "state": "running",
+      "worker_state": "working",
+      "alive": false,
+      "settled": false,
+      "stale_s": 6.3,
+      "pid_field": null
+    },
+    {
+      "t": 0.0,
+      "state": "lost",
+      "worker_state": "working",
+      "alive": false,
+      "settled": false,
+      "stale_s": 121.6,
+      "pid_field": null
+    }
+  ],
+  "job": {
+    "task_id": "cp-de7e246da69d",
+    "worker_job_id": "43dc7110"
+  },
+  "pid": 38520,
+  "kill": {
+    "cmd": "taskkill /PID 38520 /T /F",
+    "returncode": 0,
+    "stdout": "成功: 已终止 PID 46824 (属于 PID 43504 子进程)的进程。\n成功: 已终止 PID 43504 (属于 PID 38520 子进程)的进程。\n成功: 已终止 PID 38520 (属于 PID 1512 子进程)的进程。",
+    "stderr": ""
+  },
+  "first_lost_detected": {
+    "t": 0.0,
+    "state": "lost",
+    "worker_state": "working",
+    "alive": false,
+    "settled": false,
+    "stale_s": 121.6,
+    "pid_field": null
+  },
+  "detected_lost": true,
+  "verdict": "rejected",
+  "worker_state_reported": "working",
+  "note": "worker keeps state=working forever after the process is killed; only alive/settled/updatedAt distinguish it, so the plane must own a staleness threshold to report `lost`"
+}

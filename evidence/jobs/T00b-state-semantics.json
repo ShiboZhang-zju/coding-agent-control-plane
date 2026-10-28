@@ -1,0 +1,27 @@
+{
+  "test": "T00b-state-semantics",
+  "runs": [
+    {
+      "label": "poc-ok",
+      "dispatch_http": 500,
+      "dispatch_body": {
+        "error": {
+          "code": "INTERNAL_ERROR",
+          "message": "[safe-delete] 操作失败: ERROR C:\\Users\\Sebzhang\\.codebuddy\\jobs\\.locks\\6546eecc.state.lock.guard: Error during a `trash` operation: Os { code: -2147024894, description: \"windows error: 系统找不到指定的文件。 (0x80070002)\" }"
+        }
+      },
+      "job_id": null
+    },
+    {
+      "label": "poc-fail",
+      "dispatch_http": 500,
+      "dispatch_body": {
+        "error": {
+          "code": "INTERNAL_ERROR",
+          "message": "[safe-delete] 操作失败: ERROR C:\\Users\\Sebzhang\\.codebuddy\\jobs\\.locks\\30117b40.state.lock.guard: Error during a `trash` operation: Os { code: -2147024894, description: \"windows error: 系统找不到指定的文件。 (0x80070002)\" }"
+        }
+      },
+      "job_id": null
+    }
+  ]
+}

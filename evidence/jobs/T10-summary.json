@@ -1,0 +1,127 @@
+{
+  "reconcile": {
+    "source": "GET /api/v1/jobs?all=1",
+    "total": 12,
+    "new": [
+      "69c37686",
+      "67504c4a",
+      "dda97d98",
+      "e2a3d10e",
+      "bf6612c1",
+      "b4519761",
+      "28c046b5",
+      "8237c25f"
+    ],
+    "changed": [],
+    "lost": []
+  },
+  "tasks": {
+    "generated_at": 1793196397.4884827,
+    "total": 4,
+    "counts": {
+      "by_state": {
+        "succeeded": 4
+      },
+      "running": 0,
+      "waiting_for_approval": 0,
+      "verified": 3,
+      "rejected": 1,
+      "inconclusive": 0
+    },
+    "needs_human": [],
+    "tasks": [
+      {
+        "task_id": "cp-a559a6e83124",
+        "worker_job_id": "ae335d3d",
+        "title": "A1-commit-artifact",
+        "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+        "state": "succeeded",
+        "verdict": "verified",
+        "detail": "command exited — output in logs",
+        "session_id": "ae335d3d-0b2b-4931-8e36-2a2904a632c0",
+        "pid": null,
+        "artifacts": [
+          "F:\\coding-agent-control-plane\\sandbox\\repo-a\\a2_partial.txt",
+          "F:\\coding-agent-control-plane\\sandbox\\repo-a\\cross_from_b.txt",
+          "commit:33a0286 A1_artifact",
+          "commit:cb3b6ec init repo-a",
+          "C:\\Users\\Sebzhang\\.codebuddy\\logs\\exec-ae335d3d.log"
+        ],
+        "assertions": {
+          "file_exists:a1.txt": true,
+          "file_contains:a1.txt": true,
+          "git_commit:HEAD": true
+        },
+        "warnings": []
+      },
+      {
+        "task_id": "cp-7388cffb6980",
+        "worker_job_id": "68861e00",
+        "title": "A2-intentional-failure",
+        "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+        "state": "succeeded",
+        "verdict": "rejected",
+        "detail": "command exited — output in logs",
+        "session_id": "68861e00-097b-45e1-a1fa-3d107747503d",
+        "pid": null,
+        "artifacts": [
+          "F:\\coding-agent-control-plane\\sandbox\\repo-a\\a2_partial.txt",
+          "F:\\coding-agent-control-plane\\sandbox\\repo-a\\cross_from_b.txt",
+          "commit:33a0286 A1_artifact",
+          "commit:cb3b6ec init repo-a",
+          "C:\\Users\\Sebzhang\\.codebuddy\\logs\\exec-68861e00.log"
+        ],
+        "assertions": {
+          "file_exists:a2_expected.txt": false
+        },
+        "warnings": []
+      },
+      {
+        "task_id": "cp-37ff628b06c8",
+        "worker_job_id": "6cbd6cd4",
+        "title": "B1-cross-repo-write",
+        "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-b",
+        "state": "succeeded",
+        "verdict": "verified",
+        "detail": "command exited — output in logs",
+        "session_id": "6cbd6cd4-1902-4be1-942e-02f5efcdb79f",
+        "pid": null,
+        "artifacts": [
+          "F:\\coding-agent-control-plane\\sandbox\\repo-b\\b1.txt",
+          "commit:a69df94 B2_artifact",
+          "commit:a43541f init repo-b",
+          "C:\\Users\\Sebzhang\\.codebuddy\\logs\\exec-6cbd6cd4.log"
+        ],
+        "assertions": {
+          "file_exists:b1.txt": true
+        },
+        "warnings": []
+      },
+      {
+        "task_id": "cp-eb8af4862c8b",
+        "worker_job_id": "469a5e8f",
+        "title": "B2-commit-artifact",
+        "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-b",
+        "state": "succeeded",
+        "verdict": "verified",
+        "detail": "command exited — output in logs",
+        "session_id": "469a5e8f-e524-4915-bafb-994f36ba6f88",
+        "pid": null,
+        "artifacts": [
+          "F:\\coding-agent-control-plane\\sandbox\\repo-b\\b1.txt",
+          "commit:a69df94 B2_artifact",
+          "commit:a43541f init repo-b",
+          "C:\\Users\\Sebzhang\\.codebuddy\\logs\\exec-469a5e8f.log"
+        ],
+        "assertions": {
+          "file_exists:b2.txt": true,
+          "git_commit:HEAD": true
+        },
+        "warnings": []
+      }
+    ],
+    "next_actions": [
+      "1 个任务未通过验收: cp-7388cffb6980"
+    ]
+  }
+}

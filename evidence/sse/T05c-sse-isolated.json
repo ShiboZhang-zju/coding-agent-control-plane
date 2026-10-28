@@ -1,0 +1,29 @@
+{
+  "test": "T05c-sse-isolated",
+  "job": {
+    "worker_job_id": "535a2a7b",
+    "dispatch_http": 200
+  },
+  "subscribe_while_running": {
+    "events": [],
+    "error": "TimeoutError: timed out",
+    "state": "working"
+  },
+  "after_gap": {
+    "state": "working",
+    "settled": false,
+    "gap_seconds": 91.3
+  },
+  "reconnect": {
+    "events": [],
+    "error": "TimeoutError: timed out"
+  },
+  "analysis": {
+    "types_running": [],
+    "types_reconnect": [],
+    "id_field_present": false,
+    "reconnect_payload_mentions_job": false,
+    "job_settled_after_stream_closed": false,
+    "conclusion": "no cursor, no replay: a reconnect can only reveal current state via a fresh snapshot (or nothing at all until the next change)"
+  }
+}

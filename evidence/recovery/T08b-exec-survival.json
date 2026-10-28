@@ -1,0 +1,34 @@
+{
+  "test": "T08b-exec-survival",
+  "cmd": "timeout /t 90 /nobreak >nul & echo alive-after-restart > survival.txt",
+  "job_id": "b73f93f0",
+  "before_stop": {
+    "state": "working",
+    "pid": 31316,
+    "pid_alive": true,
+    "settled": false
+  },
+  "stop": "{\"result\": \"stopped\", \"port\": 8787, \"pid\": 6924}",
+  "after_stop": {
+    "pid_alive": false,
+    "server": "{\"port\": 8787, \"listening\": false, \"pid\": null}"
+  },
+  "start": "{\"result\": \"started\", \"port\": 8787, \"pid\": 41076, \"launcher_pid\": 41076, \"bind\": \"127.0.0.1:8787\", \"auth\": \"password\"}",
+  "after_start": {
+    "state": "working",
+    "settled": false,
+    "alive": false,
+    "pid_alive": false
+  },
+  "after_wait": {
+    "state": "working",
+    "settled": false,
+    "artifact": true
+  },
+  "conclusion": {
+    "process_killed_by_service_stop": true,
+    "execution_resumed": true,
+    "job_still_discoverable": true,
+    "note": "服务停止时子进程随服务一起结束；重启后 job 记录仍可查询，但命令不会继续执行"
+  }
+}

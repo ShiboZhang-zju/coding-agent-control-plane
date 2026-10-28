@@ -1,0 +1,70 @@
+{
+  "test": "T08-service-restart",
+  "job": {
+    "task_id": "cp-6936436d8884",
+    "worker_job_id": "d7cfd2b9"
+  },
+  "before_restart": {
+    "state": "lost",
+    "pid": null,
+    "pid_alive": null,
+    "worker_state": "working"
+  },
+  "stuck_jobs_before": [
+    {
+      "id": "d7cfd2b9",
+      "state": "working",
+      "alive": false,
+      "settled": false
+    },
+    {
+      "id": "535a2a7b",
+      "state": "working",
+      "alive": false,
+      "settled": false
+    },
+    {
+      "id": "bbe93d2f",
+      "state": "working",
+      "alive": false,
+      "settled": false
+    },
+    {
+      "id": "43dc7110",
+      "state": "working",
+      "alive": false,
+      "settled": false
+    },
+    {
+      "id": "8d33094b",
+      "state": "working",
+      "alive": false,
+      "settled": false
+    },
+    {
+      "id": "28c046b5",
+      "state": "working",
+      "alive": false,
+      "settled": false
+    }
+  ],
+  "stop": "{\"result\": \"stopped\", \"port\": 8787, \"pid\": 21520}",
+  "server_down": "{\"port\": 8787, \"listening\": false, \"pid\": null}",
+  "pid_alive_while_down": null,
+  "start": "{\"result\": \"started\", \"port\": 8787, \"pid\": 45384, \"launcher_pid\": 45384, \"bind\": \"127.0.0.1:8787\", \"auth\": \"password\"}",
+  "after_restart_job_lookup": {
+    "http": 200
+  },
+  "after_restart": {
+    "state": "working",
+    "settled": false,
+    "alive": false,
+    "session_id": "d7cfd2b9-f521-416b-b195-4fba947bd783"
+  },
+  "pid_alive_after_restart": null,
+  "after_wait": {
+    "state": "working",
+    "settled": false,
+    "waited_s": 153.9
+  }
+}

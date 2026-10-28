@@ -9,6 +9,9 @@ evidence/**/*.raw.log
 evidence/environment/serve-stdout.log
 evidence/environment/serve-stderr.log
 
+# Control-plane local state / detached test logs (machine specific)
+.poc-state/
+
 # Local credentials (never committed)
 .env
 .env.*

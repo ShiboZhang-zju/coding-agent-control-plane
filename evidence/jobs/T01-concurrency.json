@@ -1,0 +1,1398 @@
+{
+  "test": "T01-concurrency",
+  "started_at": 1793196330.0006368,
+  "dispatches": [
+    {
+      "key": "A1",
+      "task_id": "cp-a559a6e83124",
+      "worker_job_id": "ae335d3d",
+      "control_plane_task_id": "cp-a559a6e83124",
+      "dispatch_http": 200,
+      "recovered_by": "list-jobs diff",
+      "warnings": [],
+      "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+      "worktree": null,
+      "session_id": "ae335d3d-0b2b-4931-8e36-2a2904a632c0",
+      "pid": 46096,
+      "branch": "main",
+      "dispatch_at": 1793196330.0006368,
+      "dispatch_returned": 1793196333.1608741,
+      "state": "succeeded",
+      "detail": "command exited — output in logs",
+      "final_state": "succeeded",
+      "finished_at": 1793196361.84,
+      "duration_s": 31.8,
+      "commit": "33a0286 A1_artifact",
+      "verdict": "verified",
+      "assertion_results": [
+        {
+          "kind": "file_exists",
+          "target": "a1.txt",
+          "value": null,
+          "passed": true,
+          "observed": "exists"
+        },
+        {
+          "kind": "file_contains",
+          "target": "a1.txt",
+          "value": "a1-ok",
+          "passed": true,
+          "observed": "a1-ok"
+        },
+        {
+          "kind": "git_commit",
+          "target": "HEAD",
+          "value": "A1_artifact",
+          "passed": true,
+          "observed": "33a0286 A1_artifact"
+        }
+      ],
+      "artifacts": [
+        "F:\\coding-agent-control-plane\\sandbox\\repo-a\\a2_partial.txt",
+        "F:\\coding-agent-control-plane\\sandbox\\repo-a\\cross_from_b.txt",
+        "commit:33a0286 A1_artifact",
+        "commit:cb3b6ec init repo-a",
+        "C:\\Users\\Sebzhang\\.codebuddy\\logs\\exec-ae335d3d.log"
+      ],
+      "git_after": {
+        "log": "33a0286 A1_artifact\ncb3b6ec init repo-a",
+        "status": "?? a2_partial.txt\n?? cross_from_b.txt"
+      }
+    },
+    {
+      "key": "A2",
+      "task_id": "cp-7388cffb6980",
+      "worker_job_id": "68861e00",
+      "control_plane_task_id": "cp-7388cffb6980",
+      "dispatch_http": 200,
+      "recovered_by": "list-jobs diff",
+      "warnings": [],
+      "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+      "worktree": null,
+      "session_id": "68861e00-097b-45e1-a1fa-3d107747503d",
+      "pid": 31464,
+      "branch": "main",
+      "dispatch_at": 1793196334.1619694,
+      "dispatch_returned": 1793196337.8010418,
+      "state": "succeeded",
+      "detail": "command exited — output in logs",
+      "final_state": "succeeded",
+      "finished_at": 1793196367.216,
+      "duration_s": 32.1,
+      "commit": "33a0286 A1_artifact",
+      "verdict": "rejected",
+      "assertion_results": [
+        {
+          "kind": "file_exists",
+          "target": "a2_expected.txt",
+          "value": null,
+          "passed": false,
+          "observed": "missing"
+        }
+      ],
+      "artifacts": [
+        "F:\\coding-agent-control-plane\\sandbox\\repo-a\\a2_partial.txt",
+        "F:\\coding-agent-control-plane\\sandbox\\repo-a\\cross_from_b.txt",
+        "commit:33a0286 A1_artifact",
+        "commit:cb3b6ec init repo-a",
+        "C:\\Users\\Sebzhang\\.codebuddy\\logs\\exec-68861e00.log"
+      ],
+      "git_after": {
+        "log": "33a0286 A1_artifact\ncb3b6ec init repo-a",
+        "status": "?? a2_partial.txt\n?? cross_from_b.txt"
+      }
+    },
+    {
+      "key": "B1",
+      "task_id": "cp-37ff628b06c8",
+      "worker_job_id": "6cbd6cd4",
+      "control_plane_task_id": "cp-37ff628b06c8",
+      "dispatch_http": 200,
+      "recovered_by": "list-jobs diff",
+      "warnings": [],
+      "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-b",
+      "worktree": null,
+      "session_id": "6cbd6cd4-1902-4be1-942e-02f5efcdb79f",
+      "pid": 16480,
+      "branch": "main",
+      "dispatch_at": 1793196338.8024175,
+      "dispatch_returned": 1793196343.3388176,
+      "state": "succeeded",
+      "detail": "command exited — output in logs",
+      "final_state": "succeeded",
+      "finished_at": 1793196376.378,
+      "duration_s": 35.7,
+      "commit": "a69df94 B2_artifact",
+      "verdict": "verified",
+      "assertion_results": [
+        {
+          "kind": "file_exists",
+          "target": "b1.txt",
+          "value": null,
+          "passed": true,
+          "observed": "exists"
+        }
+      ],
+      "artifacts": [
+        "F:\\coding-agent-control-plane\\sandbox\\repo-b\\b1.txt",
+        "commit:a69df94 B2_artifact",
+        "commit:a43541f init repo-b",
+        "C:\\Users\\Sebzhang\\.codebuddy\\logs\\exec-6cbd6cd4.log"
+      ],
+      "git_after": {
+        "log": "a69df94 B2_artifact\na43541f init repo-b",
+        "status": "?? b1.txt"
+      }
+    },
+    {
+      "key": "B2",
+      "task_id": "cp-eb8af4862c8b",
+      "worker_job_id": "469a5e8f",
+      "control_plane_task_id": "cp-eb8af4862c8b",
+      "dispatch_http": 200,
+      "recovered_by": "list-jobs diff",
+      "warnings": [],
+      "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-b",
+      "worktree": null,
+      "session_id": "469a5e8f-e524-4915-bafb-994f36ba6f88",
+      "pid": 46788,
+      "branch": "main",
+      "dispatch_at": 1793196344.3402252,
+      "dispatch_returned": 1793196350.2024598,
+      "state": "succeeded",
+      "detail": "command exited — output in logs",
+      "final_state": "succeeded",
+      "finished_at": 1793196388.841,
+      "duration_s": 41.8,
+      "commit": "a69df94 B2_artifact",
+      "verdict": "verified",
+      "assertion_results": [
+        {
+          "kind": "file_exists",
+          "target": "b2.txt",
+          "value": null,
+          "passed": true,
+          "observed": "exists"
+        },
+        {
+          "kind": "git_commit",
+          "target": "HEAD",
+          "value": "B2_artifact",
+          "passed": true,
+          "observed": "a69df94 B2_artifact"
+        }
+      ],
+      "artifacts": [
+        "F:\\coding-agent-control-plane\\sandbox\\repo-b\\b1.txt",
+        "commit:a69df94 B2_artifact",
+        "commit:a43541f init repo-b",
+        "C:\\Users\\Sebzhang\\.codebuddy\\logs\\exec-469a5e8f.log"
+      ],
+      "git_after": {
+        "log": "a69df94 B2_artifact\na43541f init repo-b",
+        "status": "?? b1.txt"
+      }
+    }
+  ],
+  "timeline": [
+    {
+      "rows": [
+        {
+          "t": 21.2,
+          "key": "A1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 21.2,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 21.2,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 21.3,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 22.3,
+          "key": "A1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 22.3,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 22.3,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 22.3,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 23.3,
+          "key": "A1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 23.3,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 23.3,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 23.3,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 24.3,
+          "key": "A1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 24.3,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 24.3,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 24.4,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 25.4,
+          "key": "A1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 25.4,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 25.4,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 25.4,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 26.4,
+          "key": "A1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 26.4,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 26.4,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 26.4,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 27.4,
+          "key": "A1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 27.4,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 27.4,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 27.4,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 28.4,
+          "key": "A1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 28.4,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 28.4,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 28.4,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 29.5,
+          "key": "A1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 29.5,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 29.5,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 29.5,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 30.5,
+          "key": "A1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 30.5,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 30.5,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 30.5,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 31.5,
+          "key": "A1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 31.5,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 31.5,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 31.5,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 32.5,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 32.5,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 32.5,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 32.5,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 33.5,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 33.5,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 33.5,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 33.5,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 34.6,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 34.6,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 34.6,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 34.6,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 35.6,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 35.6,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 35.6,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 35.6,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 36.6,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 36.6,
+          "key": "A2",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 36.6,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 36.6,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 37.6,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 37.6,
+          "key": "A2",
+          "state": "running",
+          "alive": false
+        },
+        {
+          "t": 37.6,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 37.7,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 38.7,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 38.7,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 38.7,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 38.7,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 39.7,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 39.7,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 39.8,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 39.8,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 40.8,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 40.8,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 40.8,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 40.8,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 41.8,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 41.8,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 41.8,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 41.8,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 42.8,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 42.9,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 42.9,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 42.9,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 43.9,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 43.9,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 43.9,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 44.0,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 45.0,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 45.0,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 45.0,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 45.0,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 46.1,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 46.1,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 46.1,
+          "key": "B1",
+          "state": "running",
+          "alive": true
+        },
+        {
+          "t": 46.1,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 47.1,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 47.1,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 47.1,
+          "key": "B1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 47.1,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 48.1,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 48.1,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 48.2,
+          "key": "B1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 48.2,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 49.2,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 49.2,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 49.2,
+          "key": "B1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 49.2,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 50.3,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 50.3,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 50.3,
+          "key": "B1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 50.3,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 51.3,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 51.3,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 51.3,
+          "key": "B1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 51.3,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 52.3,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 52.4,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 52.4,
+          "key": "B1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 52.4,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 53.4,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 53.4,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 53.4,
+          "key": "B1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 53.4,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 54.4,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 54.4,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 54.5,
+          "key": "B1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 54.5,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 55.5,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 55.5,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 55.5,
+          "key": "B1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 55.5,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 56.5,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 56.5,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 56.5,
+          "key": "B1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 56.6,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 57.6,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 57.6,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 57.6,
+          "key": "B1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 57.6,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 58.6,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 58.6,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 58.6,
+          "key": "B1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 58.6,
+          "key": "B2",
+          "state": "running",
+          "alive": true
+        }
+      ]
+    },
+    {
+      "rows": [
+        {
+          "t": 59.6,
+          "key": "A1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 59.6,
+          "key": "A2",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 59.6,
+          "key": "B1",
+          "state": "succeeded",
+          "alive": false
+        },
+        {
+          "t": 59.7,
+          "key": "B2",
+          "state": "succeeded",
+          "alive": false
+        }
+      ]
+    }
+  ],
+  "state_sequences": {
+    "A1": [
+      "running",
+      "succeeded"
+    ],
+    "A2": [
+      "running",
+      "succeeded"
+    ],
+    "B1": [
+      "running",
+      "succeeded"
+    ],
+    "B2": [
+      "running",
+      "succeeded"
+    ]
+  },
+  "overlap": {
+    "peak_concurrent_running": 4,
+    "concurrent": true,
+    "frames": 38
+  },
+  "isolation": {
+    "test": "T03-isolation",
+    "repos": {
+      "repo_a": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+      "repo_b": "F:\\coding-agent-control-plane\\sandbox\\repo-b"
+    },
+    "cross_repo_write_attempted_by": "B1 (dispatched in repo-b)",
+    "cross_repo_write_landed": true,
+    "cross_repo_path": "F:\\coding-agent-control-plane\\sandbox\\repo-a\\cross_from_b.txt",
+    "verdict": "file isolation between two projects is NOT enforced for shell jobs: a job dispatched in repo-b wrote into repo-a",
+    "repo_a_status": "?? a2_partial.txt\n?? cross_from_b.txt",
+    "repo_b_status": "?? b1.txt",
+    "repo_a_log": "33a0286 A1_artifact\ncb3b6ec init repo-a",
+    "repo_b_log": "a69df94 B2_artifact\na43541f init repo-b",
+    "worktree_isolated": [
+      {
+        "key": "A1",
+        "worktree": null
+      },
+      {
+        "key": "A2",
+        "worktree": null
+      },
+      {
+        "key": "B1",
+        "worktree": null
+      },
+      {
+        "key": "B2",
+        "worktree": null
+      }
+    ]
+  },
+  "acceptance": [
+    {
+      "key": "A1",
+      "worker_state": "succeeded",
+      "verdict": "verified",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "a1.txt",
+          "value": null,
+          "passed": true,
+          "observed": "exists"
+        },
+        {
+          "kind": "file_contains",
+          "target": "a1.txt",
+          "value": "a1-ok",
+          "passed": true,
+          "observed": "a1-ok"
+        },
+        {
+          "kind": "git_commit",
+          "target": "HEAD",
+          "value": "A1_artifact",
+          "passed": true,
+          "observed": "33a0286 A1_artifact"
+        }
+      ]
+    },
+    {
+      "key": "A2",
+      "worker_state": "succeeded",
+      "verdict": "rejected",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "a2_expected.txt",
+          "value": null,
+          "passed": false,
+          "observed": "missing"
+        }
+      ]
+    },
+    {
+      "key": "B1",
+      "worker_state": "succeeded",
+      "verdict": "verified",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "b1.txt",
+          "value": null,
+          "passed": true,
+          "observed": "exists"
+        }
+      ]
+    },
+    {
+      "key": "B2",
+      "worker_state": "succeeded",
+      "verdict": "verified",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "b2.txt",
+          "value": null,
+          "passed": true,
+          "observed": "exists"
+        },
+        {
+          "kind": "git_commit",
+          "target": "HEAD",
+          "value": "B2_artifact",
+          "passed": true,
+          "observed": "a69df94 B2_artifact"
+        }
+      ]
+    }
+  ]
+}

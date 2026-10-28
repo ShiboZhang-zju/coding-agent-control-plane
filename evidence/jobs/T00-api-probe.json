@@ -1,0 +1,200 @@
+{
+  "test": "T00-api-probe",
+  "steps": [
+    {
+      "label": "auth_status",
+      "method": "GET",
+      "path": "/api/v1/auth/status",
+      "status": 200,
+      "elapsed_ms": 1050.8,
+      "at": 1793194465.4657404,
+      "body": {
+        "authEnabled": true,
+        "authenticated": false
+      },
+      "content_type": "application/json; charset=utf-8"
+    },
+    {
+      "label": "login",
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "status": 200,
+      "elapsed_ms": 3.5,
+      "at": 1793194465.4697843,
+      "body": {
+        "success": true,
+        "token": "<redacted>"
+      },
+      "content_type": "application/json; charset=utf-8"
+    },
+    {
+      "label": "dispatch",
+      "method": "POST",
+      "path": "/api/v1/jobs",
+      "status": 500,
+      "elapsed_ms": 14480.7,
+      "at": 1793194479.9504561,
+      "body": {
+        "error": {
+          "code": "INTERNAL_ERROR",
+          "message": "[safe-delete] 操作失败: ERROR C:\\Users\\Sebzhang\\.codebuddy\\jobs\\.locks\\3a75c1d8.state.lock.guard: Error during a `trash` operation: Os { code: -2147024894, description: \"windows error: 系统找不到指定的文件。 (0x80070002)\" }"
+        }
+      },
+      "content_type": "application/json; charset=utf-8"
+    },
+    {
+      "label": "poll-0",
+      "status": 404,
+      "data": {
+        "error": {
+          "code": "JOB_NOT_FOUND",
+          "message": "Job not found: None"
+        }
+      }
+    },
+    {
+      "label": "poll-1",
+      "status": 404,
+      "data": {
+        "error": {
+          "code": "JOB_NOT_FOUND",
+          "message": "Job not found: None"
+        }
+      }
+    },
+    {
+      "label": "poll-2",
+      "status": 404,
+      "data": {
+        "error": {
+          "code": "JOB_NOT_FOUND",
+          "message": "Job not found: None"
+        }
+      }
+    },
+    {
+      "label": "poll-3",
+      "status": 404,
+      "data": {
+        "error": {
+          "code": "JOB_NOT_FOUND",
+          "message": "Job not found: None"
+        }
+      }
+    },
+    {
+      "label": "poll-4",
+      "status": 404,
+      "data": {
+        "error": {
+          "code": "JOB_NOT_FOUND",
+          "message": "Job not found: None"
+        }
+      }
+    },
+    {
+      "label": "poll-5",
+      "status": 404,
+      "data": {
+        "error": {
+          "code": "JOB_NOT_FOUND",
+          "message": "Job not found: None"
+        }
+      }
+    },
+    {
+      "label": "poll-6",
+      "status": 404,
+      "data": {
+        "error": {
+          "code": "JOB_NOT_FOUND",
+          "message": "Job not found: None"
+        }
+      }
+    },
+    {
+      "label": "poll-7",
+      "status": 404,
+      "data": {
+        "error": {
+          "code": "JOB_NOT_FOUND",
+          "message": "Job not found: None"
+        }
+      }
+    },
+    {
+      "label": "poll-8",
+      "status": 404,
+      "data": {
+        "error": {
+          "code": "JOB_NOT_FOUND",
+          "message": "Job not found: None"
+        }
+      }
+    },
+    {
+      "label": "poll-9",
+      "status": 404,
+      "data": {
+        "error": {
+          "code": "JOB_NOT_FOUND",
+          "message": "Job not found: None"
+        }
+      }
+    },
+    {
+      "label": "poll-10",
+      "status": 404,
+      "data": {
+        "error": {
+          "code": "JOB_NOT_FOUND",
+          "message": "Job not found: None"
+        }
+      }
+    },
+    {
+      "label": "poll-11",
+      "status": 404,
+      "data": {
+        "error": {
+          "code": "JOB_NOT_FOUND",
+          "message": "Job not found: None"
+        }
+      }
+    },
+    {
+      "label": "list",
+      "method": "GET",
+      "path": "/api/v1/jobs?all=1",
+      "status": 200,
+      "elapsed_ms": 7.0,
+      "at": 1793194508.9909194,
+      "body": {
+        "data": {
+          "jobs": [
+            {
+              "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+              "kind": "background",
+              "startedAt": 1793194465474,
+              "id": "3a75c1d8",
+              "state": "done",
+              "sessionId": "3a75c1d8-8e66-43fb-9dc4-f99c4841dbb5",
+              "initialSessionId": "3a75c1d8-8e66-43fb-9dc4-f99c4841dbb5",
+              "name": "echo probe > probe.txt",
+              "webUrl": null,
+              "alive": false,
+              "settled": true,
+              "tempo": "idle",
+              "detail": "command exited — output in logs",
+              "intent": "echo probe > probe.txt",
+              "updatedAt": 1793194481113,
+              "firstTerminalAt": 1793194479960
+            }
+          ]
+        }
+      },
+      "content_type": "application/json; charset=utf-8"
+    }
+  ],
+  "job_id": null
+}

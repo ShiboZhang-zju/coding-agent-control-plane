@@ -1,0 +1,25 @@
+{
+  "job_id": "b22635fb",
+  "pages": [
+    {
+      "http": 200,
+      "offset": 0,
+      "count": 1,
+      "updates": [
+        {
+          "sessionUpdate": "user_message_chunk",
+          "messageId": "01a182f8-0eaf-79a5-ba93-a8911b3d0e19",
+          "content": {
+            "type": "text",
+            "text": "请使用 Bash 工具执行这条命令，然后立刻结束任务，不要做其他改动：\ncmd /c echo approval-probe > approval_probe.txt"
+          },
+          "_meta": {
+            "codebuddy.ai/messageId": "01a182f8-0eaf-79a5-ba93-a8911b3d0e19",
+            "codebuddy.ai/conversationRequestId": "01a182f80eb979e280ecf08e49cba35f",
+            "timestamp": "2026-10-28T14:44:17.210Z"
+          }
+        }
+      ]
+    }
+  ]
+}

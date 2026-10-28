@@ -1,0 +1,26 @@
+{
+  "test": "T08c-exec-survival-precise",
+  "cmd": "ping -n 31 127.0.0.1 >nul & echo late > survival3.txt",
+  "target": "F:\\coding-agent-control-plane\\sandbox\\repo-a\\survival3.txt",
+  "job_id": "44c3480b",
+  "before_stop": {
+    "pid": 9796,
+    "pid_alive": true,
+    "artifact": false,
+    "t": 7.2
+  },
+  "stop": "{\"result\": \"stopped\", \"port\": 8787, \"pid\": 41076}",
+  "after_stop": {
+    "pid_alive": false,
+    "t": 11.2
+  },
+  "start": "{\"result\": \"started\", \"port\": 8787, \"pid\": 31684, \"launcher_pid\": 31684, \"bind\": \"127.0.0.1:8787\", \"auth\": \"password\"}",
+  "artifact_first_seen_s": null,
+  "job_after": {
+    "state": "working",
+    "settled": false,
+    "alive": false
+  },
+  "pid_alive_final": false,
+  "verdict": "execution stopped (artifact never appeared)"
+}

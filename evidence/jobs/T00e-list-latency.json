@@ -1,0 +1,70 @@
+{
+  "test": "T00e-list-latency",
+  "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+  "runs": [
+    {
+      "variant": "all=1",
+      "rep": 1,
+      "status": 200,
+      "seconds": 32.4,
+      "bytes": 8834
+    },
+    {
+      "variant": "all=1",
+      "rep": 2,
+      "status": 200,
+      "seconds": 30.37,
+      "bytes": 8834
+    },
+    {
+      "variant": "all=0",
+      "rep": 1,
+      "status": 200,
+      "seconds": 30.29,
+      "bytes": 2986
+    },
+    {
+      "variant": "all=0",
+      "rep": 2,
+      "error": "ConnectionResetError: [WinError 10054] 远程主机强迫关闭了一个现有的连接。",
+      "seconds": 11.98
+    },
+    {
+      "variant": "cwd",
+      "rep": 1,
+      "error": "URLError: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>",
+      "seconds": 2.02
+    },
+    {
+      "variant": "cwd",
+      "rep": 2,
+      "error": "URLError: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>",
+      "seconds": 2.04
+    },
+    {
+      "variant": "prefs",
+      "rep": 1,
+      "error": "URLError: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>",
+      "seconds": 2.05
+    },
+    {
+      "variant": "prefs",
+      "rep": 2,
+      "error": "URLError: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>",
+      "seconds": 2.05
+    },
+    {
+      "variant": "resumable",
+      "rep": 1,
+      "error": "URLError: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>",
+      "seconds": 2.05
+    },
+    {
+      "variant": "resumable",
+      "rep": 2,
+      "status": 200,
+      "seconds": 32.41,
+      "bytes": 60
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "test": "T06-cancel-stop",
+  "cancel": {
+    "job": {
+      "task_id": "cp-83085cc2dae1",
+      "worker_job_id": "e3efb144"
+    },
+    "state_before": {
+      "state": "running",
+      "pid": 28012
+    },
+    "stop_request_http": 200,
+    "state_after": "cancelled",
+    "verdict_after": "rejected",
+    "elapsed_s": 1.9,
+    "worker_state": "stopped",
+    "error": 200,
+    "artifact_absent": true,
+    "note": "a stopped job must never be accepted; the artifact assertion is what proves the side effect did not happen"
+  },
+  "resume": {
+    "session_id": "e3efb144-6945-4d04-a184-f72faa57685b",
+    "http": 500,
+    "body": {
+      "error": {
+        "code": "INTERNAL_ERROR",
+        "message": "Timed out acquiring job lock: C:\\Users\\Sebzhang\\.codebuddy\\jobs\\.locks\\e3efb144.state.lock.guard"
+      }
+    }
+  },
+  "respawn": {
+    "unsupported": "respawn rejected: HTTP 500 {'error': {'code': 'INTERNAL_ERROR', 'message': 'Timed out acquiring job lock: C:\\\\Users\\\\Sebzhang\\\\.codebuddy\\\\jobs\\\\.locks\\\\e3efb144.state.lock.guard'}}"
+  },
+  "resumable": {
+    "http": 200,
+    "body": {
+      "data": {
+        "candidates": [],
+        "hasMore": false,
+        "nextOffset": null
+      }
+    }
+  }
+}

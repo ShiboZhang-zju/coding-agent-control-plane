@@ -1,0 +1,24 @@
+{
+  "test": "T08b-post-restart-probe",
+  "probes": [
+    {
+      "path": "/api/v1/health",
+      "status": 200,
+      "seconds": 0.0,
+      "bytes": 101
+    },
+    {
+      "path": "/api/v1/jobs?all=1",
+      "status": 200,
+      "seconds": 31.8,
+      "bytes": 8834
+    },
+    {
+      "path": "/api/v1/jobs/43dc7110",
+      "status": 200,
+      "seconds": 0.0,
+      "bytes": 601
+    }
+  ],
+  "jobs_error": "TimeoutError: timed out"
+}

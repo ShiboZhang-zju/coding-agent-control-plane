@@ -1,0 +1,42 @@
+{
+  "test": "T00d-shell-semantics",
+  "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+  "cases": [
+    {
+      "case": "semicolon",
+      "cmd": "timeout /t 3 /nobreak >nul ; echo semi > semi.txt",
+      "dispatch_http": 500,
+      "job_id": "fb659716",
+      "state": "done",
+      "detail": "command exited — output in logs",
+      "observed_duration_s": 8.3
+    },
+    {
+      "case": "amp",
+      "cmd": "timeout /t 3 /nobreak >nul & echo amp1 > amp.txt & echo amp2 >> amp.txt",
+      "dispatch_http": 500,
+      "job_id": "b356fa24",
+      "state": "done",
+      "detail": "command exited — output in logs",
+      "observed_duration_s": 9.0
+    },
+    {
+      "case": "ampamp",
+      "cmd": "timeout /t 3 /nobreak >nul && echo ampamp > ampamp.txt",
+      "dispatch_http": 500,
+      "job_id": "c5bf5536",
+      "state": "done",
+      "detail": "command exited — output in logs",
+      "observed_duration_s": 8.9
+    },
+    {
+      "case": "execcode",
+      "cmd": "cmd /c exit 3",
+      "dispatch_http": 500,
+      "job_id": "58195fed",
+      "state": "done",
+      "detail": "command exited — output in logs",
+      "observed_duration_s": 10.0
+    }
+  ]
+}
