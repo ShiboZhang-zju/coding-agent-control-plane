@@ -188,11 +188,14 @@ python scripts/detached.py start t09f scripts/t09_permission_final.py
 python scripts/serve_ctl.py stop
 ```
 
-推送命令（在仓库根执行，需要 GitHub 凭据）：
+推送结果：
 
-```powershell
-git push -u origin poc/codebuddy-adapter
-```
+- `main`（初始提交 `be02d2e`）→ 已推送；
+- `poc/codebuddy-adapter`（`def2eed`）→ 已推送，upstream 已设置。
 
-Draft PR：本机没有 `gh` CLI，也没有可用的 GitHub token，因此**未**自动创建，改为给出链接：
+Draft PR：本机**没有 `gh` CLI**，也没有可用的 GitHub token（不使用生产凭据），因此
+**未**自动创建。请用下面的 compare 链接一键创建 Draft PR：
+
 `https://github.com/ShiboZhang-zju/coding-agent-control-plane/compare/main...poc/codebuddy-adapter?expand=1`
+
+状态：**Blocked（缺工具/凭据）**，不是测试失败。
