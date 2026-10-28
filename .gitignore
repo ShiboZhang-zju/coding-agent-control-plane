@@ -1,0 +1,29 @@
+# PoC sandbox repositories and runtime artifacts (never committed)
+sandbox/*
+!sandbox/.gitkeep
+!sandbox/README.md
+
+# Raw runtime logs / transcripts that may contain machine-specific paths or secrets
+evidence/**/raw/
+evidence/**/*.raw.log
+evidence/environment/serve-stdout.log
+evidence/environment/serve-stderr.log
+
+# Local credentials (never committed)
+.env
+.env.*
+*.pem
+*.key
+.poc-secrets.json
+
+# Python / Node
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
