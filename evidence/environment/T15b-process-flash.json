@@ -1,2208 +1,1359 @@
 {
   "test": "T15b-process-flash",
-  "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a-t11",
-  "window_s": 45.0,
+  "cwd": "<REPO>\\sandbox\\repo-a-t11",
+  "window_s": 40.0,
   "dispatch_http": 200,
-  "born_count": 242,
+  "born_count": 148,
   "by_exe": {
-    "git.exe": 61,
-    "conhost.exe": 74,
-    "node.exe": 31,
-    "powershell.exe": 9,
-    "reg.exe": 7,
-    "cmd.exe": 4,
-    "bash.exe": 40,
+    "conhost.exe": 44,
+    "node.exe": 19,
+    "win32-x64.exe": 10,
+    "git.exe": 9,
+    "powershell.exe": 7,
+    "reg.exe": 10,
+    "bash.exe": 38,
     "hostname.exe": 1,
     "which.exe": 1,
-    "win32-x64.exe": 1,
     "cut.exe": 1,
-    "grep.exe": 2,
-    "head.exe": 3,
-    "awk.exe": 1,
+    "grep.exe": 1,
     "longmemory.exe": 2,
-    "sed.exe": 1,
-    "git-upload-pack.exe": 2,
-    "sh.exe": 1
+    "head.exe": 2,
+    "awk.exe": 1,
+    "sed.exe": 2
   },
-  "short_lived_count": 217,
+  "short_lived_count": 134,
   "processes": [
     {
-      "pid": 47340,
-      "name": "git.exe",
-      "ppid": 46988,
-      "parent": "CodeBuddy CN.exe",
-      "first": 0.13,
-      "last": 0.65,
-      "lifetime_s": 0.52
-    },
-    {
-      "pid": 46220,
-      "name": "git.exe",
-      "ppid": 33336,
-      "parent": "git.exe",
-      "first": 0.26,
-      "last": 0.39,
-      "lifetime_s": 0.13
-    },
-    {
-      "pid": 9664,
+      "pid": 7932,
       "name": "conhost.exe",
-      "ppid": 47340,
-      "parent": "?",
-      "first": 0.26,
-      "last": 0.65,
-      "lifetime_s": 0.39
-    },
-    {
-      "pid": 48316,
-      "name": "git.exe",
-      "ppid": 48348,
-      "parent": "git.exe",
-      "first": 0.26,
-      "last": 30.62,
-      "lifetime_s": 30.36
-    },
-    {
-      "pid": 46028,
-      "name": "git.exe",
-      "ppid": 47340,
-      "parent": "?",
-      "first": 0.52,
-      "last": 0.52,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 8312,
-      "name": "git.exe",
-      "ppid": 46988,
-      "parent": "CodeBuddy CN.exe",
-      "first": 0.78,
-      "last": 1.04,
-      "lifetime_s": 0.26
-    },
-    {
-      "pid": 40860,
-      "name": "node.exe",
-      "ppid": 14608,
+      "ppid": 44636,
       "parent": "node.exe",
-      "first": 0.78,
-      "last": 1.04,
-      "lifetime_s": 0.26
-    },
-    {
-      "pid": 16496,
-      "name": "conhost.exe",
-      "ppid": 8312,
-      "parent": "?",
-      "first": 0.78,
-      "last": 1.04,
-      "lifetime_s": 0.26
-    },
-    {
-      "pid": 21484,
-      "name": "conhost.exe",
-      "ppid": 40860,
-      "parent": "?",
-      "first": 0.92,
-      "last": 1.04,
+      "first": 0.14,
+      "last": 0.26,
       "lifetime_s": 0.12
     },
     {
-      "pid": 47004,
-      "name": "git.exe",
-      "ppid": 8312,
-      "parent": "?",
-      "first": 1.04,
-      "last": 1.04,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 48652,
-      "name": "git.exe",
-      "ppid": 46988,
-      "parent": "CodeBuddy CN.exe",
-      "first": 1.22,
-      "last": 33.22,
-      "lifetime_s": 32.0
-    },
-    {
-      "pid": 44056,
-      "name": "powershell.exe",
-      "ppid": 17324,
-      "parent": "node.exe",
-      "first": 1.22,
-      "last": 4.1,
-      "lifetime_s": 2.88
-    },
-    {
-      "pid": 7536,
-      "name": "conhost.exe",
-      "ppid": 48652,
-      "parent": "?",
-      "first": 1.22,
-      "last": 1.62,
-      "lifetime_s": 0.4
-    },
-    {
-      "pid": 14140,
+      "pid": 8884,
       "name": "node.exe",
-      "ppid": 17324,
+      "ppid": 1296,
+      "parent": "bash.exe",
+      "first": 0.14,
+      "last": 1.12,
+      "lifetime_s": 0.98
+    },
+    {
+      "pid": 48020,
+      "name": "win32-x64.exe",
+      "ppid": 16956,
       "parent": "node.exe",
-      "first": 1.36,
-      "last": 45.02,
-      "lifetime_s": 43.66
-    },
-    {
-      "pid": 48728,
-      "name": "conhost.exe",
-      "ppid": 44056,
-      "parent": "?",
-      "first": 1.36,
-      "last": 4.24,
-      "lifetime_s": 2.88
-    },
-    {
-      "pid": 21296,
-      "name": "git.exe",
-      "ppid": 48652,
-      "parent": "?",
-      "first": 1.49,
-      "last": 1.49,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 30224,
-      "name": "git.exe",
-      "ppid": 46988,
-      "parent": "CodeBuddy CN.exe",
-      "first": 1.75,
-      "last": 2.13,
-      "lifetime_s": 0.38
-    },
-    {
-      "pid": 19504,
-      "name": "conhost.exe",
-      "ppid": 30224,
-      "parent": "?",
-      "first": 1.88,
-      "last": 2.13,
-      "lifetime_s": 0.25
-    },
-    {
-      "pid": 48492,
-      "name": "reg.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 2.0,
-      "last": 2.67,
-      "lifetime_s": 0.67
-    },
-    {
-      "pid": 47096,
-      "name": "git.exe",
-      "ppid": 30224,
-      "parent": "?",
-      "first": 2.0,
-      "last": 2.0,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 11816,
-      "name": "conhost.exe",
-      "ppid": 48492,
-      "parent": "?",
-      "first": 2.13,
-      "last": 2.67,
-      "lifetime_s": 0.54
-    },
-    {
-      "pid": 12668,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 2.13,
-      "last": 3.46,
-      "lifetime_s": 1.33
-    },
-    {
-      "pid": 47148,
-      "name": "conhost.exe",
-      "ppid": 12668,
-      "parent": "?",
-      "first": 3.1,
-      "last": 3.46,
+      "first": 0.39,
+      "last": 0.75,
       "lifetime_s": 0.36
     },
     {
-      "pid": 8440,
-      "name": "powershell.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 3.1,
-      "last": 4.37,
-      "lifetime_s": 1.27
-    },
-    {
-      "pid": 32800,
-      "name": "conhost.exe",
-      "ppid": 8440,
-      "parent": "?",
-      "first": 3.22,
-      "last": 4.37,
-      "lifetime_s": 1.15
-    },
-    {
-      "pid": 10588,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 3.59,
-      "last": 4.1,
-      "lifetime_s": 0.51
-    },
-    {
-      "pid": 11968,
-      "name": "conhost.exe",
-      "ppid": 10588,
-      "parent": "?",
-      "first": 3.72,
-      "last": 4.1,
-      "lifetime_s": 0.38
-    },
-    {
-      "pid": 47620,
-      "name": "cmd.exe",
-      "ppid": 14140,
-      "parent": "?",
-      "first": 4.5,
-      "last": 5.2,
-      "lifetime_s": 0.7
-    },
-    {
-      "pid": 40372,
+      "pid": 18492,
       "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 4.5,
-      "last": 5.2,
-      "lifetime_s": 0.7
-    },
-    {
-      "pid": 20832,
-      "name": "bash.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 4.68,
-      "last": 11.54,
-      "lifetime_s": 6.86
-    },
-    {
-      "pid": 34828,
-      "name": "conhost.exe",
-      "ppid": 40372,
-      "parent": "?",
-      "first": 4.82,
-      "last": 5.35,
-      "lifetime_s": 0.53
-    },
-    {
-      "pid": 47384,
-      "name": "conhost.exe",
-      "ppid": 47620,
-      "parent": "?",
-      "first": 4.82,
-      "last": 5.2,
-      "lifetime_s": 0.38
-    },
-    {
-      "pid": 28072,
-      "name": "conhost.exe",
-      "ppid": 20832,
-      "parent": "?",
-      "first": 4.82,
-      "last": 30.62,
-      "lifetime_s": 25.8
-    },
-    {
-      "pid": 2448,
-      "name": "reg.exe",
-      "ppid": 47620,
-      "parent": "?",
-      "first": 5.08,
-      "last": 5.2,
+      "ppid": 21404,
+      "parent": "CodeBuddy CN.exe",
+      "first": 0.75,
+      "last": 0.87,
       "lifetime_s": 0.12
     },
     {
-      "pid": 44472,
+      "pid": 12768,
       "name": "git.exe",
-      "ppid": 40372,
+      "ppid": 21404,
+      "parent": "CodeBuddy CN.exe",
+      "first": 0.75,
+      "last": 0.99,
+      "lifetime_s": 0.24
+    },
+    {
+      "pid": 18040,
+      "name": "conhost.exe",
+      "ppid": 18492,
       "parent": "?",
-      "first": 5.08,
-      "last": 5.2,
+      "first": 0.75,
+      "last": 0.87,
       "lifetime_s": 0.12
     },
     {
-      "pid": 29708,
-      "name": "bash.exe",
-      "ppid": 20832,
-      "parent": "?",
-      "first": 5.08,
-      "last": 11.4,
-      "lifetime_s": 6.32
-    },
-    {
-      "pid": 27676,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 5.5,
-      "last": 5.5,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 17000,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 5.63,
-      "last": 5.63,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 19296,
-      "name": "hostname.exe",
-      "ppid": 17000,
-      "parent": "?",
-      "first": 5.63,
-      "last": 5.76,
-      "lifetime_s": 0.13
-    },
-    {
-      "pid": 1484,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 5.91,
-      "last": 6.17,
-      "lifetime_s": 0.26
-    },
-    {
-      "pid": 46448,
-      "name": "reg.exe",
-      "ppid": 17324,
-      "parent": "node.exe",
-      "first": 6.05,
-      "last": 6.43,
-      "lifetime_s": 0.38
-    },
-    {
-      "pid": 17620,
-      "name": "which.exe",
-      "ppid": 1484,
-      "parent": "?",
-      "first": 6.17,
-      "last": 6.17,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 37968,
+      "pid": 48460,
       "name": "conhost.exe",
-      "ppid": 46448,
+      "ppid": 12768,
       "parent": "?",
-      "first": 6.17,
-      "last": 6.43,
-      "lifetime_s": 0.26
+      "first": 0.75,
+      "last": 0.99,
+      "lifetime_s": 0.24
     },
     {
-      "pid": 44416,
+      "pid": 39972,
       "name": "node.exe",
-      "ppid": 14608,
+      "ppid": 16956,
       "parent": "node.exe",
-      "first": 6.3,
-      "last": 6.95,
-      "lifetime_s": 0.65
+      "first": 0.87,
+      "last": 0.99,
+      "lifetime_s": 0.12
     },
     {
-      "pid": 10996,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 6.3,
-      "last": 22.61,
-      "lifetime_s": 16.31
-    },
-    {
-      "pid": 12912,
+      "pid": 47912,
       "name": "conhost.exe",
-      "ppid": 44416,
+      "ppid": 39972,
       "parent": "?",
-      "first": 6.43,
-      "last": 6.95,
-      "lifetime_s": 0.52
+      "first": 0.87,
+      "last": 0.99,
+      "lifetime_s": 0.12
     },
     {
-      "pid": 30820,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 6.43,
-      "last": 36.61,
-      "lifetime_s": 30.18
-    },
-    {
-      "pid": 30352,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 6.69,
-      "last": 6.82,
-      "lifetime_s": 0.13
-    },
-    {
-      "pid": 47016,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 6.95,
-      "last": 6.95,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 6324,
-      "name": "win32-x64.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 7.07,
-      "last": 8.29,
-      "lifetime_s": 1.22
-    },
-    {
-      "pid": 45756,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 7.2,
-      "last": 7.2,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 14360,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 7.33,
-      "last": 7.33,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 18528,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 7.46,
-      "last": 7.46,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 33972,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 7.61,
-      "last": 8.02,
-      "lifetime_s": 0.41
-    },
-    {
-      "pid": 12664,
-      "name": "bash.exe",
-      "ppid": 33972,
-      "parent": "?",
-      "first": 7.74,
-      "last": 8.02,
-      "lifetime_s": 0.28
-    },
-    {
-      "pid": 46600,
+      "pid": 41408,
       "name": "git.exe",
-      "ppid": 12664,
+      "ppid": 18492,
       "parent": "?",
-      "first": 7.88,
-      "last": 8.02,
-      "lifetime_s": 0.14
-    },
-    {
-      "pid": 45584,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 8.15,
-      "last": 8.15,
+      "first": 0.87,
+      "last": 0.87,
       "lifetime_s": 0.0
     },
     {
-      "pid": 36632,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 8.29,
-      "last": 8.42,
-      "lifetime_s": 0.13
+      "pid": 1572,
+      "name": "git.exe",
+      "ppid": 21404,
+      "parent": "CodeBuddy CN.exe",
+      "first": 1.12,
+      "last": 1.12,
+      "lifetime_s": 0.0
     },
     {
-      "pid": 8220,
-      "name": "reg.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 8.42,
-      "last": 8.69,
-      "lifetime_s": 0.27
+      "pid": 46496,
+      "name": "git.exe",
+      "ppid": 21404,
+      "parent": "CodeBuddy CN.exe",
+      "first": 1.12,
+      "last": 1.12,
+      "lifetime_s": 0.0
     },
     {
       "pid": 41444,
+      "name": "conhost.exe",
+      "ppid": 1572,
+      "parent": "?",
+      "first": 1.12,
+      "last": 1.12,
+      "lifetime_s": 0.0
+    },
+    {
+      "pid": 46888,
+      "name": "conhost.exe",
+      "ppid": 46496,
+      "parent": "?",
+      "first": 1.12,
+      "last": 1.12,
+      "lifetime_s": 0.0
+    },
+    {
+      "pid": 44420,
+      "name": "git.exe",
+      "ppid": 1572,
+      "parent": "?",
+      "first": 1.12,
+      "last": 1.12,
+      "lifetime_s": 0.0
+    },
+    {
+      "pid": 48556,
+      "name": "win32-x64.exe",
+      "ppid": 16956,
+      "parent": "node.exe",
+      "first": 1.12,
+      "last": 1.12,
+      "lifetime_s": 0.0
+    },
+    {
+      "pid": 42380,
+      "name": "node.exe",
+      "ppid": 16956,
+      "parent": "node.exe",
+      "first": 23.07,
+      "last": 23.59,
+      "lifetime_s": 0.52
+    },
+    {
+      "pid": 20832,
       "name": "node.exe",
       "ppid": 14608,
       "parent": "node.exe",
-      "first": 8.42,
-      "last": 8.81,
-      "lifetime_s": 0.39
+      "first": 23.21,
+      "last": 39.72,
+      "lifetime_s": 16.51
     },
     {
-      "pid": 48912,
+      "pid": 47680,
       "name": "conhost.exe",
-      "ppid": 41444,
+      "ppid": 20832,
       "parent": "?",
-      "first": 8.56,
-      "last": 8.81,
-      "lifetime_s": 0.25
+      "first": 23.35,
+      "last": 23.59,
+      "lifetime_s": 0.24
     },
     {
-      "pid": 29124,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 8.56,
-      "last": 8.56,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 40440,
+      "pid": 34764,
       "name": "conhost.exe",
-      "ppid": 8220,
+      "ppid": 42380,
       "parent": "?",
-      "first": 8.56,
-      "last": 38.52,
-      "lifetime_s": 29.96
+      "first": 23.35,
+      "last": 23.59,
+      "lifetime_s": 0.24
     },
     {
-      "pid": 48740,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 8.69,
-      "last": 8.69,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 41340,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 8.81,
-      "last": 8.81,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 43540,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 8.93,
-      "last": 9.07,
-      "lifetime_s": 0.14
-    },
-    {
-      "pid": 9004,
-      "name": "cut.exe",
-      "ppid": 43540,
-      "parent": "?",
-      "first": 9.07,
-      "last": 39.32,
-      "lifetime_s": 30.25
-    },
-    {
-      "pid": 11136,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 9.07,
-      "last": 9.19,
-      "lifetime_s": 0.12
-    },
-    {
-      "pid": 22212,
-      "name": "grep.exe",
-      "ppid": 11136,
-      "parent": "?",
-      "first": 9.19,
-      "last": 9.19,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 48224,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 9.19,
-      "last": 27.49,
-      "lifetime_s": 18.3
-    },
-    {
-      "pid": 2948,
-      "name": "bash.exe",
-      "ppid": 24072,
+      "pid": 8456,
+      "name": "win32-x64.exe",
+      "ppid": 16956,
       "parent": "node.exe",
-      "first": 9.32,
-      "last": 12.69,
-      "lifetime_s": 3.37
-    },
-    {
-      "pid": 42464,
-      "name": "conhost.exe",
-      "ppid": 2948,
-      "parent": "?",
-      "first": 9.44,
-      "last": 32.01,
-      "lifetime_s": 22.57
-    },
-    {
-      "pid": 16248,
-      "name": "bash.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 9.44,
-      "last": 11.96,
-      "lifetime_s": 2.52
-    },
-    {
-      "pid": 35884,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 9.44,
-      "last": 9.69,
-      "lifetime_s": 0.25
-    },
-    {
-      "pid": 23496,
-      "name": "bash.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 9.56,
-      "last": 10.55,
-      "lifetime_s": 0.99
-    },
-    {
-      "pid": 11824,
-      "name": "conhost.exe",
-      "ppid": 16248,
-      "parent": "?",
-      "first": 9.56,
-      "last": 12.13,
-      "lifetime_s": 2.57
-    },
-    {
-      "pid": 45128,
-      "name": "conhost.exe",
-      "ppid": 23496,
-      "parent": "?",
-      "first": 9.56,
-      "last": 10.68,
-      "lifetime_s": 1.12
-    },
-    {
-      "pid": 5296,
-      "name": "bash.exe",
-      "ppid": 2948,
-      "parent": "?",
-      "first": 9.69,
-      "last": 12.56,
-      "lifetime_s": 2.87
-    },
-    {
-      "pid": 16036,
-      "name": "head.exe",
-      "ppid": 35884,
-      "parent": "?",
-      "first": 9.69,
-      "last": 32.97,
-      "lifetime_s": 23.28
-    },
-    {
-      "pid": 1868,
-      "name": "bash.exe",
-      "ppid": 16248,
-      "parent": "?",
-      "first": 9.85,
-      "last": 11.96,
-      "lifetime_s": 2.11
-    },
-    {
-      "pid": 2556,
-      "name": "bash.exe",
-      "ppid": 23496,
-      "parent": "?",
-      "first": 9.85,
-      "last": 10.55,
-      "lifetime_s": 0.7
-    },
-    {
-      "pid": 46524,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 9.85,
-      "last": 9.99,
-      "lifetime_s": 0.14
-    },
-    {
-      "pid": 18176,
-      "name": "awk.exe",
-      "ppid": 46524,
-      "parent": "?",
-      "first": 9.99,
-      "last": 10.14,
-      "lifetime_s": 0.15
-    },
-    {
-      "pid": 48072,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 9.99,
-      "last": 28.51,
-      "lifetime_s": 18.52
-    },
-    {
-      "pid": 30656,
-      "name": "node.exe",
-      "ppid": 2556,
-      "parent": "?",
-      "first": 9.99,
-      "last": 10.55,
-      "lifetime_s": 0.56
-    },
-    {
-      "pid": 23248,
-      "name": "head.exe",
-      "ppid": 48072,
-      "parent": "?",
-      "first": 10.14,
-      "last": 10.28,
-      "lifetime_s": 0.14
-    },
-    {
-      "pid": 49100,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 10.42,
-      "last": 10.55,
-      "lifetime_s": 0.13
-    },
-    {
-      "pid": 31056,
-      "name": "longmemory.exe",
-      "ppid": 5296,
-      "parent": "?",
-      "first": 10.55,
-      "last": 12.56,
-      "lifetime_s": 2.01
-    },
-    {
-      "pid": 42816,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 10.55,
-      "last": 10.81,
-      "lifetime_s": 0.26
-    },
-    {
-      "pid": 12072,
-      "name": "longmemory.exe",
-      "ppid": 1868,
-      "parent": "?",
-      "first": 10.68,
-      "last": 11.83,
-      "lifetime_s": 1.15
-    },
-    {
-      "pid": 48376,
-      "name": "grep.exe",
-      "ppid": 42816,
-      "parent": "?",
-      "first": 10.81,
-      "last": 10.81,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 35744,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 10.81,
-      "last": 10.81,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 46296,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 10.93,
-      "last": 41.59,
-      "lifetime_s": 30.66
-    },
-    {
-      "pid": 14908,
-      "name": "sed.exe",
-      "ppid": 46296,
-      "parent": "?",
-      "first": 11.11,
-      "last": 11.11,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 32488,
-      "name": "bash.exe",
-      "ppid": 29708,
-      "parent": "?",
-      "first": 11.11,
-      "last": 30.08,
-      "lifetime_s": 18.97
-    },
-    {
-      "pid": 10948,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 11.11,
-      "last": 11.96,
-      "lifetime_s": 0.85
-    },
-    {
-      "pid": 31596,
-      "name": "head.exe",
-      "ppid": 32488,
-      "parent": "?",
-      "first": 11.26,
-      "last": 11.4,
-      "lifetime_s": 0.14
-    },
-    {
-      "pid": 42692,
-      "name": "conhost.exe",
-      "ppid": 10948,
-      "parent": "?",
-      "first": 11.26,
-      "last": 44.38,
-      "lifetime_s": 33.12
-    },
-    {
-      "pid": 31396,
-      "name": "bash.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 11.69,
-      "last": 12.56,
-      "lifetime_s": 0.87
-    },
-    {
-      "pid": 48936,
-      "name": "conhost.exe",
-      "ppid": 31396,
-      "parent": "?",
-      "first": 11.83,
-      "last": 12.56,
-      "lifetime_s": 0.73
-    },
-    {
-      "pid": 31448,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 12.27,
-      "last": 12.82,
-      "lifetime_s": 0.55
-    },
-    {
-      "pid": 19400,
-      "name": "bash.exe",
-      "ppid": 31396,
-      "parent": "?",
-      "first": 12.27,
-      "last": 12.56,
-      "lifetime_s": 0.29
-    },
-    {
-      "pid": 41128,
-      "name": "conhost.exe",
-      "ppid": 31448,
-      "parent": "?",
-      "first": 12.4,
-      "last": 12.82,
-      "lifetime_s": 0.42
-    },
-    {
-      "pid": 45300,
-      "name": "cmd.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 12.82,
-      "last": 13.61,
+      "first": 23.73,
+      "last": 24.52,
       "lifetime_s": 0.79
     },
     {
-      "pid": 48004,
-      "name": "conhost.exe",
-      "ppid": 45300,
-      "parent": "?",
-      "first": 12.97,
-      "last": 13.61,
-      "lifetime_s": 0.64
-    },
-    {
-      "pid": 44296,
-      "name": "git.exe",
-      "ppid": 45300,
-      "parent": "?",
-      "first": 13.27,
-      "last": 13.41,
-      "lifetime_s": 0.14
-    },
-    {
-      "pid": 8680,
-      "name": "git.exe",
-      "ppid": 44296,
-      "parent": "?",
-      "first": 13.41,
-      "last": 13.41,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 860,
-      "name": "powershell.exe",
-      "ppid": 17324,
-      "parent": "node.exe",
-      "first": 13.41,
-      "last": 15.34,
-      "lifetime_s": 1.93
-    },
-    {
-      "pid": 47696,
-      "name": "conhost.exe",
-      "ppid": 860,
-      "parent": "?",
-      "first": 13.61,
-      "last": 15.34,
-      "lifetime_s": 1.73
-    },
-    {
-      "pid": 45844,
-      "name": "powershell.exe",
-      "ppid": 17324,
-      "parent": "node.exe",
-      "first": 13.75,
-      "last": 15.96,
-      "lifetime_s": 2.21
-    },
-    {
-      "pid": 48908,
-      "name": "conhost.exe",
-      "ppid": 45844,
-      "parent": "?",
-      "first": 13.88,
-      "last": 15.96,
-      "lifetime_s": 2.08
-    },
-    {
-      "pid": 49032,
+      "pid": 11880,
       "name": "node.exe",
       "ppid": 14608,
       "parent": "node.exe",
-      "first": 14.14,
-      "last": 14.65,
-      "lifetime_s": 0.51
+      "first": 23.86,
+      "last": 24.25,
+      "lifetime_s": 0.39
     },
     {
-      "pid": 34800,
-      "name": "conhost.exe",
-      "ppid": 49032,
-      "parent": "?",
-      "first": 14.27,
-      "last": 14.65,
-      "lifetime_s": 0.38
-    },
-    {
-      "pid": 48744,
-      "name": "node.exe",
-      "ppid": 14608,
+      "pid": 48172,
+      "name": "powershell.exe",
+      "ppid": 46312,
       "parent": "node.exe",
-      "first": 15.2,
-      "last": 34.37,
-      "lifetime_s": 19.17
+      "first": 23.98,
+      "last": 25.85,
+      "lifetime_s": 1.87
     },
     {
-      "pid": 46800,
+      "pid": 13276,
       "name": "conhost.exe",
-      "ppid": 48744,
+      "ppid": 11880,
       "parent": "?",
-      "first": 15.34,
-      "last": 15.7,
-      "lifetime_s": 0.36
+      "first": 23.98,
+      "last": 24.25,
+      "lifetime_s": 0.27
+    },
+    {
+      "pid": 8064,
+      "name": "conhost.exe",
+      "ppid": 48172,
+      "parent": "?",
+      "first": 24.11,
+      "last": 25.85,
+      "lifetime_s": 1.74
+    },
+    {
+      "pid": 40372,
+      "name": "powershell.exe",
+      "ppid": 16956,
+      "parent": "node.exe",
+      "first": 24.87,
+      "last": 26.92,
+      "lifetime_s": 2.05
     },
     {
       "pid": 37172,
       "name": "node.exe",
-      "ppid": 14608,
+      "ppid": 16956,
       "parent": "node.exe",
-      "first": 16.89,
-      "last": 17.01,
-      "lifetime_s": 0.12
+      "first": 25.0,
+      "last": 25.72,
+      "lifetime_s": 0.72
     },
     {
-      "pid": 14472,
+      "pid": 40292,
       "name": "conhost.exe",
       "ppid": 37172,
       "parent": "?",
-      "first": 16.89,
-      "last": 17.01,
-      "lifetime_s": 0.12
-    },
-    {
-      "pid": 32660,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 18.01,
-      "last": 18.26,
-      "lifetime_s": 0.25
-    },
-    {
-      "pid": 28484,
-      "name": "conhost.exe",
-      "ppid": 32660,
-      "parent": "?",
-      "first": 18.01,
-      "last": 18.26,
-      "lifetime_s": 0.25
-    },
-    {
-      "pid": 7312,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 19.15,
-      "last": 19.52,
-      "lifetime_s": 0.37
-    },
-    {
-      "pid": 19868,
-      "name": "conhost.exe",
-      "ppid": 7312,
-      "parent": "?",
-      "first": 19.27,
-      "last": 19.39,
-      "lifetime_s": 0.12
-    },
-    {
-      "pid": 11084,
-      "name": "cmd.exe",
-      "ppid": 17324,
-      "parent": "node.exe",
-      "first": 19.39,
-      "last": 45.02,
-      "lifetime_s": 25.63
-    },
-    {
-      "pid": 44372,
-      "name": "conhost.exe",
-      "ppid": 11084,
-      "parent": "?",
-      "first": 19.39,
-      "last": 45.02,
-      "lifetime_s": 25.63
-    },
-    {
-      "pid": 24904,
-      "name": "cmd.exe",
-      "ppid": 11084,
-      "parent": "?",
-      "first": 19.65,
-      "last": 20.01,
-      "lifetime_s": 0.36
-    },
-    {
-      "pid": 7784,
-      "name": "node.exe",
-      "ppid": 24904,
-      "parent": "?",
-      "first": 19.65,
-      "last": 20.01,
-      "lifetime_s": 0.36
-    },
-    {
-      "pid": 3712,
-      "name": "node.exe",
-      "ppid": 11084,
-      "parent": "?",
-      "first": 20.13,
-      "last": 45.02,
-      "lifetime_s": 24.89
-    },
-    {
-      "pid": 48372,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 20.38,
-      "last": 20.63,
-      "lifetime_s": 0.25
-    },
-    {
-      "pid": 47544,
-      "name": "conhost.exe",
-      "ppid": 48372,
-      "parent": "?",
-      "first": 20.51,
-      "last": 20.63,
-      "lifetime_s": 0.12
-    },
-    {
-      "pid": 46748,
-      "name": "conhost.exe",
-      "ppid": 10996,
-      "parent": "?",
-      "first": 20.87,
-      "last": 22.61,
-      "lifetime_s": 1.74
-    },
-    {
-      "pid": 32276,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 21.64,
-      "last": 22.16,
-      "lifetime_s": 0.52
-    },
-    {
-      "pid": 8044,
-      "name": "conhost.exe",
-      "ppid": 32276,
-      "parent": "?",
-      "first": 21.76,
-      "last": 22.16,
-      "lifetime_s": 0.4
-    },
-    {
-      "pid": 41168,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 24.32,
-      "last": 24.7,
-      "lifetime_s": 0.38
-    },
-    {
-      "pid": 29500,
-      "name": "powershell.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 24.32,
-      "last": 39.19,
-      "lifetime_s": 14.87
-    },
-    {
-      "pid": 12216,
-      "name": "conhost.exe",
-      "ppid": 41168,
-      "parent": "?",
-      "first": 24.45,
-      "last": 24.7,
-      "lifetime_s": 0.25
-    },
-    {
-      "pid": 48060,
-      "name": "conhost.exe",
-      "ppid": 29500,
-      "parent": "?",
-      "first": 24.45,
-      "last": 26.32,
-      "lifetime_s": 1.87
-    },
-    {
-      "pid": 47916,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 24.84,
-      "last": 25.36,
-      "lifetime_s": 0.52
-    },
-    {
-      "pid": 46204,
-      "name": "conhost.exe",
-      "ppid": 47916,
-      "parent": "?",
-      "first": 24.97,
-      "last": 25.23,
-      "lifetime_s": 0.26
-    },
-    {
-      "pid": 41240,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 26.98,
-      "last": 27.49,
-      "lifetime_s": 0.51
-    },
-    {
-      "pid": 44312,
-      "name": "conhost.exe",
-      "ppid": 41240,
-      "parent": "?",
-      "first": 27.11,
-      "last": 27.49,
-      "lifetime_s": 0.38
-    },
-    {
-      "pid": 48832,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 27.49,
-      "last": 27.87,
-      "lifetime_s": 0.38
-    },
-    {
-      "pid": 29408,
-      "name": "conhost.exe",
-      "ppid": 48832,
-      "parent": "?",
-      "first": 27.49,
-      "last": 27.87,
-      "lifetime_s": 0.38
-    },
-    {
-      "pid": 10856,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 27.61,
-      "last": 40.44,
-      "lifetime_s": 12.83
-    },
-    {
-      "pid": 44972,
-      "name": "conhost.exe",
-      "ppid": 10856,
-      "parent": "?",
-      "first": 27.61,
-      "last": 28.01,
-      "lifetime_s": 0.4
-    },
-    {
-      "pid": 10120,
-      "name": "git.exe",
-      "ppid": 10856,
-      "parent": "?",
-      "first": 27.87,
-      "last": 28.01,
-      "lifetime_s": 0.14
-    },
-    {
-      "pid": 48340,
-      "name": "conhost.exe",
-      "ppid": 48072,
-      "parent": "?",
-      "first": 28.13,
-      "last": 28.38,
-      "lifetime_s": 0.25
-    },
-    {
-      "pid": 48168,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 28.13,
-      "last": 28.65,
-      "lifetime_s": 0.52
-    },
-    {
-      "pid": 47292,
-      "name": "conhost.exe",
-      "ppid": 48168,
-      "parent": "?",
-      "first": 28.26,
-      "last": 28.65,
-      "lifetime_s": 0.39
-    },
-    {
-      "pid": 7652,
-      "name": "git.exe",
-      "ppid": 48168,
-      "parent": "?",
-      "first": 28.51,
-      "last": 28.51,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 34892,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 28.79,
-      "last": 29.03,
-      "lifetime_s": 0.24
-    },
-    {
-      "pid": 35932,
-      "name": "conhost.exe",
-      "ppid": 34892,
-      "parent": "?",
-      "first": 28.79,
-      "last": 29.03,
-      "lifetime_s": 0.24
-    },
-    {
-      "pid": 44928,
-      "name": "git.exe",
-      "ppid": 34892,
-      "parent": "?",
-      "first": 29.03,
-      "last": 29.03,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 47816,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 29.15,
-      "last": 29.56,
-      "lifetime_s": 0.41
-    },
-    {
-      "pid": 18912,
-      "name": "conhost.exe",
-      "ppid": 47816,
-      "parent": "?",
-      "first": 29.3,
-      "last": 29.7,
-      "lifetime_s": 0.4
-    },
-    {
-      "pid": 45020,
-      "name": "git.exe",
-      "ppid": 47816,
-      "parent": "?",
-      "first": 29.56,
-      "last": 29.56,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 26028,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 29.83,
-      "last": 30.08,
-      "lifetime_s": 0.25
-    },
-    {
-      "pid": 48584,
-      "name": "git.exe",
-      "ppid": 26028,
-      "parent": "?",
-      "first": 30.08,
-      "last": 30.08,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 32080,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 30.21,
-      "last": 30.62,
-      "lifetime_s": 0.41
-    },
-    {
-      "pid": 7340,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 30.62,
-      "last": 31.11,
-      "lifetime_s": 0.49
-    },
-    {
-      "pid": 37020,
-      "name": "conhost.exe",
-      "ppid": 7340,
-      "parent": "?",
-      "first": 30.74,
-      "last": 31.11,
-      "lifetime_s": 0.37
-    },
-    {
-      "pid": 42184,
-      "name": "conhost.exe",
-      "ppid": 33336,
-      "parent": "git.exe",
-      "first": 30.87,
-      "last": 31.11,
-      "lifetime_s": 0.24
-    },
-    {
-      "pid": 11792,
-      "name": "git.exe",
-      "ppid": 33336,
-      "parent": "git.exe",
-      "first": 31.11,
-      "last": 44.38,
-      "lifetime_s": 13.27
-    },
-    {
-      "pid": 48116,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 31.23,
-      "last": 32.01,
-      "lifetime_s": 0.78
-    },
-    {
-      "pid": 31232,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 31.23,
-      "last": 31.73,
-      "lifetime_s": 0.5
-    },
-    {
-      "pid": 37388,
-      "name": "conhost.exe",
-      "ppid": 48116,
-      "parent": "?",
-      "first": 31.35,
-      "last": 32.01,
-      "lifetime_s": 0.66
-    },
-    {
-      "pid": 22376,
-      "name": "conhost.exe",
-      "ppid": 31232,
-      "parent": "?",
-      "first": 31.35,
-      "last": 31.73,
-      "lifetime_s": 0.38
-    },
-    {
-      "pid": 43396,
-      "name": "git.exe",
-      "ppid": 48116,
-      "parent": "?",
-      "first": 31.48,
-      "last": 32.01,
+      "first": 25.19,
+      "last": 25.72,
       "lifetime_s": 0.53
     },
     {
-      "pid": 47972,
-      "name": "git-upload-pack.exe",
-      "ppid": 42464,
-      "parent": "?",
-      "first": 31.88,
-      "last": 31.88,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 9568,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 32.14,
-      "last": 32.51,
-      "lifetime_s": 0.37
-    },
-    {
-      "pid": 46624,
+      "pid": 7376,
       "name": "conhost.exe",
-      "ppid": 9568,
+      "ppid": 40372,
       "parent": "?",
-      "first": 32.27,
-      "last": 32.51,
-      "lifetime_s": 0.24
-    },
-    {
-      "pid": 32920,
-      "name": "reg.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 32.51,
-      "last": 32.82,
-      "lifetime_s": 0.31
-    },
-    {
-      "pid": 40592,
-      "name": "git.exe",
-      "ppid": 9568,
-      "parent": "?",
-      "first": 32.51,
-      "last": 32.51,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 48876,
-      "name": "conhost.exe",
-      "ppid": 32920,
-      "parent": "?",
-      "first": 32.51,
-      "last": 32.97,
-      "lifetime_s": 0.46
-    },
-    {
-      "pid": 18148,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 32.67,
-      "last": 33.22,
-      "lifetime_s": 0.55
-    },
-    {
-      "pid": 33732,
-      "name": "git.exe",
-      "ppid": 18148,
-      "parent": "?",
-      "first": 33.09,
-      "last": 33.22,
-      "lifetime_s": 0.13
-    },
-    {
-      "pid": 43960,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 33.34,
-      "last": 33.73,
-      "lifetime_s": 0.39
-    },
-    {
-      "pid": 9712,
-      "name": "conhost.exe",
-      "ppid": 43960,
-      "parent": "?",
-      "first": 33.34,
-      "last": 33.73,
-      "lifetime_s": 0.39
-    },
-    {
-      "pid": 43452,
-      "name": "powershell.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 33.46,
-      "last": 34.92,
-      "lifetime_s": 1.46
-    },
-    {
-      "pid": 8088,
-      "name": "reg.exe",
-      "ppid": 17324,
-      "parent": "node.exe",
-      "first": 33.46,
-      "last": 33.86,
-      "lifetime_s": 0.4
-    },
-    {
-      "pid": 47776,
-      "name": "conhost.exe",
-      "ppid": 43452,
-      "parent": "?",
-      "first": 33.6,
-      "last": 34.92,
-      "lifetime_s": 1.32
-    },
-    {
-      "pid": 8432,
-      "name": "conhost.exe",
-      "ppid": 8088,
-      "parent": "?",
-      "first": 33.6,
-      "last": 33.86,
-      "lifetime_s": 0.26
-    },
-    {
-      "pid": 48780,
-      "name": "git.exe",
-      "ppid": 43960,
-      "parent": "?",
-      "first": 33.6,
-      "last": 33.6,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 38208,
-      "name": "powershell.exe",
-      "ppid": 17324,
-      "parent": "node.exe",
-      "first": 33.86,
-      "last": 35.44,
-      "lifetime_s": 1.58
-    },
-    {
-      "pid": 37180,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 33.86,
-      "last": 34.5,
-      "lifetime_s": 0.64
-    },
-    {
-      "pid": 35704,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 33.86,
-      "last": 34.5,
-      "lifetime_s": 0.64
-    },
-    {
-      "pid": 48384,
-      "name": "conhost.exe",
-      "ppid": 38208,
-      "parent": "?",
-      "first": 33.99,
-      "last": 35.44,
-      "lifetime_s": 1.45
-    },
-    {
-      "pid": 48844,
-      "name": "conhost.exe",
-      "ppid": 37180,
-      "parent": "?",
-      "first": 33.99,
-      "last": 34.5,
-      "lifetime_s": 0.51
-    },
-    {
-      "pid": 30840,
-      "name": "git.exe",
-      "ppid": 37180,
-      "parent": "?",
-      "first": 34.24,
-      "last": 34.37,
-      "lifetime_s": 0.13
-    },
-    {
-      "pid": 48488,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 34.62,
-      "last": 35.18,
-      "lifetime_s": 0.56
-    },
-    {
-      "pid": 48548,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 34.62,
-      "last": 35.18,
-      "lifetime_s": 0.56
-    },
-    {
-      "pid": 44456,
-      "name": "conhost.exe",
-      "ppid": 48488,
-      "parent": "?",
-      "first": 34.75,
-      "last": 35.18,
-      "lifetime_s": 0.43
-    },
-    {
-      "pid": 22236,
-      "name": "conhost.exe",
-      "ppid": 48548,
-      "parent": "?",
-      "first": 34.75,
-      "last": 35.18,
-      "lifetime_s": 0.43
-    },
-    {
-      "pid": 47824,
-      "name": "git.exe",
-      "ppid": 48488,
-      "parent": "?",
-      "first": 35.05,
-      "last": 35.05,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 21952,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 35.31,
-      "last": 35.95,
-      "lifetime_s": 0.64
-    },
-    {
-      "pid": 9384,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 35.31,
-      "last": 36.22,
-      "lifetime_s": 0.91
-    },
-    {
-      "pid": 48796,
-      "name": "conhost.exe",
-      "ppid": 21952,
-      "parent": "?",
-      "first": 35.44,
-      "last": 35.95,
-      "lifetime_s": 0.51
-    },
-    {
-      "pid": 47348,
-      "name": "conhost.exe",
-      "ppid": 9384,
-      "parent": "?",
-      "first": 35.44,
-      "last": 36.22,
-      "lifetime_s": 0.78
-    },
-    {
-      "pid": 41724,
-      "name": "git.exe",
-      "ppid": 21952,
-      "parent": "?",
-      "first": 35.56,
-      "last": 35.95,
-      "lifetime_s": 0.39
-    },
-    {
-      "pid": 47820,
-      "name": "sh.exe",
-      "ppid": 41724,
-      "parent": "?",
-      "first": 35.7,
-      "last": 35.95,
-      "lifetime_s": 0.25
-    },
-    {
-      "pid": 13868,
-      "name": "powershell.exe",
-      "ppid": 17324,
-      "parent": "node.exe",
-      "first": 35.83,
-      "last": 37.47,
-      "lifetime_s": 1.64
-    },
-    {
-      "pid": 48552,
-      "name": "git-upload-pack.exe",
-      "ppid": 47820,
-      "parent": "?",
-      "first": 35.83,
-      "last": 35.95,
-      "lifetime_s": 0.12
-    },
-    {
-      "pid": 32232,
-      "name": "conhost.exe",
-      "ppid": 13868,
-      "parent": "?",
-      "first": 35.95,
-      "last": 37.61,
-      "lifetime_s": 1.66
-    },
-    {
-      "pid": 49140,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 36.08,
-      "last": 36.61,
-      "lifetime_s": 0.53
-    },
-    {
-      "pid": 42460,
-      "name": "git.exe",
-      "ppid": 49140,
-      "parent": "?",
-      "first": 36.48,
-      "last": 36.48,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 28332,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 36.74,
-      "last": 37.79,
-      "lifetime_s": 1.05
-    },
-    {
-      "pid": 2244,
-      "name": "conhost.exe",
-      "ppid": 28332,
-      "parent": "?",
-      "first": 36.91,
-      "last": 37.79,
-      "lifetime_s": 0.88
-    },
-    {
-      "pid": 28200,
-      "name": "git.exe",
-      "ppid": 28332,
-      "parent": "?",
-      "first": 37.05,
-      "last": 37.79,
-      "lifetime_s": 0.74
-    },
-    {
-      "pid": 18040,
-      "name": "git.exe",
-      "ppid": 28200,
-      "parent": "?",
-      "first": 37.35,
-      "last": 37.35,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 45684,
-      "name": "reg.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 37.35,
-      "last": 37.61,
-      "lifetime_s": 0.26
-    },
-    {
-      "pid": 30400,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 37.47,
-      "last": 37.92,
-      "lifetime_s": 0.45
-    },
-    {
-      "pid": 30040,
-      "name": "conhost.exe",
-      "ppid": 45684,
-      "parent": "?",
-      "first": 37.47,
-      "last": 37.79,
-      "lifetime_s": 0.32
-    },
-    {
-      "pid": 22808,
-      "name": "conhost.exe",
-      "ppid": 30400,
-      "parent": "?",
-      "first": 37.47,
-      "last": 37.92,
-      "lifetime_s": 0.45
-    },
-    {
-      "pid": 44192,
-      "name": "git.exe",
-      "ppid": 28200,
-      "parent": "?",
-      "first": 37.47,
-      "last": 37.61,
-      "lifetime_s": 0.14
-    },
-    {
-      "pid": 49148,
-      "name": "git.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 37.92,
-      "last": 38.52,
-      "lifetime_s": 0.6
-    },
-    {
-      "pid": 43548,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 38.11,
-      "last": 38.52,
-      "lifetime_s": 0.41
-    },
-    {
-      "pid": 43456,
-      "name": "conhost.exe",
-      "ppid": 49148,
-      "parent": "?",
-      "first": 38.11,
-      "last": 38.52,
-      "lifetime_s": 0.41
-    },
-    {
-      "pid": 32888,
-      "name": "git.exe",
-      "ppid": 49148,
-      "parent": "?",
-      "first": 38.37,
-      "last": 38.52,
-      "lifetime_s": 0.15
-    },
-    {
-      "pid": 13340,
-      "name": "git.exe",
-      "ppid": 21404,
-      "parent": "CodeBuddy CN.exe",
-      "first": 38.94,
-      "last": 39.46,
-      "lifetime_s": 0.52
-    },
-    {
-      "pid": 24988,
-      "name": "git.exe",
-      "ppid": 29500,
-      "parent": "?",
-      "first": 39.07,
-      "last": 39.19,
-      "lifetime_s": 0.12
-    },
-    {
-      "pid": 37244,
-      "name": "git.exe",
-      "ppid": 21404,
-      "parent": "CodeBuddy CN.exe",
-      "first": 39.07,
-      "last": 39.59,
-      "lifetime_s": 0.52
-    },
-    {
-      "pid": 13772,
-      "name": "conhost.exe",
-      "ppid": 13340,
-      "parent": "?",
-      "first": 39.07,
-      "last": 39.46,
-      "lifetime_s": 0.39
-    },
-    {
-      "pid": 7736,
-      "name": "conhost.exe",
-      "ppid": 37244,
-      "parent": "?",
-      "first": 39.19,
-      "last": 39.59,
-      "lifetime_s": 0.4
-    },
-    {
-      "pid": 31440,
-      "name": "git.exe",
-      "ppid": 13340,
-      "parent": "?",
-      "first": 39.32,
-      "last": 39.46,
-      "lifetime_s": 0.14
+      "first": 25.19,
+      "last": 26.92,
+      "lifetime_s": 1.73
     },
     {
       "pid": 38856,
-      "name": "git.exe",
-      "ppid": 24072,
+      "name": "reg.exe",
+      "ppid": 48160,
       "parent": "node.exe",
-      "first": 39.32,
-      "last": 39.99,
-      "lifetime_s": 0.67
+      "first": 25.72,
+      "last": 26.26,
+      "lifetime_s": 0.54
     },
     {
-      "pid": 43972,
+      "pid": 17664,
+      "name": "win32-x64.exe",
+      "ppid": 16956,
+      "parent": "node.exe",
+      "first": 25.85,
+      "last": 27.05,
+      "lifetime_s": 1.2
+    },
+    {
+      "pid": 37812,
       "name": "conhost.exe",
       "ppid": 38856,
       "parent": "?",
-      "first": 39.46,
-      "last": 39.99,
-      "lifetime_s": 0.53
-    },
-    {
-      "pid": 25620,
-      "name": "git.exe",
-      "ppid": 37244,
-      "parent": "?",
-      "first": 39.46,
-      "last": 39.59,
-      "lifetime_s": 0.13
-    },
-    {
-      "pid": 45060,
-      "name": "git.exe",
-      "ppid": 38856,
-      "parent": "?",
-      "first": 39.71,
-      "last": 39.99,
+      "first": 25.98,
+      "last": 26.26,
       "lifetime_s": 0.28
     },
     {
-      "pid": 47760,
-      "name": "git.exe",
-      "ppid": 21404,
-      "parent": "CodeBuddy CN.exe",
-      "first": 39.71,
-      "last": 40.44,
-      "lifetime_s": 0.73
-    },
-    {
-      "pid": 38620,
-      "name": "git.exe",
-      "ppid": 21404,
-      "parent": "CodeBuddy CN.exe",
-      "first": 39.86,
-      "last": 40.71,
-      "lifetime_s": 0.85
-    },
-    {
-      "pid": 44216,
-      "name": "conhost.exe",
-      "ppid": 38620,
-      "parent": "?",
-      "first": 40.13,
-      "last": 40.71,
-      "lifetime_s": 0.58
-    },
-    {
-      "pid": 47216,
-      "name": "git.exe",
-      "ppid": 47760,
-      "parent": "?",
-      "first": 40.27,
-      "last": 40.44,
-      "lifetime_s": 0.17
-    },
-    {
-      "pid": 44672,
-      "name": "git.exe",
-      "ppid": 38620,
-      "parent": "?",
-      "first": 40.57,
-      "last": 40.57,
-      "lifetime_s": 0.0
-    },
-    {
-      "pid": 46360,
-      "name": "bash.exe",
-      "ppid": 24072,
-      "parent": "node.exe",
-      "first": 40.71,
-      "last": 42.46,
-      "lifetime_s": 1.75
-    },
-    {
-      "pid": 42340,
-      "name": "conhost.exe",
-      "ppid": 46360,
-      "parent": "?",
-      "first": 40.71,
-      "last": 42.46,
-      "lifetime_s": 1.75
-    },
-    {
-      "pid": 43716,
+      "pid": 45584,
       "name": "node.exe",
       "ppid": 14608,
       "parent": "node.exe",
-      "first": 40.84,
-      "last": 41.21,
-      "lifetime_s": 0.37
+      "first": 26.39,
+      "last": 26.92,
+      "lifetime_s": 0.53
     },
     {
-      "pid": 15876,
+      "pid": 47208,
       "name": "conhost.exe",
-      "ppid": 43716,
+      "ppid": 45584,
       "parent": "?",
-      "first": 40.97,
-      "last": 41.09,
-      "lifetime_s": 0.12
-    },
-    {
-      "pid": 44168,
-      "name": "bash.exe",
-      "ppid": 46360,
-      "parent": "?",
-      "first": 40.97,
-      "last": 42.46,
-      "lifetime_s": 1.49
-    },
-    {
-      "pid": 6880,
-      "name": "node.exe",
-      "ppid": 44168,
-      "parent": "?",
-      "first": 41.33,
-      "last": 42.46,
-      "lifetime_s": 1.13
-    },
-    {
-      "pid": 31584,
-      "name": "conhost.exe",
-      "ppid": 46296,
-      "parent": "?",
-      "first": 41.33,
-      "last": 41.59,
-      "lifetime_s": 0.26
-    },
-    {
-      "pid": 21992,
-      "name": "powershell.exe",
-      "ppid": 5324,
-      "parent": "node.exe",
-      "first": 42.33,
-      "last": 44.13,
-      "lifetime_s": 1.8
-    },
-    {
-      "pid": 47892,
-      "name": "conhost.exe",
-      "ppid": 21992,
-      "parent": "?",
-      "first": 42.46,
-      "last": 44.13,
-      "lifetime_s": 1.67
-    },
-    {
-      "pid": 11408,
-      "name": "node.exe",
-      "ppid": 14608,
-      "parent": "node.exe",
-      "first": 44.5,
-      "last": 44.89,
+      "first": 26.53,
+      "last": 26.92,
       "lifetime_s": 0.39
     },
     {
-      "pid": 30544,
+      "pid": 46064,
+      "name": "git.exe",
+      "ppid": 48160,
+      "parent": "node.exe",
+      "first": 26.92,
+      "last": 29.05,
+      "lifetime_s": 2.13
+    },
+    {
+      "pid": 32468,
       "name": "conhost.exe",
-      "ppid": 11408,
+      "ppid": 46064,
       "parent": "?",
-      "first": 44.63,
-      "last": 44.89,
+      "first": 26.92,
+      "last": 29.05,
+      "lifetime_s": 2.13
+    },
+    {
+      "pid": 47136,
+      "name": "node.exe",
+      "ppid": 14608,
+      "parent": "node.exe",
+      "first": 27.05,
+      "last": 28.01,
+      "lifetime_s": 0.96
+    },
+    {
+      "pid": 9900,
+      "name": "bash.exe",
+      "ppid": 48160,
+      "parent": "node.exe",
+      "first": 27.18,
+      "last": 37.08,
+      "lifetime_s": 9.9
+    },
+    {
+      "pid": 28036,
+      "name": "conhost.exe",
+      "ppid": 47136,
+      "parent": "?",
+      "first": 27.18,
+      "last": 28.01,
+      "lifetime_s": 0.83
+    },
+    {
+      "pid": 15624,
+      "name": "node.exe",
+      "ppid": 16956,
+      "parent": "node.exe",
+      "first": 27.18,
+      "last": 28.46,
+      "lifetime_s": 1.28
+    },
+    {
+      "pid": 7296,
+      "name": "conhost.exe",
+      "ppid": 9900,
+      "parent": "?",
+      "first": 27.32,
+      "last": 40.03,
+      "lifetime_s": 12.71
+    },
+    {
+      "pid": 28236,
+      "name": "conhost.exe",
+      "ppid": 15624,
+      "parent": "?",
+      "first": 27.46,
+      "last": 28.63,
+      "lifetime_s": 1.17
+    },
+    {
+      "pid": 13456,
+      "name": "bash.exe",
+      "ppid": 9900,
+      "parent": "?",
+      "first": 28.02,
+      "last": 40.03,
+      "lifetime_s": 12.01
+    },
+    {
+      "pid": 31024,
+      "name": "git.exe",
+      "ppid": 46064,
+      "parent": "?",
+      "first": 28.31,
+      "last": 28.92,
+      "lifetime_s": 0.61
+    },
+    {
+      "pid": 9764,
+      "name": "win32-x64.exe",
+      "ppid": 16956,
+      "parent": "node.exe",
+      "first": 28.79,
+      "last": 29.75,
+      "lifetime_s": 0.96
+    },
+    {
+      "pid": 9956,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 29.34,
+      "last": 29.34,
+      "lifetime_s": 0.0
+    },
+    {
+      "pid": 47408,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 29.46,
+      "last": 30.41,
+      "lifetime_s": 0.95
+    },
+    {
+      "pid": 41616,
+      "name": "hostname.exe",
+      "ppid": 47408,
+      "parent": "?",
+      "first": 29.61,
+      "last": 30.54,
+      "lifetime_s": 0.93
+    },
+    {
+      "pid": 37388,
+      "name": "node.exe",
+      "ppid": 14608,
+      "parent": "node.exe",
+      "first": 29.94,
+      "last": 30.96,
+      "lifetime_s": 1.02
+    },
+    {
+      "pid": 46696,
+      "name": "powershell.exe",
+      "ppid": 48160,
+      "parent": "node.exe",
+      "first": 30.13,
+      "last": 31.83,
+      "lifetime_s": 1.7
+    },
+    {
+      "pid": 44120,
+      "name": "node.exe",
+      "ppid": 16956,
+      "parent": "node.exe",
+      "first": 30.13,
+      "last": 30.82,
+      "lifetime_s": 0.69
+    },
+    {
+      "pid": 27036,
+      "name": "conhost.exe",
+      "ppid": 37388,
+      "parent": "?",
+      "first": 30.13,
+      "last": 31.09,
+      "lifetime_s": 0.96
+    },
+    {
+      "pid": 46816,
+      "name": "powershell.exe",
+      "ppid": 46312,
+      "parent": "node.exe",
+      "first": 30.13,
+      "last": 32.73,
+      "lifetime_s": 2.6
+    },
+    {
+      "pid": 12968,
+      "name": "conhost.exe",
+      "ppid": 44120,
+      "parent": "?",
+      "first": 30.27,
+      "last": 30.96,
+      "lifetime_s": 0.69
+    },
+    {
+      "pid": 25900,
+      "name": "conhost.exe",
+      "ppid": 46816,
+      "parent": "?",
+      "first": 30.41,
+      "last": 32.73,
+      "lifetime_s": 2.32
+    },
+    {
+      "pid": 47756,
+      "name": "conhost.exe",
+      "ppid": 46696,
+      "parent": "?",
+      "first": 30.41,
+      "last": 31.99,
+      "lifetime_s": 1.58
+    },
+    {
+      "pid": 14180,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 30.67,
+      "last": 31.09,
+      "lifetime_s": 0.42
+    },
+    {
+      "pid": 31944,
+      "name": "reg.exe",
+      "ppid": 26320,
+      "parent": "CodeBuddy CN.exe",
+      "first": 30.82,
+      "last": 31.09,
+      "lifetime_s": 0.27
+    },
+    {
+      "pid": 46108,
+      "name": "reg.exe",
+      "ppid": 26320,
+      "parent": "CodeBuddy CN.exe",
+      "first": 30.82,
+      "last": 31.27,
+      "lifetime_s": 0.45
+    },
+    {
+      "pid": 47020,
+      "name": "conhost.exe",
+      "ppid": 31944,
+      "parent": "?",
+      "first": 30.96,
+      "last": 31.09,
+      "lifetime_s": 0.13
+    },
+    {
+      "pid": 41496,
+      "name": "conhost.exe",
+      "ppid": 46108,
+      "parent": "?",
+      "first": 30.96,
+      "last": 31.27,
+      "lifetime_s": 0.31
+    },
+    {
+      "pid": 45264,
+      "name": "which.exe",
+      "ppid": 14180,
+      "parent": "?",
+      "first": 30.96,
+      "last": 31.09,
+      "lifetime_s": 0.13
+    },
+    {
+      "pid": 48728,
+      "name": "win32-x64.exe",
+      "ppid": 16956,
+      "parent": "node.exe",
+      "first": 31.09,
+      "last": 32.58,
+      "lifetime_s": 1.49
+    },
+    {
+      "pid": 33280,
+      "name": "win32-x64.exe",
+      "ppid": 14608,
+      "parent": "node.exe",
+      "first": 31.09,
+      "last": 32.88,
+      "lifetime_s": 1.79
+    },
+    {
+      "pid": 7360,
+      "name": "reg.exe",
+      "ppid": 26320,
+      "parent": "CodeBuddy CN.exe",
+      "first": 31.27,
+      "last": 31.53,
       "lifetime_s": 0.26
+    },
+    {
+      "pid": 38440,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 31.27,
+      "last": 31.27,
+      "lifetime_s": 0.0
+    },
+    {
+      "pid": 40448,
+      "name": "conhost.exe",
+      "ppid": 7360,
+      "parent": "?",
+      "first": 31.39,
+      "last": 31.53,
+      "lifetime_s": 0.14
+    },
+    {
+      "pid": 30656,
+      "name": "reg.exe",
+      "ppid": 26320,
+      "parent": "CodeBuddy CN.exe",
+      "first": 31.39,
+      "last": 31.69,
+      "lifetime_s": 0.3
+    },
+    {
+      "pid": 33256,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 31.39,
+      "last": 31.39,
+      "lifetime_s": 0.0
+    },
+    {
+      "pid": 47288,
+      "name": "conhost.exe",
+      "ppid": 30656,
+      "parent": "?",
+      "first": 31.53,
+      "last": 31.83,
+      "lifetime_s": 0.3
+    },
+    {
+      "pid": 1276,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 31.53,
+      "last": 31.69,
+      "lifetime_s": 0.16
+    },
+    {
+      "pid": 48340,
+      "name": "reg.exe",
+      "ppid": 26320,
+      "parent": "CodeBuddy CN.exe",
+      "first": 31.69,
+      "last": 32.88,
+      "lifetime_s": 1.19
+    },
+    {
+      "pid": 7228,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 31.83,
+      "last": 32.13,
+      "lifetime_s": 0.3
+    },
+    {
+      "pid": 47580,
+      "name": "conhost.exe",
+      "ppid": 48340,
+      "parent": "?",
+      "first": 31.99,
+      "last": 32.88,
+      "lifetime_s": 0.89
+    },
+    {
+      "pid": 8080,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 32.27,
+      "last": 32.42,
+      "lifetime_s": 0.15
+    },
+    {
+      "pid": 42404,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 32.58,
+      "last": 32.73,
+      "lifetime_s": 0.15
+    },
+    {
+      "pid": 47928,
+      "name": "node.exe",
+      "ppid": 16956,
+      "parent": "node.exe",
+      "first": 32.73,
+      "last": 33.79,
+      "lifetime_s": 1.06
+    },
+    {
+      "pid": 33196,
+      "name": "powershell.exe",
+      "ppid": 46312,
+      "parent": "node.exe",
+      "first": 32.88,
+      "last": 35.85,
+      "lifetime_s": 2.97
+    },
+    {
+      "pid": 25644,
+      "name": "conhost.exe",
+      "ppid": 47928,
+      "parent": "?",
+      "first": 32.88,
+      "last": 33.79,
+      "lifetime_s": 0.91
+    },
+    {
+      "pid": 47624,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 32.88,
+      "last": 33.18,
+      "lifetime_s": 0.3
+    },
+    {
+      "pid": 18496,
+      "name": "reg.exe",
+      "ppid": 26320,
+      "parent": "CodeBuddy CN.exe",
+      "first": 33.01,
+      "last": 33.79,
+      "lifetime_s": 0.78
+    },
+    {
+      "pid": 44412,
+      "name": "node.exe",
+      "ppid": 14608,
+      "parent": "node.exe",
+      "first": 33.18,
+      "last": 33.64,
+      "lifetime_s": 0.46
+    },
+    {
+      "pid": 48416,
+      "name": "conhost.exe",
+      "ppid": 18496,
+      "parent": "?",
+      "first": 33.18,
+      "last": 33.79,
+      "lifetime_s": 0.61
+    },
+    {
+      "pid": 43296,
+      "name": "conhost.exe",
+      "ppid": 33196,
+      "parent": "?",
+      "first": 33.18,
+      "last": 35.85,
+      "lifetime_s": 2.67
+    },
+    {
+      "pid": 12416,
+      "name": "conhost.exe",
+      "ppid": 44412,
+      "parent": "?",
+      "first": 33.33,
+      "last": 33.79,
+      "lifetime_s": 0.46
+    },
+    {
+      "pid": 28924,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 33.33,
+      "last": 34.21,
+      "lifetime_s": 0.88
+    },
+    {
+      "pid": 42396,
+      "name": "bash.exe",
+      "ppid": 28924,
+      "parent": "?",
+      "first": 33.64,
+      "last": 34.21,
+      "lifetime_s": 0.57
+    },
+    {
+      "pid": 23396,
+      "name": "node.exe",
+      "ppid": 14608,
+      "parent": "node.exe",
+      "first": 33.94,
+      "last": 34.62,
+      "lifetime_s": 0.68
+    },
+    {
+      "pid": 18140,
+      "name": "conhost.exe",
+      "ppid": 23396,
+      "parent": "?",
+      "first": 33.94,
+      "last": 34.62,
+      "lifetime_s": 0.68
+    },
+    {
+      "pid": 17288,
+      "name": "reg.exe",
+      "ppid": 26320,
+      "parent": "CodeBuddy CN.exe",
+      "first": 33.94,
+      "last": 34.49,
+      "lifetime_s": 0.55
+    },
+    {
+      "pid": 7964,
+      "name": "win32-x64.exe",
+      "ppid": 16956,
+      "parent": "node.exe",
+      "first": 33.94,
+      "last": 34.75,
+      "lifetime_s": 0.81
+    },
+    {
+      "pid": 45684,
+      "name": "git.exe",
+      "ppid": 42396,
+      "parent": "?",
+      "first": 33.94,
+      "last": 34.21,
+      "lifetime_s": 0.27
+    },
+    {
+      "pid": 13096,
+      "name": "conhost.exe",
+      "ppid": 17288,
+      "parent": "?",
+      "first": 34.21,
+      "last": 34.49,
+      "lifetime_s": 0.28
+    },
+    {
+      "pid": 18044,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 34.34,
+      "last": 34.49,
+      "lifetime_s": 0.15
+    },
+    {
+      "pid": 47748,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 34.62,
+      "last": 34.62,
+      "lifetime_s": 0.0
+    },
+    {
+      "pid": 15444,
+      "name": "reg.exe",
+      "ppid": 26320,
+      "parent": "CodeBuddy CN.exe",
+      "first": 34.62,
+      "last": 34.88,
+      "lifetime_s": 0.26
+    },
+    {
+      "pid": 29976,
+      "name": "conhost.exe",
+      "ppid": 15444,
+      "parent": "?",
+      "first": 34.75,
+      "last": 34.88,
+      "lifetime_s": 0.13
+    },
+    {
+      "pid": 48584,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 34.75,
+      "last": 35.0,
+      "lifetime_s": 0.25
+    },
+    {
+      "pid": 48856,
+      "name": "node.exe",
+      "ppid": 16956,
+      "parent": "node.exe",
+      "first": 35.0,
+      "last": 35.43,
+      "lifetime_s": 0.43
+    },
+    {
+      "pid": 44116,
+      "name": "conhost.exe",
+      "ppid": 48856,
+      "parent": "?",
+      "first": 35.12,
+      "last": 35.43,
+      "lifetime_s": 0.31
+    },
+    {
+      "pid": 43076,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 35.12,
+      "last": 35.12,
+      "lifetime_s": 0.0
+    },
+    {
+      "pid": 47612,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 35.29,
+      "last": 35.43,
+      "lifetime_s": 0.14
+    },
+    {
+      "pid": 44112,
+      "name": "bash.exe",
+      "ppid": 48160,
+      "parent": "node.exe",
+      "first": 35.43,
+      "last": 40.03,
+      "lifetime_s": 4.6
+    },
+    {
+      "pid": 27420,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 35.57,
+      "last": 36.0,
+      "lifetime_s": 0.43
+    },
+    {
+      "pid": 48420,
+      "name": "win32-x64.exe",
+      "ppid": 16956,
+      "parent": "node.exe",
+      "first": 35.57,
+      "last": 37.08,
+      "lifetime_s": 1.51
+    },
+    {
+      "pid": 38692,
+      "name": "bash.exe",
+      "ppid": 48160,
+      "parent": "node.exe",
+      "first": 35.69,
+      "last": 40.03,
+      "lifetime_s": 4.34
+    },
+    {
+      "pid": 32872,
+      "name": "bash.exe",
+      "ppid": 48160,
+      "parent": "node.exe",
+      "first": 35.69,
+      "last": 37.52,
+      "lifetime_s": 1.83
+    },
+    {
+      "pid": 43152,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 35.69,
+      "last": 36.55,
+      "lifetime_s": 0.86
+    },
+    {
+      "pid": 48568,
+      "name": "conhost.exe",
+      "ppid": 44112,
+      "parent": "?",
+      "first": 35.69,
+      "last": 40.03,
+      "lifetime_s": 4.34
+    },
+    {
+      "pid": 48980,
+      "name": "conhost.exe",
+      "ppid": 38692,
+      "parent": "?",
+      "first": 35.85,
+      "last": 40.03,
+      "lifetime_s": 4.18
+    },
+    {
+      "pid": 10904,
+      "name": "reg.exe",
+      "ppid": 48160,
+      "parent": "node.exe",
+      "first": 35.85,
+      "last": 36.68,
+      "lifetime_s": 0.83
+    },
+    {
+      "pid": 864,
+      "name": "cut.exe",
+      "ppid": 27420,
+      "parent": "?",
+      "first": 35.85,
+      "last": 36.0,
+      "lifetime_s": 0.15
+    },
+    {
+      "pid": 33344,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 36.0,
+      "last": 36.55,
+      "lifetime_s": 0.55
+    },
+    {
+      "pid": 8376,
+      "name": "conhost.exe",
+      "ppid": 32872,
+      "parent": "?",
+      "first": 36.0,
+      "last": 37.52,
+      "lifetime_s": 1.52
+    },
+    {
+      "pid": 15168,
+      "name": "powershell.exe",
+      "ppid": 46312,
+      "parent": "node.exe",
+      "first": 36.0,
+      "last": 39.87,
+      "lifetime_s": 3.87
+    },
+    {
+      "pid": 19280,
+      "name": "conhost.exe",
+      "ppid": 10904,
+      "parent": "?",
+      "first": 36.17,
+      "last": 36.68,
+      "lifetime_s": 0.51
+    },
+    {
+      "pid": 15700,
+      "name": "grep.exe",
+      "ppid": 43152,
+      "parent": "?",
+      "first": 36.17,
+      "last": 36.42,
+      "lifetime_s": 0.25
+    },
+    {
+      "pid": 35564,
+      "name": "bash.exe",
+      "ppid": 44112,
+      "parent": "?",
+      "first": 36.3,
+      "last": 40.03,
+      "lifetime_s": 3.73
+    },
+    {
+      "pid": 48944,
+      "name": "bash.exe",
+      "ppid": 38692,
+      "parent": "?",
+      "first": 36.3,
+      "last": 40.03,
+      "lifetime_s": 3.73
+    },
+    {
+      "pid": 44672,
+      "name": "conhost.exe",
+      "ppid": 15168,
+      "parent": "?",
+      "first": 36.3,
+      "last": 39.87,
+      "lifetime_s": 3.57
+    },
+    {
+      "pid": 17960,
+      "name": "bash.exe",
+      "ppid": 32872,
+      "parent": "?",
+      "first": 36.42,
+      "last": 37.52,
+      "lifetime_s": 1.1
+    },
+    {
+      "pid": 27044,
+      "name": "longmemory.exe",
+      "ppid": 35564,
+      "parent": "?",
+      "first": 36.68,
+      "last": 40.03,
+      "lifetime_s": 3.35
+    },
+    {
+      "pid": 40976,
+      "name": "node.exe",
+      "ppid": 14608,
+      "parent": "node.exe",
+      "first": 36.68,
+      "last": 37.37,
+      "lifetime_s": 0.69
+    },
+    {
+      "pid": 40044,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 36.68,
+      "last": 36.81,
+      "lifetime_s": 0.13
+    },
+    {
+      "pid": 49080,
+      "name": "node.exe",
+      "ppid": 17960,
+      "parent": "?",
+      "first": 36.68,
+      "last": 37.37,
+      "lifetime_s": 0.69
+    },
+    {
+      "pid": 47116,
+      "name": "longmemory.exe",
+      "ppid": 48944,
+      "parent": "?",
+      "first": 36.81,
+      "last": 40.03,
+      "lifetime_s": 3.22
+    },
+    {
+      "pid": 48644,
+      "name": "conhost.exe",
+      "ppid": 40976,
+      "parent": "?",
+      "first": 36.81,
+      "last": 37.21,
+      "lifetime_s": 0.4
+    },
+    {
+      "pid": 18036,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 36.95,
+      "last": 37.37,
+      "lifetime_s": 0.42
+    },
+    {
+      "pid": 38592,
+      "name": "node.exe",
+      "ppid": 16956,
+      "parent": "node.exe",
+      "first": 37.37,
+      "last": 38.27,
+      "lifetime_s": 0.9
+    },
+    {
+      "pid": 20460,
+      "name": "head.exe",
+      "ppid": 18036,
+      "parent": "?",
+      "first": 37.37,
+      "last": 37.37,
+      "lifetime_s": 0.0
+    },
+    {
+      "pid": 40536,
+      "name": "conhost.exe",
+      "ppid": 38592,
+      "parent": "?",
+      "first": 37.52,
+      "last": 38.43,
+      "lifetime_s": 0.91
+    },
+    {
+      "pid": 29176,
+      "name": "node.exe",
+      "ppid": 14608,
+      "parent": "node.exe",
+      "first": 37.52,
+      "last": 38.43,
+      "lifetime_s": 0.91
+    },
+    {
+      "pid": 45188,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 37.52,
+      "last": 37.64,
+      "lifetime_s": 0.12
+    },
+    {
+      "pid": 6944,
+      "name": "conhost.exe",
+      "ppid": 29176,
+      "parent": "?",
+      "first": 37.64,
+      "last": 38.58,
+      "lifetime_s": 0.94
+    },
+    {
+      "pid": 49036,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 37.64,
+      "last": 38.43,
+      "lifetime_s": 0.79
+    },
+    {
+      "pid": 1556,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 37.91,
+      "last": 38.27,
+      "lifetime_s": 0.36
+    },
+    {
+      "pid": 46356,
+      "name": "awk.exe",
+      "ppid": 49036,
+      "parent": "?",
+      "first": 37.91,
+      "last": 38.43,
+      "lifetime_s": 0.52
+    },
+    {
+      "pid": 23320,
+      "name": "head.exe",
+      "ppid": 1556,
+      "parent": "?",
+      "first": 37.91,
+      "last": 38.43,
+      "lifetime_s": 0.52
+    },
+    {
+      "pid": 32976,
+      "name": "win32-x64.exe",
+      "ppid": 16956,
+      "parent": "node.exe",
+      "first": 38.43,
+      "last": 39.87,
+      "lifetime_s": 1.44
+    },
+    {
+      "pid": 40068,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 38.58,
+      "last": 38.58,
+      "lifetime_s": 0.0
+    },
+    {
+      "pid": 47428,
+      "name": "powershell.exe",
+      "ppid": 14608,
+      "parent": "node.exe",
+      "first": 38.58,
+      "last": 40.03,
+      "lifetime_s": 1.45
+    },
+    {
+      "pid": 14688,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 38.79,
+      "last": 39.72,
+      "lifetime_s": 0.93
+    },
+    {
+      "pid": 44832,
+      "name": "conhost.exe",
+      "ppid": 47428,
+      "parent": "?",
+      "first": 38.79,
+      "last": 40.03,
+      "lifetime_s": 1.24
+    },
+    {
+      "pid": 3488,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 38.96,
+      "last": 39.87,
+      "lifetime_s": 0.91
+    },
+    {
+      "pid": 14700,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 39.3,
+      "last": 40.03,
+      "lifetime_s": 0.73
+    },
+    {
+      "pid": 1752,
+      "name": "sed.exe",
+      "ppid": 3488,
+      "parent": "?",
+      "first": 39.87,
+      "last": 39.87,
+      "lifetime_s": 0.0
+    },
+    {
+      "pid": 19428,
+      "name": "sed.exe",
+      "ppid": 14700,
+      "parent": "?",
+      "first": 39.87,
+      "last": 40.03,
+      "lifetime_s": 0.16
+    },
+    {
+      "pid": 48916,
+      "name": "bash.exe",
+      "ppid": 13456,
+      "parent": "?",
+      "first": 39.87,
+      "last": 40.03,
+      "lifetime_s": 0.16
     }
   ]
 }

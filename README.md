@@ -40,6 +40,10 @@ docs/                        PoC 规范、测试计划、Adapter 契约
 python scripts/serve_ctl.py start        # 自动生成/读取本地密码，不落盘到证据
 python scripts/serve_ctl.py status
 
+# 1b) 不希望 worker 的控制台窗口闪屏时，用隐藏桌面启动（窗口数实测 0）
+$env:POC_HIDDEN_ACTION="start"; python scripts/detached.py start hidden scripts/serve_hidden.py
+python scripts/serve_hidden.py stop
+
 # 2) 重建两个一次性沙箱仓库
 python scripts/make_sandbox.py
 

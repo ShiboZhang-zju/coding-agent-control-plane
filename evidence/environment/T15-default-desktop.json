@@ -1,0 +1,65 @@
+{
+  "test": "T15-console-flash",
+  "started_at": 1793254684.9979181,
+  "probes": [
+    {
+      "label": "shell",
+      "bash": true,
+      "dispatch_http": 200,
+      "windows": [
+        {
+          "class": "PseudoConsoleWindow",
+          "title": "",
+          "pid": 33488,
+          "exe": "timeout.exe",
+          "first_seen": 5.89,
+          "last_seen": 8.81
+        }
+      ],
+      "count": 1,
+      "window_classes": [
+        "PseudoConsoleWindow"
+      ]
+    },
+    {
+      "label": "agent",
+      "bash": false,
+      "dispatch_http": 200,
+      "windows": [],
+      "count": 0,
+      "window_classes": []
+    }
+  ],
+  "baseline_window_classes": [
+    "#32770",
+    "ApplicationFrameWindow",
+    "CASCADIA_HOSTING_WINDOW_CLASS",
+    "CabinetWClass",
+    "Chrome_WidgetWin_1",
+    "DNF_WND_CHAT",
+    "DummyDWMListenerWindow",
+    "EdgeUiInputTopWndClass",
+    "FLUTTER_RUNNER_WIN32_WINDOW",
+    "NeopleWebview",
+    "Notepad",
+    "PerryShadowWnd",
+    "Progman",
+    "PseudoConsoleWindow",
+    "Qt51514QWindowToolSaveBits",
+    "Qt51514QWindowToolTipSaveBits",
+    "Qt51517QWindowIcon",
+    "Qt51517QWindowToolSaveBits",
+    "Qt51518QWindowOwnDCIcon",
+    "Qt51518QWindowPopupDropShadowSaveBitsOwnDC",
+    "Shell_TrayWnd",
+    "SysShadow",
+    "Tencent.WXWork.MailHostWindow",
+    "Tencent.WXWork.TopicHostWindow",
+    "Tencent.WXWork.WedocHostWindow",
+    "ThumbnailDeviceHelperWnd",
+    "WXworkWindow - 提醒",
+    "Windows.UI.Core.CoreWindow",
+    "XamlExplorerHostIslandWindow_WASDK",
+    "地下城与勇士"
+  ]
+}
