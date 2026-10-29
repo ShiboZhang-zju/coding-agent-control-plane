@@ -273,10 +273,19 @@ class CodeBuddyAdapter:
         return self._to_snapshot(job, task_id=self._task_id_for(job["id"]))
 
     def pid_alive(self, pid: int | None) -> bool | None:
-        """Independent liveness evidence for `lost` (never from a failed query)."""
+        """Independent liveness evidence for `lost` (never from a failed query).
+
+        Returns None when the probe itself failed: the control plane treats that
+        as "unknown", never as "dead" (see ControlPlane._process_alive).
+        """
         if not pid:
             return None
-        p = winproc.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], timeout=20)
+        try:
+            p = winproc.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], timeout=20)
+        except Exception:  # noqa: BLE001
+            return None
+        if p.returncode != 0:
+            return None
         return str(pid) in (p.stdout or "")
 
     def _task_id_for(self, job_id: str) -> str:

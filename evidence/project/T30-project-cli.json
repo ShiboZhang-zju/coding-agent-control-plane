@@ -1,0 +1,151 @@
+{
+  "test": "T30-project-cli",
+  "ledger": ".poc-state\\t30-cli.db",
+  "project_add": {
+    "id": "prj-54cc1bf22c",
+    "root": "<REPO>\\sandbox\\repo-a",
+    "active": true
+  },
+  "context_add": {
+    "background": {
+      "id": "ctx-1cb8fac44982",
+      "version": 1
+    },
+    "constraint": {
+      "id": "ctx-e3bf21d4fb1b",
+      "version": 2
+    },
+    "knowledge": {
+      "id": "ctx-697b23ed59bb",
+      "version": 3
+    }
+  },
+  "context_read": {
+    "version": 3,
+    "entry_count": 3,
+    "kinds": [
+      "background",
+      "constraints",
+      "knowledge"
+    ]
+  },
+  "submit_preview": {
+    "context_version": 3,
+    "entry_refs": [
+      "ctx-1cb8fac44982",
+      "ctx-e3bf21d4fb1b",
+      "ctx-697b23ed59bb"
+    ],
+    "blocked": false,
+    "has_background": true,
+    "has_constraint": true,
+    "has_task": true,
+    "candidate_labelled": true
+  },
+  "submit": {
+    "task_id": "cp-0102b657523c",
+    "queue_status": "ready",
+    "context_version": 3,
+    "workspace_id": "ws-68b6359cc6",
+    "has_effective_prompt": true
+  },
+  "resubmit_dedup": {
+    "same_task": true,
+    "deduplicated": true
+  },
+  "provenance": {
+    "original_task": "add a health endpoint",
+    "context_version": 3,
+    "ref_count": 3,
+    "resolved_entries": 3,
+    "effective_equals_preview": true
+  },
+  "brief": {
+    "context_version": 3,
+    "verified_count": 2,
+    "tasks": {
+      "total": 1,
+      "active": 1,
+      "verified": 0,
+      "rejected": 0,
+      "inconclusive": 0,
+      "pending": 1,
+      "needs_human": 0,
+      "needs_approval": 0,
+      "suspected_lost": 0
+    },
+    "workspaces": 1,
+    "workspace_executable": true
+  },
+  "progress": {
+    "derived_from": "ledger",
+    "counts": {
+      "total": 1,
+      "active": 1,
+      "verified": 0,
+      "rejected": 0,
+      "inconclusive": 0,
+      "pending": 1,
+      "needs_human": 0,
+      "needs_approval": 0,
+      "suspected_lost": 0
+    },
+    "blocked_tasks": 0
+  },
+  "cas": {
+    "new_version": 4,
+    "stale_exit": 2,
+    "stale_error": "ContextVersionConflict: context entry ctx-e3bf21d4fb1b is at version 4, not 2; re-read the entry and"
+  },
+  "rebuild_sees_new_version": {
+    "context_version": 4,
+    "has_tightened_body": true,
+    "version_advanced": true
+  },
+  "queued_prompt_frozen": {
+    "unchanged": true,
+    "has_tightened_body": false
+  },
+  "blocked_prerequisite": {
+    "exit": 3,
+    "gaps": [
+      "prerequisite 'deploy-credentials' has no verified project context entry"
+    ],
+    "error": "ContextBuildBlocked: context build blocked: prerequisite 'deploy-credentials' has no verified projec"
+  },
+  "checks": {
+    "project_registered": true,
+    "context_stored": true,
+    "preview_injects_context": true,
+    "candidate_label_visible": true,
+    "submitted_enqueued": true,
+    "resubmit_deduplicated": true,
+    "provenance_traceable": true,
+    "preview_matches_recorded_prompt": true,
+    "progress_derived_from_ledger": true,
+    "workspace_is_local": true,
+    "cas_applied": true,
+    "cas_refuses_stale": true,
+    "new_build_sees_update": true,
+    "queued_prompt_frozen": true,
+    "blocked_prerequisite_reported": true
+  },
+  "pass": {
+    "project_registered": true,
+    "context_stored": true,
+    "preview_injects_context": true,
+    "candidate_label_visible": true,
+    "submitted_enqueued": true,
+    "resubmit_deduplicated": true,
+    "provenance_traceable": true,
+    "preview_matches_recorded_prompt": true,
+    "progress_derived_from_ledger": true,
+    "workspace_is_local": true,
+    "cas_applied": true,
+    "cas_refuses_stale": true,
+    "new_build_sees_update": true,
+    "queued_prompt_frozen": true,
+    "blocked_prerequisite_reported": true
+  },
+  "result": "Pass"
+}

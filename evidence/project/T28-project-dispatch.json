@@ -1,0 +1,64 @@
+{
+  "test": "T28-project-dispatch",
+  "A_context_injection": {
+    "task_id": "cp-fa80eaad75dc",
+    "original_task": "add a health endpoint",
+    "has_background": true,
+    "has_constraint": true,
+    "has_task": true,
+    "context_version": 3,
+    "entry_refs": [
+      "ctx-11a1d160238e",
+      "ctx-6901b2c0d2ff",
+      "ctx-782c885fc714"
+    ],
+    "workspace_id": "ws-b3ca1896b0",
+    "prompt_equals_effective": true,
+    "provenance_entries": 3,
+    "pass": true
+  },
+  "B_prompt_frozen": {
+    "prompt_unchanged": true,
+    "context_version_unchanged": true,
+    "late_constraint_absent": true,
+    "changed_body_absent": true,
+    "project_version_advanced": true,
+    "pass": true
+  },
+  "C_approval_binding": {
+    "first_needs_approval": true,
+    "released_after_approval": true,
+    "digest_changed_with_context": true,
+    "second_needs_approval": true,
+    "tampered_dispatch": "returned",
+    "tampered_queue_status": "needs_approval",
+    "worker_calls_on_tamper": 0,
+    "pass": true
+  },
+  "D_blocked_prerequisite": {
+    "outcome": "blocked",
+    "gaps": [
+      "prerequisite 'deploy-credentials' has no verified project context entry"
+    ],
+    "tasks_enqueued": 0,
+    "worker_calls": 0,
+    "pass": true
+  },
+  "E_legacy_compat": {
+    "legacy_enqueued": true,
+    "legacy_has_no_context": true,
+    "legacy_has_no_original_task": true,
+    "legacy_digest_matches_pre_m1": true,
+    "legacy_dispatch_ok": true,
+    "worker_calls": 1,
+    "pass": true
+  },
+  "pass": {
+    "A_context_injection": true,
+    "B_prompt_frozen": true,
+    "C_approval_binding": true,
+    "D_blocked_prerequisite": true,
+    "E_legacy_compat": true
+  },
+  "result": "Pass"
+}

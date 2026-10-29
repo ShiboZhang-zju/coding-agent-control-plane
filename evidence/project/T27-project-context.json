@@ -1,0 +1,52 @@
+{
+  "test": "T27-project-context",
+  "A_isolation": {
+    "alpha_prompt_has_alpha_only": true,
+    "alpha_prompt_has_beta_only": false,
+    "beta_prompt_has_beta_only": true,
+    "beta_prompt_has_alpha_only": false,
+    "cross_project_read": "refused",
+    "duplicate_title_same_project": "refused",
+    "same_title_two_projects": "allowed",
+    "pass": true
+  },
+  "B_versioning": {
+    "concurrent_writers": 2,
+    "winners": 1,
+    "losers": 1,
+    "loser_reports_conflict": true,
+    "final_body": "body-2",
+    "final_version": 2,
+    "revision_rows": 1,
+    "revision_holds_previous_body": true,
+    "version_survives_restart": true,
+    "project_version_after_restart": 2,
+    "pass": true
+  },
+  "C_provenance": {
+    "source_recorded": "agent:session-42",
+    "evidence_refs": [
+      "evidence/jobs/T27-c.json"
+    ],
+    "created_at_set": true,
+    "verified_state": "verified",
+    "verify_without_evidence": "refused",
+    "pass": true
+  },
+  "D_security_domain": {
+    "candidate_is_hard_constraint": false,
+    "verified_is_hard_constraint": true,
+    "candidate_labelled_in_prompt": true,
+    "verified_not_labelled": true,
+    "shareable_excluded_from_local_only": true,
+    "local_entries_present_in_local_only": true,
+    "pass": true
+  },
+  "pass": {
+    "A_isolation": true,
+    "B_versioning": true,
+    "C_provenance": true,
+    "D_security_domain": true
+  },
+  "result": "Pass"
+}

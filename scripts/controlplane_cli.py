@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from adapters.base import ArtifactAssertion, DispatchPolicy  # noqa: E402
+from controlplane.context_builder import ContextBuildBlocked  # noqa: E402
 from controlplane.plane import ControlPlane  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 
@@ -107,6 +108,97 @@ def approval_by_id(store: TaskStore, approval_id: int) -> dict:
     return rows[0]
 
 
+_PROJECT_CONTEXT_COMMANDS = (
+    "brief", "progress", "tasks", "context", "workspaces", "sessions",
+    "context-add", "context-update", "context-verify", "submit")
+
+
+def _run_project_command(args, plane: ControlPlane, store: TaskStore) -> int:
+    """Project-context subcommands: read-side projections plus two writes.
+
+    Everything goes through :class:`ProjectService`, so the CLI and any future LD
+    share one deterministic implementation instead of two drifting copies.
+    """
+    from controlplane.project_context import ContextEntry
+    from controlplane.project_service import ProjectService
+
+    service = ProjectService(plane)
+    project = plane.project(args.project)
+    cmd = args.project_command
+
+    if cmd == "brief":
+        emit(service.get_project_brief(project["id"]), compact=args.compact)
+    elif cmd == "progress":
+        emit(service.get_project_progress(project["id"]), compact=args.compact)
+    elif cmd == "tasks":
+        emit(service.get_project_tasks(project["id"]), compact=args.compact)
+    elif cmd == "context":
+        emit(service.get_project_context(project["id"]), compact=args.compact)
+    elif cmd == "workspaces":
+        emit(service.list_workspaces(project["id"]), compact=args.compact)
+    elif cmd == "sessions":
+        emit(service.list_session_references(project["id"]), compact=args.compact)
+    elif cmd == "context-add":
+        entry = ContextEntry(
+            project_id=project["id"], kind=args.kind, title=args.title,
+            body=args.body, tags=args.tag, verification=args.verification,
+            security_domain=args.security_domain, source=args.source,
+            evidence_refs=args.evidence)
+        emit(service.add_context_entry(project["id"], entry), compact=args.compact)
+    elif cmd == "context-update":
+        changes: dict = {}
+        if args.title is not None:
+            changes["title"] = args.title
+        if args.body is not None:
+            changes["body"] = args.body
+        if args.tag is not None:
+            changes["tags"] = args.tag
+        if args.verification is not None:
+            changes["verification"] = args.verification
+        if args.security_domain is not None:
+            changes["security_domain"] = args.security_domain
+        if not changes:
+            raise ValueError("context-update needs at least one change")
+        emit(service.update_context_entry(
+            project["id"], args.entry_id, args.expected_version, changes,
+            changed_by=args.changed_by, note=args.note), compact=args.compact)
+    elif cmd == "context-verify":
+        from controlplane.project_context import ProjectContextStore
+
+        emit(ProjectContextStore(store).verify_entry(
+            project["id"], args.entry_id, args.expected_version,
+            evidence_refs=args.evidence, changed_by=args.changed_by),
+            compact=args.compact)
+    elif cmd == "submit":
+        build_kwargs = dict(
+            tags=args.tag, prerequisites=args.prerequisite,
+            workspace_id=args.workspace,
+            require_verified_constraints=args.require_verified_constraints)
+        if args.preview:
+            built = service.build_task_context(project["id"], args.task, **build_kwargs)
+            emit({"effective_prompt": built.effective_prompt,
+                  "context_version": built.context_version,
+                  "context_entry_refs": built.entry_refs,
+                  "gaps": built.gaps, "warnings": built.warnings,
+                  "blocked": built.blocked}, compact=args.compact)
+        else:
+            rec = service.submit_project_task(
+                project["id"], args.task,
+                title=args.title, idempotency_key=args.idempotency_key,
+                priority=args.priority, timeout_s=args.timeout,
+                assertions=assertions_from_args(args),
+                allow_blocked=args.allow_blocked, **build_kwargs)
+            emit({**item_view(rec),
+                  "deduplicated": rec.get("deduplicated", False),
+                  "context_version": rec.get("context_version"),
+                  "context_entry_refs": rec.get("context_entry_refs"),
+                  "original_task": rec.get("original_task"),
+                  "effective_prompt": rec.get("effective_prompt"),
+                  "workspace_id": rec.get("workspace_id"),
+                  "context": rec.get("context")}, compact=args.compact)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="controlplane",
                                  description="durable local Coding Agent work queue")
@@ -159,6 +251,80 @@ def build_parser() -> argparse.ArgumentParser:
     project_disable = project_sub.add_parser("disable")
     project_disable.add_argument("project")
 
+    # -- project-centric surface (M1) ---------------------------------- #
+    for name, help_text in (
+            ("brief", "compact project brief (context + derived task counts)"),
+            ("progress", "progress derived from the ledger"),
+            ("tasks", "work items of one project"),
+            ("context", "list project context entries"),
+            ("workspaces", "list workspaces of one project"),
+            ("sessions", "list recorded session references")):
+        p = project_sub.add_parser(name, help=help_text)
+        p.add_argument("project")
+
+    context_add = project_sub.add_parser(
+        "context-add", help="add one project context entry")
+    context_add.add_argument("project")
+    context_add.add_argument("--kind", required=True,
+                             choices=["background", "architecture", "constraints",
+                                      "progress", "knowledge", "decisions"])
+    context_add.add_argument("--title", required=True)
+    context_add.add_argument("--body", required=True)
+    context_add.add_argument("--tag", action="append", default=[])
+    context_add.add_argument("--verification", default="unverified",
+                             choices=["unverified", "candidate", "verified"])
+    context_add.add_argument("--security-domain", default="local",
+                             choices=["local", "shareable"])
+    context_add.add_argument("--source", default="human")
+    context_add.add_argument("--evidence", action="append", default=[])
+
+    context_update = project_sub.add_parser(
+        "context-update", help="CAS update of one entry (fails on stale version)")
+    context_update.add_argument("project")
+    context_update.add_argument("entry_id")
+    context_update.add_argument("--expected-version", type=int, required=True)
+    context_update.add_argument("--title", default=None)
+    context_update.add_argument("--body", default=None)
+    context_update.add_argument("--tag", action="append", default=None)
+    context_update.add_argument("--verification", default=None,
+                                choices=["unverified", "candidate", "verified"])
+    context_update.add_argument("--security-domain", default=None,
+                                choices=["local", "shareable"])
+    context_update.add_argument("--note", default="")
+    context_update.add_argument("--changed-by", default="human")
+
+    context_verify = project_sub.add_parser(
+        "context-verify", help="promote an entry to verified (evidence required)")
+    context_verify.add_argument("project")
+    context_verify.add_argument("entry_id")
+    context_verify.add_argument("--expected-version", type=int, required=True)
+    context_verify.add_argument("--evidence", action="append", required=True)
+    context_verify.add_argument("--changed-by", default="human")
+
+    submit = project_sub.add_parser(
+        "submit", help="build project context, freeze the prompt, then enqueue")
+    submit.add_argument("project")
+    submit.add_argument("task")
+    submit.add_argument("--title", default="")
+    submit.add_argument("--idempotency-key", default="")
+    submit.add_argument("--priority", type=int, default=0)
+    submit.add_argument("--timeout", type=int, default=900)
+    submit.add_argument("--tag", action="append", default=[])
+    submit.add_argument("--prerequisite", action="append", default=[])
+    submit.add_argument("--workspace", default=None)
+    submit.add_argument("--require-verified-constraints", action="store_true")
+    submit.add_argument("--allow-blocked", action="store_true",
+                        help="enqueue even when a prerequisite is missing")
+    submit.add_argument("--preview", action="store_true",
+                        help="print the effective prompt without enqueueing")
+    submit.add_argument("--assert-file", action="append", default=[])
+    submit.add_argument("--assert-contains", action="append", default=[])
+    submit.add_argument("--assert-absent", action="append", default=[]) 
+
+    provenance = sub.add_parser(
+        "provenance", help="original task, effective prompt and context refs")
+    provenance.add_argument("task_id")
+
     sub.add_parser("list", help="list work items")
     show = sub.add_parser("show", help="show one work item with attempts/events")
     show.add_argument("task_id")
@@ -197,17 +363,20 @@ def main() -> int:
                     policy=policy_from_args(args),
                     concurrency_limit=args.concurrency)
                 emit(project_view(project), compact=args.compact)
-            elif args.project_command == "list":
+                return 0
+            if args.project_command == "list":
                 emit([project_view(project) for project in store.all_projects()],
                      compact=args.compact)
+                return 0
+            if args.project_command in _PROJECT_CONTEXT_COMMANDS:
+                return _run_project_command(args, plane, store)
+            project = plane.project(args.project)
+            if args.project_command == "show":
+                result = project
             else:
-                project = plane.project(args.project)
-                if args.project_command == "show":
-                    result = project
-                else:
-                    result = store.set_project_active(
-                        project["id"], args.project_command == "enable")
-                emit(project_view(result), compact=args.compact)
+                result = store.set_project_active(
+                    project["id"], args.project_command == "enable")
+            emit(project_view(result), compact=args.compact)
             return 0
 
         if args.command == "enqueue":
@@ -267,6 +436,11 @@ def main() -> int:
                     result = plane.deny(digest, note=args.note,
                                         approval_id=args.approval_id)
                 emit(result, compact=args.compact)
+        elif args.command == "provenance":
+            from controlplane.project_service import ProjectService
+
+            emit(ProjectService(plane).get_task_provenance(args.task_id),
+                 compact=args.compact)
         elif args.command == "recover-ledger":
             # Manual, audited recovery of a persistent degraded ledger. The
             # operator must have reviewed the *.corrupt-* quarantine copy first.
@@ -275,6 +449,12 @@ def main() -> int:
     except (KeyError, ValueError) as exc:
         emit({"error": f"{type(exc).__name__}: {exc}"}, compact=args.compact)
         return 2
+    except ContextBuildBlocked as exc:
+        # A blocked build is not a crash: report the gaps so the caller can fix
+        # the project context instead of guessing what was missing.
+        emit({"error": f"{type(exc).__name__}: {exc}", "gaps": exc.gaps},
+             compact=args.compact)
+        return 3
     finally:
         store.close()
 

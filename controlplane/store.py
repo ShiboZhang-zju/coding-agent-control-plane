@@ -14,16 +14,37 @@ Schema
 ------
 projects(id, name, root UNIQUE, default_adapter, policy_json,
          concurrency_limit, active, created_at, updated_at)
+workspaces(id, project_id, node_id, local_root, adapter, capabilities_json,
+           is_default, active, created_at, updated_at)
+session_references(id, project_id, workspace_id, worker_instance_id, adapter,
+                   session_id, work_item_id, attempt_id, created_at, updated_at)
+project_context_entries(id, project_id, kind, title, body, tags_json,
+                        verification, security_domain, source, evidence_refs_json,
+                        version, created_at, updated_at)
+project_context_revisions(id, entry_id, project_id, version, snapshot_json,
+                          changed_at, changed_by, note)
+project_context_state(project_id PRIMARY KEY, version, updated_at)
 work_items(id, title, prompt, cwd, mode, isolation, idempotency_key UNIQUE,
            state, verdict, policy_json, assertions_json, baseline_json,
            warnings_json, metadata_json, current_attempt_id, adapter,
            queue_status, priority, task_digest, dispatch_claim_owner,
-           dispatch_claimed_at,
+           dispatch_claimed_at, project_id, workspace_id,
+           original_task, effective_prompt, context_version,
+           context_entry_refs_json,
            created_at, updated_at)
 attempts(id, work_item_id, worker_job_id, state, reason, created_at, ended_at)
 events(id, work_item_id, attempt_id, type, payload_json, created_at)
 evidence(id, work_item_id, attempt_id, kind, payload_json, created_at)
 approvals(id, work_item_id, attempt_id, requested_at, decision, decided_at, note)
+
+Project-centric evolution (M1)
+------------------------------
+`projects.root` is kept as the *default local workspace root* for backward
+compatibility: every project gets exactly one `workspaces` row with
+`node_id='local'` and `is_default=1`, created by `ensure_default_workspace()`.
+Nothing in the existing dispatch path reads `workspaces` yet, so a ledger that
+predates this table keeps working; the table is the seam for M5 (distributed
+workspaces) and is never used to *pretend* remote execution exists.
 """
 from __future__ import annotations
 
@@ -54,8 +75,10 @@ class LedgerDegraded(RuntimeError):
 
 
 JSON_FIELDS = ("policy", "assertions", "baseline", "warnings", "metadata",
-               "artifacts", "assertion_results", "worker_metadata")
-LIST_FIELDS = ("assertions", "warnings", "artifacts", "assertion_results")
+               "artifacts", "assertion_results", "worker_metadata",
+               "context_entry_refs")
+LIST_FIELDS = ("assertions", "warnings", "artifacts", "assertion_results",
+               "context_entry_refs")
 def _synchronized(fn):
     """Serialize a mutating ledger method on the store-level RLock.
 
@@ -77,7 +100,9 @@ COLUMNS = ("id", "title", "prompt", "cwd", "mode", "isolation", "idempotency_key
            "session_id", "pid", "worktree", "branch", "head_commit", "detail",
            "started_at", "finished_at", "artifacts", "assertion_results",
            "worker_metadata", "adapter", "queue_status", "priority", "task_digest",
-           "dispatch_claim_owner", "dispatch_claimed_at", "project_id")
+           "dispatch_claim_owner", "dispatch_claimed_at", "project_id",
+           "workspace_id", "original_task", "effective_prompt", "context_version",
+           "context_entry_refs")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -126,7 +151,76 @@ CREATE TABLE IF NOT EXISTS work_items (
     task_digest TEXT,
     dispatch_claim_owner TEXT,
     dispatch_claimed_at REAL,
-    project_id TEXT
+    project_id TEXT,
+    workspace_id TEXT,
+    original_task TEXT,
+    effective_prompt TEXT,
+    context_version INTEGER,
+    context_entry_refs TEXT
+);
+CREATE TABLE IF NOT EXISTS workspaces (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    local_root TEXT NOT NULL,
+    adapter TEXT,
+    capabilities TEXT,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_project_root
+    ON workspaces(project_id, node_id, local_root);
+CREATE TABLE IF NOT EXISTS session_references (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    workspace_id TEXT,
+    worker_instance_id TEXT,
+    adapter TEXT,
+    session_id TEXT,
+    work_item_id TEXT,
+    attempt_id TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_session_refs_project
+    ON session_references(project_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS project_context_entries (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    tags TEXT,
+    verification TEXT NOT NULL,
+    security_domain TEXT NOT NULL,
+    source TEXT,
+    evidence_refs TEXT,
+    version INTEGER NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_context_project_title
+    ON project_context_entries(project_id, kind, title);
+CREATE INDEX IF NOT EXISTS idx_context_project_kind
+    ON project_context_entries(project_id, kind, updated_at DESC);
+CREATE TABLE IF NOT EXISTS project_context_revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    snapshot TEXT NOT NULL,
+    changed_at REAL NOT NULL,
+    changed_by TEXT,
+    note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_context_revisions_entry
+    ON project_context_revisions(entry_id, version DESC);
+CREATE TABLE IF NOT EXISTS project_context_state (
+    project_id TEXT PRIMARY KEY,
+    version INTEGER NOT NULL,
+    updated_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS attempts (
     id TEXT PRIMARY KEY,
@@ -205,6 +299,9 @@ class TaskStore:
         self.degraded_marker = base.with_name(base.name + ".DEGRADED")
         self.degraded = False
         self.degraded_reason = ""
+        #: Non-empty when the degraded marker could not be written/removed. A
+        #: non-empty value means the fail-closed guarantee is process-local only.
+        self.degraded_marker_error = ""
         self._lock = threading.RLock()   # parallel dispatch (T11) writes from threads
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = self._open()
@@ -255,11 +352,17 @@ class TaskStore:
             broken = None
         self.degraded = True
         self.degraded_reason = f"{type(exc).__name__}: {exc}; quarantined to {broken}"
-        self._write_degraded_marker(
+        persisted = self._write_degraded_marker(
             f"{time.strftime('%Y-%m-%d %H:%M:%S')} ledger corrupted, started empty\n"
             f"reason: {self.degraded_reason}\n"
             "manual recovery required: review the *.corrupt-* copy, then call\n"
             "recover_degraded(operator_note=...) or `controlplane recover-ledger`.\n")
+        if not persisted:
+            # Do not claim a cross-restart guarantee we could not establish.
+            self.degraded_reason += (
+                "; WARNING: the degraded marker could not be persisted "
+                f"({self.degraded_marker_error}), so the dispatch ban is "
+                "process-local only and will NOT survive a restart")
         print(f"[LEDGER DEGRADED] {self.degraded_reason}", file=sys.stderr)
         conn = sqlite3.connect(str(self.path), timeout=15, check_same_thread=False)
         conn.row_factory = sqlite3.Row
@@ -267,11 +370,24 @@ class TaskStore:
         conn.execute("PRAGMA busy_timeout=15000")
         return conn
 
-    def _write_degraded_marker(self, text: str) -> None:
+    def _write_degraded_marker(self, text: str) -> bool:
+        """Persist the degraded marker. Returns True only when it is on disk.
+
+        Review P0 (T27): a swallowed ``OSError`` used to let the process claim
+        "the dispatch ban survives a restart" while nothing was written. The
+        caller must be able to tell the difference, so the result is returned and
+        a failure is recorded in ``degraded_marker_error``.
+        """
         try:
             self.degraded_marker.write_text(text, encoding="utf-8")
-        except OSError:
-            pass
+        except OSError as exc:
+            self.degraded_marker_error = f"{type(exc).__name__}: {exc}"
+            print(f"[LEDGER DEGRADED] cannot persist marker "
+                  f"{self.degraded_marker}: {self.degraded_marker_error}",
+                  file=sys.stderr)
+            return False
+        self.degraded_marker_error = ""
+        return True
 
     def _restore_degraded_state(self) -> None:
         """Re-degrade a ledger that was corrupted by a previous process.
@@ -279,22 +395,38 @@ class TaskStore:
         Without this, the fail-closed guarantee was process-local: the truncated
         database passes integrity_check on the next start and dispatch was allowed
         again while we still do not know what was running when the data was lost.
+
+        A marker that exists but cannot be read is treated as *degraded*: an
+        unreadable marker is not evidence that the previous process was healthy.
         """
         if self.degraded:
             return
         try:
             if not self.degraded_marker.exists():
                 return
-            prior = self.degraded_marker.read_text(
-                encoding="utf-8", errors="replace").strip()
-            last_line = prior.splitlines()[-1] if prior else "unknown"
+        except OSError as exc:
             self.degraded = True
             self.degraded_reason = (
-                "degraded in a previous process (marker "
-                f"{self.degraded_marker.name}); last record: {last_line}")
+                f"cannot stat degraded marker {self.degraded_marker.name}: "
+                f"{type(exc).__name__}: {exc}")
             print(f"[LEDGER DEGRADED] {self.degraded_reason}", file=sys.stderr)
-        except OSError:
-            pass
+            return
+        try:
+            prior = self.degraded_marker.read_text(
+                encoding="utf-8", errors="replace").strip()
+        except OSError as exc:
+            self.degraded = True
+            self.degraded_reason = (
+                f"degraded marker {self.degraded_marker.name} exists but is unreadable "
+                f"({type(exc).__name__}: {exc}); assuming the previous process was degraded")
+            print(f"[LEDGER DEGRADED] {self.degraded_reason}", file=sys.stderr)
+            return
+        last_line = prior.splitlines()[-1] if prior else "unknown"
+        self.degraded = True
+        self.degraded_reason = (
+            "degraded in a previous process (marker "
+            f"{self.degraded_marker.name}); last record: {last_line}")
+        print(f"[LEDGER DEGRADED] {self.degraded_reason}", file=sys.stderr)
 
     def _migrate_columns(self) -> None:
         """Add columns used by newer ledgers without discarding existing state."""
@@ -305,7 +437,10 @@ class TaskStore:
             "work_items": {"adapter": "TEXT", "queue_status": "TEXT",
                            "priority": "INTEGER DEFAULT 0", "task_digest": "TEXT",
                            "dispatch_claim_owner": "TEXT", "dispatch_claimed_at": "REAL",
-                           "project_id": "TEXT"},
+                           "project_id": "TEXT", "workspace_id": "TEXT",
+                           "original_task": "TEXT", "effective_prompt": "TEXT",
+                           "context_version": "INTEGER",
+                           "context_entry_refs": "TEXT"},
         }
         for table, wanted in tables.items():
             have = {r["name"] for r in
@@ -326,6 +461,53 @@ class TaskStore:
             "CREATE INDEX IF NOT EXISTS idx_work_items_project "
             "ON work_items(project_id, queue_status, priority DESC, created_at ASC)")
         self._conn.commit()
+        self._backfill_default_workspaces()
+
+    def _backfill_default_workspaces(self) -> None:
+        """Map every pre-existing project onto its default local workspace.
+
+        This is the compatibility half of the domain-model change: `projects.root`
+        stays authoritative for path checks, and the workspace row is derived from
+        it. A failure here must not lose data, so it is best-effort and idempotent;
+        `ensure_default_workspace()` retries on demand.
+        """
+        try:
+            rows = self._conn.execute(
+                "SELECT id, root, default_adapter FROM projects").fetchall()
+        except sqlite3.Error:
+            return
+        for row in rows:
+            try:
+                self._ensure_default_workspace_row(
+                    row["id"], row["root"], row["default_adapter"])
+            except sqlite3.Error:
+                continue
+        self._conn.commit()
+
+    def _ensure_default_workspace_row(self, project_id: str, root: str,
+                                      adapter: str | None) -> dict:
+        existing = self._conn.execute(
+            "SELECT * FROM workspaces WHERE project_id=? AND node_id='local' "
+            "AND local_root=? ORDER BY is_default DESC LIMIT 1",
+            (project_id, root)).fetchone()
+        now = time.time()
+        if existing:
+            if not existing["is_default"]:
+                self._conn.execute(
+                    "UPDATE workspaces SET is_default=1, updated_at=? WHERE id=?",
+                    (now, existing["id"]))
+            return dict(existing)
+        workspace_id = "ws-" + uuid.uuid4().hex[:10]
+        self._conn.execute(
+            "INSERT INTO workspaces (id, project_id, node_id, local_root, adapter,"
+            " capabilities, is_default, active, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (workspace_id, project_id, "local", root, adapter,
+             _dump({"execution": "local", "remote_dispatch": False}),
+             1, 1, now, now))
+        return {"id": workspace_id, "project_id": project_id, "node_id": "local",
+                "local_root": root, "adapter": adapter, "is_default": 1,
+                "active": 1, "created_at": now, "updated_at": now}
 
     def assert_writable(self, operation: str) -> None:
         """Fail closed: a degraded ledger may not mutate task state."""
@@ -352,19 +534,37 @@ class TaskStore:
         if not self.degraded:
             return {"recovered": False, "degraded": False, "note": note}
         audit = self.path.parent / "LEDGER_RECOVERY.log"
+        # Review P0 (T27): recovery is only real if it is auditable AND the
+        # persistent ban is actually gone. Both failures used to be swallowed,
+        # which let the process report success while the next restart re-degraded
+        # the ledger (marker still on disk) or while no audit trail existed.
         try:
             with audit.open("a", encoding="utf-8") as fh:
                 fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} recovered "
                          f"{self.path.name} note={note!r} "
                          f"prior_reason={self.degraded_reason!r}\n")
-        except OSError:
-            pass
+        except OSError as exc:
+            raise LedgerDegraded(
+                "refusing to lift the degraded state: the recovery audit log "
+                f"{audit} is not writable ({type(exc).__name__}: {exc}). "
+                "An unaudited recovery is indistinguishable from an accidental one."
+            ) from exc
         try:
             self.degraded_marker.unlink(missing_ok=True)
-        except OSError:
-            pass
+        except OSError as exc:
+            raise LedgerDegraded(
+                "refusing to lift the degraded state: the persistent marker "
+                f"{self.degraded_marker} cannot be removed "
+                f"({type(exc).__name__}: {exc}). The ban would silently return on "
+                "the next start, so the in-process state is left degraded too."
+            ) from exc
+        if self.degraded_marker.exists():
+            raise LedgerDegraded(
+                "refusing to lift the degraded state: the persistent marker "
+                f"{self.degraded_marker} still exists after removal.")
         self.degraded = False
         self.degraded_reason = ""
+        self.degraded_marker_error = ""
         return {"recovered": True, "degraded": False, "note": note}
 
     def _is_empty(self) -> bool:
@@ -380,9 +580,13 @@ class TaskStore:
         except Exception as exc:  # noqa: BLE001
             self.degraded = True
             self.degraded_reason = f"legacy tasks.json unreadable: {exc}"
-            self._write_degraded_marker(
-                f"{time.strftime('%Y-%m-%d %H:%M:%S')} legacy tasks.json unreadable: {exc}\n"
-                "manual recovery required: recover_degraded(operator_note=...).\n")
+            if not self._write_degraded_marker(
+                    f"{time.strftime('%Y-%m-%d %H:%M:%S')} legacy tasks.json unreadable: {exc}\n"
+                    "manual recovery required: recover_degraded(operator_note=...).\n"):
+                self.degraded_reason += (
+                    "; WARNING: the degraded marker could not be persisted "
+                    f"({self.degraded_marker_error}), so the dispatch ban is "
+                    "process-local only and will NOT survive a restart")
             print(f"[LEDGER DEGRADED] {self.degraded_reason}", file=sys.stderr)
             return
         records = raw.get("records", {}) if isinstance(raw, dict) else {}
@@ -469,6 +673,7 @@ class TaskStore:
                 "active, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
                 (project_id, name, root, default_adapter, _dump(policy or {}),
                  concurrency_limit, int(active), now, now))
+        self._ensure_default_workspace_row(project_id, root, default_adapter)
         self._conn.commit()
         row = self._conn.execute(
             "SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
@@ -505,6 +710,136 @@ class TaskStore:
         row = self._conn.execute(
             "SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
         return self._row_to_project(row)
+
+    # ------------------------------------------------------------------ #
+    # workspaces / session references
+    # ------------------------------------------------------------------ #
+    @_synchronized
+    def ensure_default_workspace(self, project_id: str) -> dict:
+        """Return (creating if needed) the project's default local workspace."""
+        project = self.get_project(project_id)
+        if not project:
+            raise KeyError(f"no project {project_id}")
+        row = self._ensure_default_workspace_row(
+            project_id, project["root"], project.get("default_adapter"))
+        self._conn.commit()
+        return self._row_to_workspace(row)
+
+    @_synchronized
+    def register_workspace(self, project_id: str, local_root: str, *,
+                           node_id: str = "local", adapter: str | None = None,
+                           capabilities: dict | None = None,
+                           is_default: bool = False,
+                           active: bool = True) -> dict:
+        """Register an additional workspace for a project.
+
+        Only ``node_id='local'`` is executable today: the control plane has no
+        remote dispatch path, so a non-local node is stored as a *declaration*
+        with ``remote_dispatch: False`` and is refused by
+        :meth:`ControlPlane.resolve_workspace` until M5 lands.
+        """
+        self.assert_writable("register_workspace")
+        if not self.get_project(project_id):
+            raise KeyError(f"no project {project_id}")
+        caps = {"execution": "local" if node_id == "local" else "declared",
+                "remote_dispatch": False, **(capabilities or {})}
+        now = time.time()
+        existing = self._conn.execute(
+            "SELECT * FROM workspaces WHERE project_id=? AND node_id=? AND local_root=?",
+            (project_id, node_id, local_root)).fetchone()
+        if existing:
+            self._conn.execute(
+                "UPDATE workspaces SET adapter=?, capabilities=?, active=?, updated_at=?"
+                " WHERE id=?",
+                (adapter, _dump(caps), int(active), now, existing["id"]))
+            workspace_id = existing["id"]
+        else:
+            workspace_id = "ws-" + uuid.uuid4().hex[:10]
+            self._conn.execute(
+                "INSERT INTO workspaces (id, project_id, node_id, local_root, adapter,"
+                " capabilities, is_default, active, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (workspace_id, project_id, node_id, local_root, adapter, _dump(caps),
+                 0, int(active), now, now))
+        if is_default:
+            self._conn.execute(
+                "UPDATE workspaces SET is_default=0 WHERE project_id=?", (project_id,))
+            self._conn.execute(
+                "UPDATE workspaces SET is_default=1 WHERE id=?", (workspace_id,))
+        self._conn.commit()
+        row = self._conn.execute(
+            "SELECT * FROM workspaces WHERE id=?", (workspace_id,)).fetchone()
+        return self._row_to_workspace(row)
+
+    @_synchronized
+    def workspaces(self, project_id: str) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM workspaces WHERE project_id=? "
+            "ORDER BY is_default DESC, created_at ASC", (project_id,)).fetchall()
+        return [self._row_to_workspace(row) for row in rows]
+
+    @_synchronized
+    def default_workspace(self, project_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM workspaces WHERE project_id=? AND is_default=1 "
+            "ORDER BY created_at ASC LIMIT 1", (project_id,)).fetchone()
+        return self._row_to_workspace(row) if row else None
+
+    @_synchronized
+    def workspace_for_root(self, project_id: str, local_root: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM workspaces WHERE project_id=? AND local_root=? "
+            "ORDER BY is_default DESC LIMIT 1", (project_id, local_root)).fetchone()
+        return self._row_to_workspace(row) if row else None
+
+    @staticmethod
+    def _row_to_workspace(row: sqlite3.Row) -> dict:
+        workspace = dict(row)
+        workspace["capabilities"] = _load(workspace.get("capabilities"), {})
+        workspace["is_default"] = bool(workspace.get("is_default"))
+        workspace["active"] = bool(workspace.get("active"))
+        return workspace
+
+    @_synchronized
+    def record_session_reference(self, project_id: str, *, workspace_id: str | None,
+                                 worker_instance_id: str | None, adapter: str | None,
+                                 session_id: str | None, work_item_id: str | None,
+                                 attempt_id: str | None) -> dict:
+        """Upsert the (project, session) link so continuity never depends on a live session."""
+        self.assert_writable("record_session_reference")
+        now = time.time()
+        existing = None
+        if session_id:
+            existing = self._conn.execute(
+                "SELECT * FROM session_references WHERE project_id=? AND session_id=? "
+                "AND COALESCE(work_item_id,'')=? ORDER BY created_at DESC LIMIT 1",
+                (project_id, session_id, work_item_id or "")).fetchone()
+        if existing:
+            self._conn.execute(
+                "UPDATE session_references SET workspace_id=?, worker_instance_id=?,"
+                " adapter=?, attempt_id=?, updated_at=? WHERE id=?",
+                (workspace_id, worker_instance_id, adapter, attempt_id, now,
+                 existing["id"]))
+            ref_id = existing["id"]
+        else:
+            ref_id = "sr-" + uuid.uuid4().hex[:10]
+            self._conn.execute(
+                "INSERT INTO session_references (id, project_id, workspace_id,"
+                " worker_instance_id, adapter, session_id, work_item_id, attempt_id,"
+                " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (ref_id, project_id, workspace_id, worker_instance_id, adapter,
+                 session_id, work_item_id, attempt_id, now, now))
+        self._conn.commit()
+        row = self._conn.execute(
+            "SELECT * FROM session_references WHERE id=?", (ref_id,)).fetchone()
+        return dict(row)
+
+    @_synchronized
+    def session_references(self, project_id: str, limit: int = 50) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM session_references WHERE project_id=? "
+            "ORDER BY created_at DESC LIMIT ?", (project_id, limit)).fetchall()
+        return [dict(row) for row in rows]
 
     # ------------------------------------------------------------------ #
     # work items
@@ -572,6 +907,11 @@ class TaskStore:
             "dispatch_claim_owner": record.get("dispatch_claim_owner"),
             "dispatch_claimed_at": record.get("dispatch_claimed_at"),
             "project_id": record.get("project_id"),
+            "workspace_id": record.get("workspace_id"),
+            "original_task": record.get("original_task"),
+            "effective_prompt": record.get("effective_prompt"),
+            "context_version": record.get("context_version"),
+            "context_entry_refs": _dump(record.get("context_entry_refs") or []),
         }
         cols = ", ".join(COLUMNS)
         marks = ", ".join(f":{c}" for c in COLUMNS)
@@ -631,6 +971,13 @@ class TaskStore:
             "SELECT work_item_id FROM attempts WHERE worker_job_id=? ORDER BY created_at DESC LIMIT 1",
             (worker_job_id,)).fetchone()
         return self.get(row["work_item_id"]) if row else None
+
+    @_synchronized
+    def work_items_for_project(self, project_id: str, limit: int = 200) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM work_items WHERE project_id=? "
+            "ORDER BY created_at DESC LIMIT ?", (project_id, limit)).fetchall()
+        return [self._row_to_record(r) for r in rows]
 
     @_synchronized
     def by_idempotency_key(self, key: str) -> dict | None:
@@ -725,7 +1072,9 @@ class TaskStore:
     @_synchronized
     def clear(self) -> None:
         for table in ("approvals", "evidence", "events", "attempts",
-                      "work_items", "projects"):
+                      "session_references", "workspaces",
+                      "project_context_revisions", "project_context_entries",
+                      "project_context_state", "work_items", "projects"):
             self._conn.execute(f"DELETE FROM {table}")
         self._conn.commit()
 
@@ -957,6 +1306,149 @@ class TaskStore:
             (time.time(), attempt_id, approval_id))
         self._conn.commit()
         return cur.rowcount == 1
+
+    # ------------------------------------------------------------------ #
+    # project context (low-level; the API lives in controlplane.project_context)
+    # ------------------------------------------------------------------ #
+    @_synchronized
+    def context_version(self, project_id: str) -> int:
+        """Monotonic per-project context version (0 when nothing was written)."""
+        row = self._conn.execute(
+            "SELECT version FROM project_context_state WHERE project_id=?",
+            (project_id,)).fetchone()
+        return int(row["version"]) if row else 0
+
+    def _bump_context_version(self, project_id: str) -> int:
+        now = time.time()
+        row = self._conn.execute(
+            "SELECT version FROM project_context_state WHERE project_id=?",
+            (project_id,)).fetchone()
+        version = (int(row["version"]) if row else 0) + 1
+        if row:
+            self._conn.execute(
+                "UPDATE project_context_state SET version=?, updated_at=? "
+                "WHERE project_id=?", (version, now, project_id))
+        else:
+            self._conn.execute(
+                "INSERT INTO project_context_state (project_id, version, updated_at)"
+                " VALUES (?,?,?)", (project_id, version, now))
+        return version
+
+    @_synchronized
+    def insert_context_entry(self, entry: dict) -> dict:
+        """Insert one entry and bump the project context version atomically."""
+        self.assert_writable("insert_context_entry")
+        now = time.time()
+        entry_id = entry.get("id") or ("ctx-" + uuid.uuid4().hex[:12])
+        version = self._bump_context_version(entry["project_id"])
+        self._conn.execute(
+            "INSERT INTO project_context_entries (id, project_id, kind, title, body,"
+            " tags, verification, security_domain, source, evidence_refs, version,"
+            " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (entry_id, entry["project_id"], entry["kind"], entry["title"],
+             entry["body"], _dump(entry.get("tags") or []),
+             entry["verification"], entry["security_domain"],
+             entry.get("source") or "", _dump(entry.get("evidence_refs") or []),
+             version, now, now))
+        self._conn.commit()
+        return self.get_context_entry(entry_id) or {}
+
+    @_synchronized
+    def get_context_entry(self, entry_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM project_context_entries WHERE id=?", (entry_id,)).fetchone()
+        return self._row_to_context_entry(row) if row else None
+
+    @_synchronized
+    def context_entry_by_title(self, project_id: str, kind: str,
+                               title: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM project_context_entries WHERE project_id=? AND kind=?"
+            " AND title=?", (project_id, kind, title)).fetchone()
+        return self._row_to_context_entry(row) if row else None
+
+    @_synchronized
+    def context_entries(self, project_id: str, *, kind: str | None = None,
+                        include_shared: bool = True) -> list[dict]:
+        sql = "SELECT * FROM project_context_entries WHERE project_id=?"
+        params: list[Any] = [project_id]
+        if kind:
+            sql += " AND kind=?"
+            params.append(kind)
+        if not include_shared:
+            sql += " AND security_domain='local'"
+        sql += " ORDER BY kind ASC, updated_at DESC"
+        rows = self._conn.execute(sql, params).fetchall()
+        return [self._row_to_context_entry(r) for r in rows]
+
+    @_synchronized
+    def update_context_entry(self, entry_id: str, expected_version: int,
+                             changes: dict, *, changed_by: str = "",
+                             note: str = "") -> dict | None:
+        """Compare-and-swap update. Returns None when the version does not match.
+
+        The revision row is written in the same transaction as the update, so a
+        successful CAS always leaves an auditable snapshot of the previous state.
+        """
+        self.assert_writable("update_context_entry")
+        row = self._conn.execute(
+            "SELECT * FROM project_context_entries WHERE id=?", (entry_id,)).fetchone()
+        if not row:
+            raise KeyError(f"no context entry {entry_id}")
+        if int(row["version"]) != int(expected_version):
+            return None
+        previous = self._row_to_context_entry(row)
+        allowed = {"kind", "title", "body", "tags", "verification",
+                   "security_domain", "source", "evidence_refs"}
+        unknown = set(changes) - allowed
+        if unknown:
+            raise ValueError("unsupported context fields: " + ", ".join(sorted(unknown)))
+        now = time.time()
+        new_version = self._bump_context_version(row["project_id"])
+        sets, values = [], {}
+        for key, value in changes.items():
+            if key in ("tags", "evidence_refs"):
+                values[key] = _dump(value or [])
+            else:
+                values[key] = value
+            sets.append(f"{key} = :{key}")
+        values["version"] = new_version
+        values["updated_at"] = now
+        values["id"] = entry_id
+        sets += ["version = :version", "updated_at = :updated_at"]
+        cur = self._conn.execute(
+            f"UPDATE project_context_entries SET {', '.join(sets)} "
+            "WHERE id = :id AND version = :expected", {**values,
+                                                       "expected": expected_version})
+        if cur.rowcount != 1:
+            self._conn.rollback()
+            return None
+        self._conn.execute(
+            "INSERT INTO project_context_revisions (entry_id, project_id, version,"
+            " snapshot, changed_at, changed_by, note) VALUES (?,?,?,?,?,?,?)",
+            (entry_id, row["project_id"], expected_version, _dump(previous),
+             now, changed_by, note))
+        self._conn.commit()
+        return self.get_context_entry(entry_id)
+
+    @_synchronized
+    def context_revisions(self, entry_id: str) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM project_context_revisions WHERE entry_id=? "
+            "ORDER BY version ASC", (entry_id,)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["snapshot"] = _load(d.get("snapshot"), {})
+            out.append(d)
+        return out
+
+    @staticmethod
+    def _row_to_context_entry(row: sqlite3.Row) -> dict:
+        entry = dict(row)
+        entry["tags"] = _load(entry.get("tags"), [])
+        entry["evidence_refs"] = _load(entry.get("evidence_refs"), [])
+        return entry
 
     def close(self) -> None:
         try:

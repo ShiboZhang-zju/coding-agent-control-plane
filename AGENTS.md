@@ -2,19 +2,40 @@
 
 给在这个仓库里工作的 AI Agent（以及人）的硬性约定。
 
+产品定位：**Project-Centric LD System**。Control Plane 是执行治理层，不是最终产品。
+分层见 [docs/PROJECT_CENTRIC_ROADMAP.md](docs/PROJECT_CENTRIC_ROADMAP.md)。
+
 ## 1. 边界
 
 - `adapters/base.py` **不得**出现任何厂商名、厂商状态字符串或厂商字段。
 - 厂商专有知识只允许出现在 `adapters/<vendor>/` 内（状态映射、REST 路径、磁盘布局、已知缺陷）。
-- 控制平面自身的东西（任务存储、幂等、验收、汇总）放在 `controlplane/`。
+- 控制平面自身的东西（任务存储、幂等、验收、汇总、项目上下文）放在 `controlplane/`。
 - 新接一个 Worker 时，只允许新增 `adapters/<vendor>/`，不允许改 `controlplane/` 的接口语义。
+
+### 1.1 分层职责（M1 引入，后续阶段沿用）
+
+| 层 | 允许做什么 | 不允许做什么 |
+|---|---|---|
+| `controlplane/project_context.py` | 存取项目知识、版本 CAS、验证状态、安全域 | 调用 LLM；读写 Worker；跨项目共享条目 |
+| `controlplane/context_builder.py` | 把知识渲染成 Effective Prompt；报告缺口 | import 任何 `adapters/<vendor>`；静默补全缺失事实 |
+| `controlplane/project_service.py` | 对 LD 暴露确定性查询/提交/工作区接口 | 判断任务成败（必须读 Ledger 的 verdict）；自动审批 |
+| `controlplane/plane.py` | 派发治理、审批、幂等、恢复 | 存业务知识；解释"项目目标" |
+
+- **Project Context 不是常驻 Agent。** 不得为每个项目起后台 LLM 进程。
+- **进度不得有第二份真相。** 任务状态只能从 Ledger 派生；`progress` 条目只能写
+  叙述性内容（阻塞、下一步），不得复制任务状态。
+- **不得假装支持远程执行。** `workspaces.node_id != 'local'` 时只能判为阻塞/不支持，
+  不得静默在本机执行。
 
 ## 2. 证据
 
 - 每条结论都要能指到一个 `evidence/**/*.json` 文件；没有证据的结论写"未验证"。
 - 证据文件写盘前必须脱敏（`password` / `token` / `authorization` / `cookie`）。
+  统一用 `sanitize_evidence.write_evidence()`，不要裸写 `json.dumps`。
 - 原始服务日志、完整 transcript 不入库（`.gitignore` 已排除）。
 - 不得手写、编造或"修复"证据内容；失败就是失败。
+- 重跑旧测试**覆盖**旧证据属于篡改历史：跑之前先备份，或跑完用 git 恢复旧文件，
+  只保留本轮新增的证据。
 
 ## 3. 术语（不可混用）
 
@@ -26,6 +47,10 @@
 | 工作流恢复 | 控制平面根据持久化状态判断"哪些步骤完成、哪些要重试、哪些要人工" |
 | 状态对账 | 重新查询真实状态并修复本地视图 |
 | 事件重放 | worker 侧能补发断线期间的事件 |
+| **项目上下文** | 独立于 Session 的持久知识（`project_context_entries`），不是聊天记录 |
+| **Effective Prompt** | 注入项目上下文后、真正派发给 Worker 的最终 Prompt |
+| **上下文版本** | 项目级单调递增计数器，派发时冻结，用于追溯"这个任务看到了哪些知识" |
+| **Session 交接** | 新 Session 依靠 Project Context 继续工作，而非复用旧会话 |
 
 ## 4. 状态判定
 
@@ -33,10 +58,38 @@
 - 验收必须基于 dispatch 时声明的产物断言（`ArtifactAssertion`）。
 - 没有断言的成功任务 → `inconclusive`，不许当通过。
 - 被拒绝/被停止/失联的任务 → 一律 `rejected`。
+- `pid_alive()` 返回 `None` 是"无法确认"，**不得**当作死亡：不释放并发容量、
+  不触发重试。三态（True/False/None）不可压缩成两态。
+- 持久化降级标记失败时，不得宣称"禁令跨重启生效"。
 
-## 5. 运行纪律
+## 5. 知识写入规则（M1 引入）
+
+- 条目必须指定 `kind`（`background` / `architecture` / `constraints` / `progress` /
+  `knowledge` / `decisions`）与 `verification`（`unverified` / `candidate` / `verified`）。
+- **Agent 自动产生的内容一律 `candidate`**，不得直接写 `verified`。
+- **提升为 `verified` 必须有 `evidence_refs`**，且每条都能指到实际存在的证据文件。
+- **`constraints` 的 `verified` 状态只能由人确认**（或 M2 的确定性规则 + 人工复核）。
+  未验证的约束可以被展示，但不得当作硬性安全策略执行。
+- 更新条目必须带 `expected_version`（CAS）；冲突时抛 `ContextVersionConflict`，
+  不得回退成静默覆盖。
+- 跨项目读写一律拒绝：`get_entry()` 发现 `project_id` 不匹配必须抛
+  `ContextError`，不得返回空结果。
+- `security_domain='local'` 的内容不得写入任何外部服务/外部模型调用。
+
+## 6. 派发与审批规则（M1 补充）
+
+- 入队即冻结 Effective Prompt。已入队任务的内容不得因上下文更新而改变。
+- `task_digest` 必须绑定实际执行内容；项目任务的 digest 还包含
+  `workspace_id` 与 `context_version`。
+- 任何改变实际派发内容（Prompt / 断言 / cwd / workspace / context_version）的改动，
+  必须使旧审批失效，不得复用。
+- 前置条件缺失时必须阻塞并报告缺口（`ContextBuildBlocked` / `built.gaps`），
+  不得编造缺失事实继续派发。
+
+## 7. 运行纪律
 
 - 长时间测试用 `scripts/detached.py`，不要占用交互式前台。
 - 不启动可见窗口的进程；服务用 `scripts/serve_ctl.py`（`DETACHED_PROCESS`）。
 - 测试结束必须停掉服务：`python scripts/serve_ctl.py stop`。
-- 不在 `sandbox/` 之外创建任何测试产物。
+- 不在 `sandbox/` 之外创建任何测试产物（临时 ledger 放 `.poc-state/`）。
+- 真实 Worker 集成测试与 stub 测试必须分开标注；stub 通过不代表真实派发通过。

@@ -41,19 +41,28 @@ DISPATCH_CLAIM_LEASE_S = 300.0
 
 
 def task_digest(prompt: str, policy: DispatchPolicy,
-                assertions: list[ArtifactAssertion], cwd: str) -> str:
+                assertions: list[ArtifactAssertion], cwd: str,
+                extra_scope: dict | None = None) -> str:
     """Content digest of *exactly* what will run.
 
     An approval binds to this digest, so editing the prompt/assertions/target after
     the human said "yes" invalidates the approval instead of silently reusing it.
+
+    ``extra_scope`` lets a caller bind additional execution facts into the digest
+    (M1 uses it for ``workspace_id`` and ``context_version``). It is omitted from
+    the payload when empty, so digests of pre-existing tasks are unchanged.
     """
-    payload = json.dumps({
+    payload: dict[str, Any] = {
         "prompt": prompt.strip(),
         "cwd": str(Path(cwd).resolve()),
         "policy": policy.to_dict(),
         "assertions": [a.to_dict() for a in assertions],
-    }, ensure_ascii=False, sort_keys=True)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
+    }
+    if extra_scope:
+        payload["scope"] = extra_scope
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:32]
 
 
 class ControlPlane:
@@ -209,8 +218,19 @@ class ControlPlane:
                 policy: DispatchPolicy | None = None, title: str = "",
                 idempotency_key: str = "", timeout_s: int = 900,
                 metadata: dict | None = None, priority: int = 0,
-                project_id: str | None = None) -> dict:
-        """Persist work for automatic Runtime dispatch without calling a Worker."""
+                project_id: str | None = None,
+                workspace_id: str | None = None,
+                original_task: str | None = None,
+                context_version: int | None = None,
+                context_entry_refs: list[str] | None = None,
+                digest_scope: dict | None = None) -> dict:
+        """Persist work for automatic Runtime dispatch without calling a Worker.
+
+        The ``workspace_id`` / ``original_task`` / ``context_*`` / ``digest_scope``
+        arguments are the project-centric seam (M1). They are all optional: a
+        caller that omits them gets exactly the pre-M1 behaviour, including an
+        unchanged ``task_digest``.
+        """
         self.store.assert_writable("enqueue")
         assertions = assertions or []
         cwd, project = self.resolve_project_for_cwd(cwd, project_id)
@@ -223,7 +243,7 @@ class ControlPlane:
                 out["deduplicated"] = True
                 return out
 
-        digest = task_digest(prompt, policy, assertions, cwd)
+        digest = task_digest(prompt, policy, assertions, cwd, extra_scope=digest_scope)
         approval = (self.store.valid_approval_by_digest(digest)
                     if policy.requires_approval() else None)
         queue_status = "ready" if (not policy.requires_approval() or approval) else "needs_approval"
@@ -231,7 +251,10 @@ class ControlPlane:
             self.store.new_task_id(), prompt, cwd, assertions, policy, title,
             idempotency_key, {**(metadata or {}), "timeout_s": timeout_s}, risks,
             queue_status=queue_status, priority=priority, digest=digest,
-            project_id=(project or {}).get("id"))
+            project_id=(project or {}).get("id"),
+            workspace_id=workspace_id, original_task=original_task,
+            context_version=context_version,
+            context_entry_refs=context_entry_refs)
         record, created = self.store.create_work_item(record)
         if not created:
             out = dict(record)
@@ -243,6 +266,10 @@ class ControlPlane:
             "adapter": self.adapter.name, "priority": priority,
             "queue_status": queue_status, "risk": policy.effective_risk(),
             "project_id": (project or {}).get("id"),
+            "workspace_id": workspace_id,
+            "context_version": context_version,
+            "context_entry_refs": list(context_entry_refs or []),
+            "context_injected": original_task is not None,
         })
         if queue_status == "needs_approval":
             pending = [a for a in self.store.all_approvals()
@@ -297,7 +324,11 @@ class ControlPlane:
                     assertions: list[ArtifactAssertion], policy: DispatchPolicy,
                     title: str, idempotency_key: str, metadata: dict | None,
                     risks: list[str], *, queue_status: str, priority: int,
-                    digest: str, project_id: str | None) -> dict:
+                    digest: str, project_id: str | None,
+                    workspace_id: str | None = None,
+                    original_task: str | None = None,
+                    context_version: int | None = None,
+                    context_entry_refs: list[str] | None = None) -> dict:
         return {
             "task_id": task_id, "title": title or prompt[:60], "prompt": prompt,
             "cwd": cwd, "mode": policy.mode, "isolation": policy.isolation,
@@ -309,7 +340,30 @@ class ControlPlane:
             "adapter": self.adapter.name, "queue_status": queue_status,
             "priority": priority, "task_digest": digest,
             "project_id": project_id,
+            # Project-centric provenance (M1). ``prompt`` is the frozen effective
+            # prompt; ``original_task`` is what the caller actually asked for.
+            "workspace_id": workspace_id,
+            "original_task": original_task,
+            "effective_prompt": prompt if original_task is not None else None,
+            "context_version": context_version,
+            "context_entry_refs": list(context_entry_refs or []),
         }
+
+    @staticmethod
+    def _digest_scope(record: dict) -> dict:
+        """Execution facts that must be bound into the approval digest.
+
+        Empty for a pre-M1 task, so its digest is byte-identical to before. For a
+        project task it pins the workspace and the context version: re-pointing the
+        task at another workspace, or re-injecting a different context, changes the
+        digest and therefore invalidates any approval granted for the old content.
+        """
+        scope: dict[str, Any] = {}
+        if record.get("workspace_id"):
+            scope["workspace_id"] = record["workspace_id"]
+        if record.get("context_version") is not None:
+            scope["context_version"] = record["context_version"]
+        return scope
 
     @staticmethod
     def _project_policy(project: dict | None) -> DispatchPolicy | None:
@@ -344,8 +398,23 @@ class ControlPlane:
                 "cwd": canonical_cwd})
         policy = DispatchPolicy(**(record.get("policy") or {}))
         assertions = [ArtifactAssertion(**a) for a in record.get("assertions") or []]
-        digest = record.get("task_digest") or task_digest(
-            record["prompt"], policy, assertions, record["cwd"])
+        # Recompute the digest from what is *actually* about to run, including the
+        # project-centric scope (workspace + context version). If the stored digest
+        # no longer matches, the content was edited after approval: the recomputed
+        # digest will not match the old approval, so the approval cannot be reused.
+        scope = self._digest_scope(record)
+        digest = task_digest(record["prompt"], policy, assertions, record["cwd"],
+                             extra_scope=scope)
+        stored_digest = record.get("task_digest")
+        if stored_digest and stored_digest != digest:
+            self.store.append_event(task_id, "dispatch_content_changed", {
+                "stored_digest": stored_digest, "actual_digest": digest,
+                "scope": scope,
+                "note": "content or execution scope changed after approval; "
+                        "the previous approval no longer applies"})
+            self.store.update(task_id, task_digest=digest)
+            record = self.store.get(task_id) or record
+            approval = None
         if policy.requires_approval() and not approval:
             approval = self._matching_approval(policy, digest, record["cwd"], required=True)
 
@@ -480,18 +549,26 @@ class ControlPlane:
                              assertions: list[ArtifactAssertion] | None = None,
                              policy: DispatchPolicy | None = None,
                              note: str = "",
-                             project_id: str | None = None) -> dict:
-        """Create a pending approval for the exact content that would be dispatched."""
+                             project_id: str | None = None,
+                             digest_scope: dict | None = None) -> dict:
+        """Create a pending approval for the exact content that would be dispatched.
+
+        ``digest_scope`` must match what :meth:`enqueue` / :meth:`dispatch` will
+        bind, otherwise the approval will not match the task it was meant for.
+        """
         self.store.assert_writable("request_approval")
         assertions = assertions or []
         cwd, project = self.resolve_project_for_cwd(cwd, project_id)
         policy = policy or self._project_policy(project) or self.policy
         policy.validate()
-        digest = task_digest(prompt, policy, assertions, cwd)
+        digest = task_digest(prompt, policy, assertions, cwd,
+                             extra_scope=digest_scope)
         scope = {"risk": policy.effective_risk(), "cwd": str(Path(cwd).resolve()),
                  "project_id": (project or {}).get("id"),
                  "policy": policy.to_dict(),
                  "assertions": [a.to_dict() for a in assertions]}
+        if digest_scope:
+            scope["execution_scope"] = dict(digest_scope)
         rec = self.store.request_approval("", digest, scope, note=note)
         return {"approval_id": rec["id"], "digest": digest, "scope": scope,
                 "status": "pending"}
@@ -778,16 +855,24 @@ class ControlPlane:
     def _process_alive(self, pid: int | None) -> bool | None:
         """Independent liveness evidence (never from a failed query).
 
-        Returns None when there is no pid to probe or the adapter cannot answer:
-        absence of evidence, not evidence of death.
+        Three-state contract (review P0, T27):
+          True  -> the OS confirms the process is alive.
+          False -> reliable evidence the process is dead.
+          None  -> cannot tell (no pid, no probe, probe raised, probe returned
+                   None). ``None`` must never be coerced to ``False``: doing so
+                   turns "unknown" into "proven dead", which releases the
+                   concurrency slot and authorises a blind retry.
         """
         probe = getattr(self.adapter, "pid_alive", None)
         if not callable(probe) or not pid:
             return None
         try:
-            return bool(probe(pid))
+            answer = probe(pid)
         except Exception:  # noqa: BLE001
             return None
+        if answer is None:
+            return None
+        return bool(answer)
 
     def _assess_lost(self, task: dict, jid: str | None, reason: str,
                      *, snap_pid: int | None = None) -> tuple[dict, str]:

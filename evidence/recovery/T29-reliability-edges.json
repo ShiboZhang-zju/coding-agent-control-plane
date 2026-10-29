@@ -1,0 +1,53 @@
+{
+  "test": "T29-reliability-edges",
+  "A_pid_tristate": {
+    "none_answer": {
+      "state": "running",
+      "queue_status": "running",
+      "suspected_lost": true,
+      "capacity_retained": true
+    },
+    "raising_probe": {
+      "state": "running",
+      "suspected_lost": true,
+      "capacity_retained": true
+    },
+    "false_answer": {
+      "state": "lost",
+      "verdict": "rejected",
+      "queue_status": "complete",
+      "capacity_released": true
+    },
+    "pass": true
+  },
+  "B_marker_write_failure": {
+    "degraded": true,
+    "marker_error_recorded": true,
+    "reason_admits_process_local": true,
+    "marker_on_disk": false,
+    "pass": true
+  },
+  "C_recovery_io": {
+    "degraded_before": true,
+    "audit_write_failure": "refused",
+    "still_degraded_after_audit_failure": true,
+    "marker_unlink_failure": "refused",
+    "still_degraded_after_unlink_failure": true,
+    "healthy_recovery": true,
+    "marker_gone": true,
+    "clean_after_restart": true,
+    "pass": true
+  },
+  "D_marker_unreadable": {
+    "degraded": true,
+    "reason_mentions_unreadable": true,
+    "pass": true
+  },
+  "pass": {
+    "A_pid_tristate": true,
+    "B_marker_write_failure": true,
+    "C_recovery_io": true,
+    "D_marker_unreadable": true
+  },
+  "result": "Pass"
+}
