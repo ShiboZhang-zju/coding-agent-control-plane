@@ -27,7 +27,7 @@ from adapters.base import (
     Verdict,
 )
 from controlplane.context_update import ProjectContextUpdateLoop
-from controlplane.store import TaskStore
+from controlplane.store import SessionBindingError, TaskStore
 from controlplane.verify import capture_baseline, check_all, side_effects, verdict_for
 
 
@@ -70,12 +70,23 @@ class ControlPlane:
     def __init__(self, adapter, store: TaskStore | None = None,
                  policy: DispatchPolicy | None = None, *,
                  require_registered_projects: bool = False,
-                 context_updates: ProjectContextUpdateLoop | None = None):
+                 context_updates: ProjectContextUpdateLoop | None = None,
+                 node_id: str = "local",
+                 worker_instance_id: str | None = None):
+        if node_id != "local":
+            raise ValueError(
+                f"execution node {node_id!r} is not supported; remote dispatch is M5")
         self.adapter = adapter
         self.store = store or TaskStore()
         self.policy = policy or DispatchPolicy()
         self.require_registered_projects = require_registered_projects
         self.context_updates = context_updates or ProjectContextUpdateLoop(self.store)
+        self.node_id = node_id
+        # M3 has one local Worker instance per Adapter unless deployment config
+        # supplies a stronger stable identity.  Never use a random process UUID:
+        # the registry must remain meaningful after restart.
+        self.worker_instance_id = (worker_instance_id
+                                   or f"{node_id}-{adapter.name}-default")
 
     # ------------------------------------------------------------------ #
     # projects / path boundary
@@ -366,6 +377,9 @@ class ControlPlane:
             scope["workspace_id"] = record["workspace_id"]
         if record.get("context_version") is not None:
             scope["context_version"] = record["context_version"]
+        handoff = (record.get("metadata") or {}).get("handoff_signature")
+        if handoff:
+            scope["handoff_signature"] = handoff
         return scope
 
     @staticmethod
@@ -399,6 +413,19 @@ class ControlPlane:
             self.store.append_event(task_id, "project_boundary_checked", {
                 "project_id": project["id"], "root": project["root"],
                 "cwd": canonical_cwd})
+        if record.get("workspace_id"):
+            workspace = self.store.get_workspace(record["workspace_id"])
+            if not workspace:
+                raise ValueError(f"workspace was deleted: {record['workspace_id']}")
+            if workspace.get("project_id") != record.get("project_id"):
+                raise ValueError(
+                    f"workspace {workspace['id']} belongs to another project")
+            if not workspace.get("active"):
+                raise ValueError(f"workspace is inactive: {workspace['id']}")
+            if workspace.get("node_id") != self.node_id:
+                raise ValueError(
+                    f"workspace {workspace['id']} is on node "
+                    f"{workspace.get('node_id')!r}; remote dispatch is not implemented")
         policy = DispatchPolicy(**(record.get("policy") or {}))
         assertions = [ArtifactAssertion(**a) for a in record.get("assertions") or []]
         # Recompute the digest from what is *actually* about to run, including the
@@ -545,7 +572,7 @@ class ControlPlane:
                 warnings=list(out.get("warnings") or []) + [
                     f"POST_DISPATCH_OBSERVATION_FAILED:{type(exc).__name__}"],
                 queue_status="running")
-        return self.store.update(task_id, **self._snapshot_patch(task_id, snap))
+        return self._save_snapshot(task_id, snap)
 
     # ------------------------------------------------------------------ #
     # approval gating
@@ -687,7 +714,7 @@ class ControlPlane:
                 return self.store.update(
                     task_id, warnings=list(bound.get("warnings") or []) + [
                         f"POST_RESOLUTION_OBSERVATION_FAILED:{type(exc).__name__}"])
-            saved = self.store.update(task_id, **self._snapshot_patch(task_id, snap))
+            saved = self._save_snapshot(task_id, snap)
             self._sync_project_context(saved)
             return saved
 
@@ -804,7 +831,7 @@ class ControlPlane:
             patch = self._snapshot_patch(task["task_id"], snap)
             if patch["state"] == TaskState.LOST.value:
                 patch = self._confirm_lost(task, snap, patch)
-            saved = self.store.update(task["task_id"], **patch)
+            saved = self._save_snapshot(task["task_id"], snap, patch=patch)
             context_update = self._sync_project_context(saved)
             item = {"task_id": task["task_id"], "worker_job_id": jid,
                     "state": patch["state"], "verdict": patch["verdict"]}
@@ -1025,9 +1052,10 @@ class ControlPlane:
 
         # Agent tasks run inside a git worktree: artifacts must be verified there,
         # not in the (possibly stale) main checkout.
-        wt = snap.worktree
+        wt = snap.worktree or rec.get("worktree")
         in_worktree = bool(wt) and Path(wt).exists()
-        eval_cwd = wt if in_worktree else snap.cwd
+        observed_cwd = snap.cwd or rec.get("cwd")
+        eval_cwd = wt if in_worktree else observed_cwd
         eval_baseline = baseline
         if in_worktree and baseline:
             eval_baseline = {**baseline, "cwd": wt, "status": "",
@@ -1035,9 +1063,9 @@ class ControlPlane:
 
         results = check_all(eval_cwd, assertions, eval_baseline) if eval_cwd else []
         violations: list[dict] = []
-        if snap.cwd:
+        if observed_cwd:
             declared = [a.target for a in assertions if a.kind in ("file_exists", "file_contains")]
-            violations += side_effects(snap.cwd, baseline, allowed_paths=declared,
+            violations += side_effects(observed_cwd, baseline, allowed_paths=declared,
                                        allowed_prefixes=(".codebuddy/",))
         verdict = verdict_for(snap.state, snap.state is not TaskState.UNKNOWN, results, violations)
 
@@ -1045,11 +1073,14 @@ class ControlPlane:
             "state": snap.state.value,
             "verdict": verdict.value,
             "queue_status": self._queue_status_for(snap.state),
-            "session_id": snap.session_id,
+            # Session/worktree/checkpoint fields are provenance.  Some Workers
+            # omit them from later/terminal snapshots; absence is not evidence
+            # that an already observed identity disappeared.
+            "session_id": snap.session_id or rec.get("session_id"),
             "pid": snap.pid,
-            "worktree": snap.worktree,
-            "branch": snap.branch,
-            "head_commit": snap.commit,
+            "worktree": snap.worktree or rec.get("worktree"),
+            "branch": snap.branch or rec.get("branch"),
+            "head_commit": snap.commit or rec.get("head_commit"),
             "detail": snap.detail,
             "started_at": snap.started_at,
             "finished_at": snap.finished_at,
@@ -1062,6 +1093,40 @@ class ControlPlane:
                 "SIDE_EFFECT:" + v["type"] + ":" + str(v.get("repo") or v.get("cwd"))
                 for v in violations]
         return patch
+
+    def _save_snapshot(self, task_id: str, snap: TaskSnapshot, *,
+                       patch: dict | None = None) -> dict:
+        """Persist a Snapshot and register its real Session observation.
+
+        All Snapshot write paths go through this helper so restart recovery,
+        refresh, cancel and resume cannot update ``work_items.session_id`` while
+        leaving the project Session Registry stale.
+        """
+        saved = self.store.update(
+            task_id, **(patch if patch is not None else self._snapshot_patch(task_id, snap)))
+        if not saved.get("project_id") or not snap.session_id:
+            return saved
+        try:
+            self.store.observe_session_reference(
+                work_item_id=task_id,
+                worker_job_id=snap.worker_job_id or "",
+                node_id=self.node_id,
+                worker_instance_id=self.worker_instance_id,
+                adapter=self.adapter.name,
+                session_id=snap.session_id)
+        except SessionBindingError as exc:
+            # The WorkItem snapshot remains durable, but registry ambiguity is a
+            # human-visible integrity problem.  Never overwrite the first binding.
+            self.store.append_event(task_id, "session_binding_conflict", {
+                "worker_job_id": snap.worker_job_id,
+                "session_id": snap.session_id,
+                "error": f"{type(exc).__name__}: {exc}",
+            }, attempt_id=saved.get("current_attempt_id"))
+            saved = self.store.update(
+                task_id, queue_status="needs_human",
+                warnings=list(saved.get("warnings") or []) + [
+                    f"SESSION_BINDING_CONFLICT:{type(exc).__name__}:{exc}"])
+        return saved
 
     @staticmethod
     def _queue_status_for(state: TaskState) -> str:
@@ -1082,7 +1147,7 @@ class ControlPlane:
             raise KeyError(f"no worker job for {task_id}")
         snap = self.adapter.cancel(jid)
         self.store.append_event(task_id, "cancel_requested", {"worker_job_id": jid})
-        saved = self.store.update(task_id, **self._snapshot_patch(task_id, snap))
+        saved = self._save_snapshot(task_id, snap)
         self._sync_project_context(saved)
         return saved
 
@@ -1095,8 +1160,9 @@ class ControlPlane:
         new_job = snap.worker_job_id
         self.store.append_event(task_id, "resume", {"from_job": old_job, "to_job": new_job})
         self.store.add_attempt(task_id, new_job, reason=f"resume from {old_job}")
-        return self.store.update(task_id, worker_job_id=new_job,
-                                 **self._snapshot_patch(task_id, snap))
+        # The Attempt must exist before binding the Snapshot's session.
+        self.store.update(task_id, worker_job_id=new_job)
+        return self._save_snapshot(task_id, snap)
 
     def respawn(self, task_id: str) -> dict:
         self.store.assert_writable("respawn")
@@ -1107,8 +1173,8 @@ class ControlPlane:
         self.store.append_event(task_id, "respawn", {"from_job": old_job, "to_job": new_job})
         if new_job and new_job != old_job:
             self.store.add_attempt(task_id, new_job, reason=f"respawn from {old_job}")
-        return self.store.update(task_id, worker_job_id=new_job or old_job,
-                                 **self._snapshot_patch(task_id, snap))
+        self.store.update(task_id, worker_job_id=new_job or old_job)
+        return self._save_snapshot(task_id, snap)
 
     def request_approval(self, task_id: str, decision: str, note: str = "") -> dict:
         """Record a human decision in the ledger.

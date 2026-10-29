@@ -18,6 +18,7 @@
 |---|---|---|
 | `controlplane/project_context.py` | 存取项目知识、版本 CAS、验证状态、安全域 | 调用 LLM；读写 Worker；跨项目共享条目 |
 | `controlplane/context_builder.py` | 把知识渲染成 Effective Prompt；报告缺口 | import 任何 `adapters/<vendor>`；静默补全缺失事实 |
+| `controlplane/handoff.py` | 只读准备交接；校验来源/Session/checkpoint/目标 Workspace | 调用 Worker；写 Ledger；自动 merge/rebase |
 | `controlplane/project_service.py` | 对 LD 暴露确定性查询/提交/工作区接口 | 判断任务成败（必须读 Ledger 的 verdict）；自动审批 |
 | `controlplane/plane.py` | 派发治理、审批、幂等、恢复 | 存业务知识；解释"项目目标" |
 
@@ -87,11 +88,27 @@
   `ProjectService.get_project_progress()` 从 Ledger 派生。
 - 自动回写失败不得回滚或改写已持久化的验收 verdict；记录失败事件，允许显式重放。
 
+### 5.2 Session 登记与交接规则（M3 引入）
+
+- SessionReference 只能来自含真实 `session_id + worker_job_id` 的 Snapshot；禁止在
+  enqueue 时写 NULL 占位行。
+- Attempt 必须通过 Snapshot 的 `worker_job_id` 查找，不得盲用
+  `current_attempt_id`；同一 Attempt 观测到不同 Session 必须显式冲突，不得覆盖。
+- Handoff 是一个带来源、checkpoint 和冻结上下文的普通 WorkItem；不得新建
+  第二套 handoff 任务表、状态机或验收真相。
+- `prepare_handoff()` 必须只读、确定性、不调 Worker；`submit_handoff()` 提交前
+  重做关键校验，且来源信息必须随 WorkItem 创建原子落入 metadata。
+- `needs_merge` 不得自动选边；checkpoint 不得自动 merge/rebase。目标 Workspace
+  未包含 checkpoint 时必须阻塞或由人显式选择兼容 Workspace。
+- Handoff 幂等键同时绑定 `handoff_signature`：同 key + 异 signature 必须报冲突。
+- 不得把 stub/SQLite 行为宣称为真实 Worker 交接成功。真实双 Session 接续
+  未执行前，M3 只能写“功能已实现、未验证”。
+
 ## 6. 派发与审批规则（M1 补充）
 
 - 入队即冻结 Effective Prompt。已入队任务的内容不得因上下文更新而改变。
 - `task_digest` 必须绑定实际执行内容；项目任务的 digest 还包含
-  `workspace_id` 与 `context_version`。
+  `workspace_id` 与 `context_version`，Handoff 任务还要包含 `handoff_signature`。
 - 任何改变实际派发内容（Prompt / 断言 / cwd / workspace / context_version）的改动，
   必须使旧审批失效，不得复用。
 - 前置条件缺失时必须阻塞并报告缺口（`ContextBuildBlocked` / `built.gaps`），

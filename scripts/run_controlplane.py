@@ -33,6 +33,10 @@ def main() -> int:
                     help="loopback worker HTTP base URL")
     ap.add_argument("--ledger", type=Path, default=None,
                     help="SQLite ledger path (default: .poc-state/ledger.db)")
+    ap.add_argument("--node-id", default="local", choices=["local"],
+                    help="stable execution node identity (M3; only local is executable)")
+    ap.add_argument("--worker-instance-id", default=None,
+                    help="stable Worker instance identity persisted in SessionReference")
     ap.add_argument("--known-interval", type=float, default=5.0)
     ap.add_argument("--scan-interval", type=float, default=60.0)
     ap.add_argument("--dispatch-interval", type=float, default=0.5)
@@ -48,7 +52,9 @@ def main() -> int:
     runtime = None
     try:
         adapter = CodeBuddyAdapter(Api(base=args.base), autologin=True)
-        plane = ControlPlane(adapter, store, require_registered_projects=True)
+        plane = ControlPlane(
+            adapter, store, require_registered_projects=True,
+            node_id=args.node_id, worker_instance_id=args.worker_instance_id)
         runtime = ControlPlaneRuntime(
             plane,
             RuntimeConfig(
@@ -78,6 +84,8 @@ def main() -> int:
         print(json.dumps({
             "event": "runtime_starting",
             "worker": adapter.name,
+            "node_id": plane.node_id,
+            "worker_instance_id": plane.worker_instance_id,
             "ledger": str(store.path),
             "known_interval_s": args.known_interval,
             "orphan_scan_interval_s": args.scan_interval,

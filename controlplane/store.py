@@ -16,8 +16,9 @@ projects(id, name, root UNIQUE, default_adapter, policy_json,
          concurrency_limit, active, created_at, updated_at)
 workspaces(id, project_id, node_id, local_root, adapter, capabilities_json,
            is_default, active, created_at, updated_at)
-session_references(id, project_id, workspace_id, worker_instance_id, adapter,
-                   session_id, work_item_id, attempt_id, created_at, updated_at)
+session_references(id, project_id, workspace_id, node_id, worker_instance_id,
+                   adapter, session_id, work_item_id, attempt_id, created_at,
+                   updated_at)
 project_context_entries(id, project_id, kind, title, body, tags_json,
                         verification, security_domain, source, evidence_refs_json,
                         version, created_at, updated_at)
@@ -74,6 +75,14 @@ class LedgerDegraded(RuntimeError):
     in that state can duplicate real work, therefore everything that changes state is
     refused; only reads, diagnostics and export stay available.
     """
+
+
+class SessionBindingError(ValueError):
+    """A Snapshot cannot be bound to the claimed project/task/attempt chain."""
+
+
+class SessionBindingConflict(SessionBindingError):
+    """One attempt was already bound to a different immutable session identity."""
 
 
 JSON_FIELDS = ("policy", "assertions", "baseline", "warnings", "metadata",
@@ -178,6 +187,7 @@ CREATE TABLE IF NOT EXISTS session_references (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
     workspace_id TEXT,
+    node_id TEXT,
     worker_instance_id TEXT,
     adapter TEXT,
     session_id TEXT,
@@ -188,6 +198,16 @@ CREATE TABLE IF NOT EXISTS session_references (
 );
 CREATE INDEX IF NOT EXISTS idx_session_refs_project
     ON session_references(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_session_refs_lookup
+    ON session_references(project_id, worker_instance_id, adapter, session_id);
+CREATE TRIGGER IF NOT EXISTS trg_session_ref_attempt_insert
+BEFORE INSERT ON session_references
+WHEN NEW.attempt_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM session_references WHERE attempt_id=NEW.attempt_id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'attempt already has a session reference');
+END;
 CREATE TABLE IF NOT EXISTS project_context_entries (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
@@ -459,6 +479,7 @@ class TaskStore:
                            "original_task": "TEXT", "effective_prompt": "TEXT",
                            "context_version": "INTEGER",
                            "context_entry_refs": "TEXT"},
+            "session_references": {"node_id": "TEXT"},
         }
         for table, wanted in tables.items():
             have = {r["name"] for r in
@@ -478,6 +499,21 @@ class TaskStore:
         self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_work_items_project "
             "ON work_items(project_id, queue_status, priority DESC, created_at ASC)")
+        # An Attempt has exactly one observed Session.  The partial index leaves
+        # old M1 placeholder rows (attempt_id=NULL) untouched while making new
+        # observations safe across multiple control-plane processes.
+        try:
+            self._conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_session_ref_attempt "
+                "ON session_references(attempt_id) WHERE attempt_id IS NOT NULL")
+        except sqlite3.IntegrityError:
+            # Do not delete or guess between conflicting historical rows.  The
+            # strict write path below still refuses ambiguity; operators can
+            # inspect rows marked by session_references().
+            pass
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_refs_lookup "
+            "ON session_references(project_id, worker_instance_id, adapter, session_id)")
         self._conn.commit()
         self._backfill_default_workspaces()
 
@@ -810,6 +846,12 @@ class TaskStore:
             "ORDER BY is_default DESC LIMIT 1", (project_id, local_root)).fetchone()
         return self._row_to_workspace(row) if row else None
 
+    @_synchronized
+    def get_workspace(self, workspace_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM workspaces WHERE id=?", (workspace_id,)).fetchone()
+        return self._row_to_workspace(row) if row else None
+
     @staticmethod
     def _row_to_workspace(row: sqlite3.Row) -> dict:
         workspace = dict(row)
@@ -820,44 +862,223 @@ class TaskStore:
 
     @_synchronized
     def record_session_reference(self, project_id: str, *, workspace_id: str | None,
+                                 node_id: str = "local",
                                  worker_instance_id: str | None, adapter: str | None,
                                  session_id: str | None, work_item_id: str | None,
                                  attempt_id: str | None) -> dict:
-        """Upsert the (project, session) link so continuity never depends on a live session."""
+        """Record one fully observed session binding.
+
+        M1 used this method to write NULL placeholders before a Worker existed.
+        Those rows were not sessions and could later overwrite Attempt history.
+        M3 deliberately rejects incomplete calls; callers must bind from a real
+        Snapshot through :meth:`observe_session_reference`.
+        """
+        if not all((workspace_id, worker_instance_id, adapter, session_id,
+                    work_item_id, attempt_id)):
+            raise SessionBindingError(
+                "a session reference requires project/workspace/node/worker/adapter/"
+                "session/work-item/attempt; enqueue-time placeholders are forbidden")
+        attempt = self._conn.execute(
+            "SELECT work_item_id, worker_job_id FROM attempts WHERE id=?",
+            (attempt_id,)).fetchone()
+        if not attempt or not attempt["worker_job_id"]:
+            raise SessionBindingError(
+                f"attempt {attempt_id} has no observed worker job")
+        if attempt["work_item_id"] != work_item_id:
+            raise SessionBindingError(
+                f"attempt {attempt_id} belongs to {attempt['work_item_id']}, "
+                f"not {work_item_id}")
+        item = self._conn.execute(
+            "SELECT project_id, workspace_id FROM work_items WHERE id=?",
+            (work_item_id,)).fetchone()
+        workspace = self._conn.execute(
+            "SELECT project_id, node_id FROM workspaces WHERE id=?",
+            (workspace_id,)).fetchone()
+        if (not item or item["project_id"] != project_id
+                or item["workspace_id"] != workspace_id):
+            raise SessionBindingError(
+                "requested project/workspace does not match the WorkItem ownership")
+        if (not workspace or workspace["project_id"] != project_id
+                or workspace["node_id"] != node_id):
+            raise SessionBindingError(
+                "requested project/node does not match the Workspace ownership")
+        result = self.observe_session_reference(
+            work_item_id=work_item_id, worker_job_id=attempt["worker_job_id"],
+            node_id=node_id, worker_instance_id=worker_instance_id,
+            adapter=adapter, session_id=session_id)
+        return result
+
+    @_synchronized
+    def observe_session_reference(self, *, work_item_id: str,
+                                  worker_job_id: str,
+                                  node_id: str,
+                                  worker_instance_id: str,
+                                  adapter: str,
+                                  session_id: str) -> dict:
+        """Atomically bind a real Snapshot to its exact Attempt.
+
+        ``worker_job_id`` is the lookup key on purpose.  Using the WorkItem's
+        ``current_attempt_id`` would attach a late Snapshot to a newer retry.
+        Every ownership edge is checked before insert, and an Attempt's session
+        identity is immutable once observed.
+        """
+        self.assert_writable("observe_session_reference")
+        if not all((work_item_id, worker_job_id, node_id, worker_instance_id,
+                    adapter, session_id)):
+            raise SessionBindingError("observed session binding fields must not be empty")
+
+        item = self._conn.execute(
+            "SELECT id, project_id, workspace_id, adapter FROM work_items WHERE id=?",
+            (work_item_id,)).fetchone()
+        if not item:
+            raise SessionBindingError(f"no work item {work_item_id}")
+        project_id = item["project_id"]
+        workspace_id = item["workspace_id"]
+        if not project_id or not workspace_id:
+            raise SessionBindingError(
+                f"work item {work_item_id} is not bound to a project workspace")
+
+        project = self._conn.execute(
+            "SELECT id FROM projects WHERE id=?", (project_id,)).fetchone()
+        workspace = self._conn.execute(
+            "SELECT id, project_id, node_id FROM workspaces WHERE id=?",
+            (workspace_id,)).fetchone()
+        attempt = self._conn.execute(
+            "SELECT id, work_item_id, worker_job_id FROM attempts "
+            "WHERE worker_job_id=? ORDER BY created_at DESC LIMIT 1",
+            (worker_job_id,)).fetchone()
+        if not project:
+            raise SessionBindingError(f"session binding project was deleted: {project_id}")
+        if not workspace:
+            raise SessionBindingError(f"session binding workspace was deleted: {workspace_id}")
+        if workspace["project_id"] != project_id:
+            raise SessionBindingError(
+                f"workspace {workspace_id} belongs to {workspace['project_id']}, not {project_id}")
+        if workspace["node_id"] != node_id:
+            raise SessionBindingError(
+                f"workspace {workspace_id} is on node {workspace['node_id']!r}, "
+                f"not observed node {node_id!r}")
+        if not attempt:
+            raise SessionBindingError(f"no attempt for worker job {worker_job_id}")
+        if attempt["work_item_id"] != work_item_id:
+            raise SessionBindingError(
+                f"worker job {worker_job_id} belongs to work item "
+                f"{attempt['work_item_id']}, not {work_item_id}")
+        if item["adapter"] and item["adapter"] != adapter:
+            raise SessionBindingError(
+                f"work item adapter {item['adapter']!r} does not match {adapter!r}")
+
+        return self._record_observed_session(
+            project_id=project_id, workspace_id=workspace_id, node_id=node_id,
+            worker_instance_id=worker_instance_id, adapter=adapter,
+            session_id=session_id, work_item_id=work_item_id,
+            attempt_id=attempt["id"])
+
+    def _record_observed_session(self, *, project_id: str, workspace_id: str,
+                                 node_id: str, worker_instance_id: str,
+                                 adapter: str, session_id: str,
+                                 work_item_id: str, attempt_id: str) -> dict:
+        """Insert/update after ownership validation; caller holds ``_lock``."""
         self.assert_writable("record_session_reference")
         now = time.time()
-        existing = None
-        if session_id:
-            existing = self._conn.execute(
-                "SELECT * FROM session_references WHERE project_id=? AND session_id=? "
-                "AND COALESCE(work_item_id,'')=? ORDER BY created_at DESC LIMIT 1",
-                (project_id, session_id, work_item_id or "")).fetchone()
+        existing = self._conn.execute(
+            "SELECT * FROM session_references WHERE attempt_id=? "
+            "ORDER BY created_at ASC LIMIT 1", (attempt_id,)).fetchone()
+        expected = {
+            "project_id": project_id, "workspace_id": workspace_id,
+            "node_id": node_id, "worker_instance_id": worker_instance_id,
+            "adapter": adapter, "session_id": session_id,
+            "work_item_id": work_item_id, "attempt_id": attempt_id,
+        }
         if existing:
+            mismatches = {
+                key: (existing[key], value) for key, value in expected.items()
+                if existing[key] != value
+            }
+            if mismatches:
+                raise SessionBindingConflict(
+                    f"attempt {attempt_id} already has another session binding: {mismatches}")
             self._conn.execute(
-                "UPDATE session_references SET workspace_id=?, worker_instance_id=?,"
-                " adapter=?, attempt_id=?, updated_at=? WHERE id=?",
-                (workspace_id, worker_instance_id, adapter, attempt_id, now,
-                 existing["id"]))
-            ref_id = existing["id"]
-        else:
-            ref_id = "sr-" + uuid.uuid4().hex[:10]
+                "UPDATE session_references SET updated_at=? WHERE id=?",
+                (now, existing["id"]))
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT * FROM session_references WHERE id=?", (existing["id"],)).fetchone()
+            return dict(row)
+
+        ref_id = "sr-" + uuid.uuid4().hex[:10]
+        try:
             self._conn.execute(
-                "INSERT INTO session_references (id, project_id, workspace_id,"
+                "INSERT INTO session_references (id, project_id, workspace_id, node_id,"
                 " worker_instance_id, adapter, session_id, work_item_id, attempt_id,"
-                " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (ref_id, project_id, workspace_id, worker_instance_id, adapter,
-                 session_id, work_item_id, attempt_id, now, now))
-        self._conn.commit()
+                " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (ref_id, project_id, workspace_id, node_id, worker_instance_id,
+                 adapter, session_id, work_item_id, attempt_id, now, now))
+            self._conn.commit()
+        except sqlite3.IntegrityError:
+            # Another process may have won the unique-attempt race.  Re-read and
+            # apply the same immutable comparison instead of silently accepting it.
+            self._conn.rollback()
+            raced = self._conn.execute(
+                "SELECT * FROM session_references WHERE attempt_id=? "
+                "ORDER BY created_at ASC LIMIT 1", (attempt_id,)).fetchone()
+            if raced and all(raced[key] == value for key, value in expected.items()):
+                return dict(raced)
+            raise SessionBindingConflict(
+                f"attempt {attempt_id} was concurrently bound to another session")
         row = self._conn.execute(
             "SELECT * FROM session_references WHERE id=?", (ref_id,)).fetchone()
         return dict(row)
 
     @_synchronized
+    def session_reference_for_attempt(self, attempt_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM session_references WHERE attempt_id=? "
+            "ORDER BY created_at ASC LIMIT 1", (attempt_id,)).fetchone()
+        return dict(row) if row else None
+
+    @_synchronized
     def session_references(self, project_id: str, limit: int = 50) -> list[dict]:
         rows = self._conn.execute(
-            "SELECT * FROM session_references WHERE project_id=? "
-            "ORDER BY created_at DESC LIMIT ?", (project_id, limit)).fetchall()
-        return [dict(row) for row in rows]
+            "SELECT sr.*, p.id AS linked_project, w.project_id AS workspace_project, "
+            "w.node_id AS workspace_node, wi.project_id AS work_item_project, "
+            "wi.adapter AS work_item_adapter, a.work_item_id AS attempt_work_item "
+            "FROM session_references sr "
+            "LEFT JOIN projects p ON p.id=sr.project_id "
+            "LEFT JOIN workspaces w ON w.id=sr.workspace_id "
+            "LEFT JOIN work_items wi ON wi.id=sr.work_item_id "
+            "LEFT JOIN attempts a ON a.id=sr.attempt_id "
+            "WHERE sr.project_id=? ORDER BY sr.created_at DESC LIMIT ?",
+            (project_id, limit)).fetchall()
+        out = []
+        for row in rows:
+            ref = dict(row)
+            if not ref.get("session_id") or not ref.get("attempt_id"):
+                status = "legacy_placeholder"
+            elif not ref.pop("linked_project", None):
+                status = "dangling_project"
+            elif ref.pop("workspace_project", None) != ref["project_id"]:
+                status = "dangling_or_mismatched_workspace"
+            elif not ref.get("node_id"):
+                status = "legacy_unscoped_node"
+            elif ref.pop("workspace_node", None) != ref["node_id"]:
+                status = "mismatched_node"
+            elif ref.pop("work_item_project", None) != ref["project_id"]:
+                status = "dangling_or_mismatched_work_item"
+            elif ref.pop("work_item_adapter", None) not in (None, ref.get("adapter")):
+                status = "mismatched_adapter"
+            elif ref.pop("attempt_work_item", None) != ref["work_item_id"]:
+                status = "dangling_or_mismatched_attempt"
+            else:
+                status = "bound"
+            # Remove any join-only fields left by an earlier branch.
+            for key in ("linked_project", "workspace_project", "workspace_node",
+                        "work_item_project", "work_item_adapter",
+                        "attempt_work_item"):
+                ref.pop(key, None)
+            ref["binding_status"] = status
+            out.append(ref)
+        return out
 
     # ------------------------------------------------------------------ #
     # work items

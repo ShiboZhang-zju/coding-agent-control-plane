@@ -647,3 +647,44 @@ SQLite 连接从同一版本并发提交时，仅一个更新规范条目，另�
 证据 `evidence/project/T31-context-update-loop.json`：三类 verdict 映射、重复重放、
 双连接 CAS 冲突保留、自动 verified/constraints 禁止、跨项目拒绝全部 Pass。
 真实 CodeBuddy Worker 与自动回写的组合尚未端到端执行，仍标记为未验证。
+
+## 14. Session Registry / Handoff（M3 功能实现，未验证）
+
+M3 没有引入第二套 Session/Handoff 任务系统。实现继续复用现有
+`work_items / attempts / events / approvals / verdict`，只对 `session_references`
+补齐 `node_id` 与 Attempt 级不可变绑定：
+
+- enqueue 不再写 `session_id=NULL, attempt_id=NULL` 的假 Session 占位；
+- post-dispatch / resolve / refresh / cancel / resume / respawn 六类 Snapshot 写回统一经过
+  `_save_snapshot()`，用 Snapshot 的 `worker_job_id` 反查真实 Attempt；
+- 同一 Attempt 重复观测同一 Session 只刷新时间，观测到不同 Session 时
+  不覆盖旧值，而是记录 `session_binding_conflict` 并转 `needs_human`；
+- 旧版空占位不删除、不猜测，查询时显式标为 `legacy_placeholder`；悬挂或
+  归属不匹配也返回对应 `binding_status`。
+
+Handoff 采用“带来源的普通 WorkItem”模型：
+
+1. `prepare_handoff()` 只读检查来源任务终态/verdict、Attempt、SessionReference、
+   项目归属、本地且 active 的目标 Workspace、Project Context 缺口与
+   `needs_merge`，不调 Worker、不写 Ledger。
+2. Git checkpoint 必须被目标 Workspace 的 HEAD 包含；未包含时不自动
+   merge/rebase，而是阻塞并要求人合并或显式选择兼容 Workspace。
+3. `submit_handoff()` 提交前重新 prepare，然后把来源 WorkItem/Attempt/
+   SessionReference、checkpoint、context version/refs 和 `handoff_signature`
+   随新 WorkItem 创建原子写入 metadata。
+4. 目标任务仍走现有队列、审批 digest、Attempt、验收和 M2 回写；Handoff
+   事件只是审计记录，不是恢复的唯一依据。
+5. 同一 idempotency key 对应不同 `handoff_signature` 时显式拒绝，不返回
+   内容不同的旧任务。
+
+CLI 新增 `project sessions / handoff-prepare / handoff-submit`，并修正了 project
+submit 使用 `ledger-only` Adapter 名导致 Runtime 无法 claim 的路由问题：CLI 仍然
+不调 Worker，但入队记录现在使用 Project 的 `default_adapter`。
+
+### 14.1 验证状态
+
+**未验证。** 本轮按要求只做功能扩展，没有启动 CodeBuddy，也没有执行
+stub/SQLite 测试、编译检查或回归。因此没有新的 evidence 文件，不把上述
+实现表述为 Pass。真实 CodeBuddy Session 自动登记、Worker worktree checkpoint
+保留、Session A → Session B 无 transcript 接续与最终 `verified` 验收均待后续
+有环境时执行。

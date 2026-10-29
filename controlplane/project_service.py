@@ -1,5 +1,5 @@
 """Vendor-neutral project operations facade — the deterministic tool surface an LD
-will call (M1–M2).
+will call (M1–M3).
 
 Why a facade and not an agent
 -----------------------------
@@ -36,6 +36,13 @@ from controlplane.context_builder import (
     ContextBuildBlocked,
     ContextBuilder,
 )
+from controlplane.handoff import (
+    HandoffIdempotencyConflict,
+    HandoffNotReady,
+    HandoffPlanner,
+    HandoffStale,
+    handoff_signature,
+)
 from controlplane.plane import ControlPlane
 from controlplane.project_context import ProjectContextStore
 from controlplane.store import TaskStore
@@ -57,6 +64,7 @@ class ProjectService:
         self.context = ProjectContextStore(self.store)
         self.builder = (ContextBuilder(self.store, budget_chars=budget_chars)
                         if budget_chars else ContextBuilder(self.store))
+        self.handoffs = HandoffPlanner(self.store, self.builder)
 
     # ------------------------------------------------------------------ #
     # queries
@@ -213,6 +221,14 @@ class ProjectService:
             "task_digest": task.get("task_digest"),
             "state": task.get("state"),
             "verdict": task.get("verdict"),
+            "handoff": bool((task.get("metadata") or {}).get("handoff")),
+            "handoff_source": {
+                key: (task.get("metadata") or {}).get(key)
+                for key in ("source_work_item_id", "source_attempt_id",
+                            "source_session_reference_id", "checkpoint_ref",
+                            "handoff_signature")
+                if (task.get("metadata") or {}).get(key) is not None
+            },
         }
 
     # ------------------------------------------------------------------ #
@@ -311,14 +327,6 @@ class ProjectService:
             context_entry_refs=built.entry_refs,
             digest_scope=scope)
 
-        # Register the session link lazily: the worker job does not exist yet, but
-        # the (project, workspace, task) relation is already durable, so continuity
-        # never depends on a live session.
-        self.store.record_session_reference(
-            project_id, workspace_id=built.workspace_id,
-            worker_instance_id=None, adapter=self.plane.adapter.name,
-            session_id=None, work_item_id=record["task_id"], attempt_id=None)
-
         out = dict(record)
         out["context"] = {
             "version": built.context_version,
@@ -331,6 +339,144 @@ class ProjectService:
         }
         out["effective_prompt"] = built.effective_prompt
         out["original_task"] = task
+        return out
+
+    # ------------------------------------------------------------------ #
+    # M3 handoff: prepare is read-only; submit creates a normal WorkItem
+    # ------------------------------------------------------------------ #
+    def prepare_handoff(self, source_work_item_id: str, task: str, **kwargs) -> dict:
+        """Preview a new-Session handoff without writing or calling a Worker."""
+        return self.handoffs.prepare(source_work_item_id, task, **kwargs).to_dict()
+
+    def submit_handoff(self, source_work_item_id: str, task: str, *,
+                       assertions: Iterable[ArtifactAssertion | dict] = (),
+                       priority: int = 0,
+                       idempotency_key: str = "",
+                       title: str = "",
+                       tags: Iterable[str] = (),
+                       prerequisites: Iterable[str] = (),
+                       require_verified_constraints: bool = False,
+                       target_workspace_id: str | None = None,
+                       extra_references: Iterable[str] = (),
+                       require_checkpoint: bool = True,
+                       expected_handoff_signature: str | None = None,
+                       policy: DispatchPolicy | dict | None = None,
+                       timeout_s: int = 900,
+                       metadata: dict | None = None) -> dict:
+        """Atomically persist a prepared handoff as an ordinary WorkItem.
+
+        The readiness checks are rerun here to close the prepare/submit gap.  The
+        handoff source and checkpoint live in WorkItem metadata at insert time;
+        the audit event is useful history, never the recovery source of truth.
+        """
+        prepared = self.handoffs.prepare(
+            source_work_item_id, task,
+            target_workspace_id=target_workspace_id,
+            tags=tags, prerequisites=prerequisites,
+            require_verified_constraints=require_verified_constraints,
+            extra_references=extra_references,
+            require_checkpoint=require_checkpoint)
+        prepared_dict = prepared.to_dict()
+        if not prepared.ready:
+            raise HandoffNotReady(prepared.blockers, prepared_dict)
+        if (expected_handoff_signature
+                and expected_handoff_signature != prepared.handoff_signature):
+            raise HandoffStale(
+                "prepared handoff changed before submit: expected "
+                f"{expected_handoff_signature}, got {prepared.handoff_signature}")
+
+        assertion_objs = [
+            item if isinstance(item, ArtifactAssertion) else ArtifactAssertion(**item)
+            for item in assertions]
+        if isinstance(policy, dict):
+            policy = DispatchPolicy(**policy)
+        project = self.store.get_project(prepared.project_id) or {}
+        effective_policy = (policy
+                            or (DispatchPolicy(**project["policy"])
+                                if project.get("policy") else self.plane.policy))
+        effective_policy.validate()
+        submission_signature = handoff_signature({
+            "prepared_handoff_signature": prepared.handoff_signature,
+            "assertions": [item.to_dict() for item in assertion_objs],
+            "policy": effective_policy.to_dict(),
+            "timeout_s": timeout_s,
+        })
+
+        if idempotency_key:
+            existing = self.store.by_idempotency_key(idempotency_key)
+            if existing:
+                existing_signature = (existing.get("metadata") or {}).get(
+                    "handoff_signature")
+                if existing_signature != submission_signature:
+                    raise HandoffIdempotencyConflict(
+                        f"idempotency key {idempotency_key!r} already belongs to "
+                        f"handoff signature {existing_signature!r}, not "
+                        f"{submission_signature!r}")
+                out = dict(existing)
+                out["deduplicated"] = True
+                out["handoff_context"] = prepared_dict
+                return out
+
+        compact_context = {
+            "prepared_handoff_signature": prepared.handoff_signature,
+            "source_work_item_id": prepared.source_work_item_id,
+            "source_attempt_id": prepared.source_attempt_id,
+            "source_session_reference_id": (
+                prepared.source_session_reference or {}).get("id"),
+            "source_facts": prepared.source_facts,
+            "checkpoint": prepared.checkpoint,
+            "checkpoint_ref": prepared.checkpoint_ref,
+            "target_workspace_id": prepared.target_workspace_id,
+            "context_version": prepared.context_version,
+            "context_entry_refs": prepared.context_entry_refs,
+            "unresolved": prepared.unresolved,
+        }
+        handoff_metadata = {
+            **(metadata or {}),
+            "handoff": True,
+            "source_work_item_id": prepared.source_work_item_id,
+            "source_attempt_id": prepared.source_attempt_id,
+            "source_session_reference_id": (
+                prepared.source_session_reference or {}).get("id"),
+            "checkpoint_ref": prepared.checkpoint_ref,
+            "handoff_signature": submission_signature,
+            "handoff_context": compact_context,
+        }
+        record = self.plane.enqueue(
+            prepared.effective_prompt, prepared.target_workspace_root or "",
+            assertions=assertion_objs, policy=effective_policy,
+            title=title or task[:60], idempotency_key=idempotency_key,
+            timeout_s=timeout_s, metadata=handoff_metadata,
+            priority=priority, project_id=prepared.project_id,
+            workspace_id=prepared.target_workspace_id,
+            original_task=task,
+            context_version=prepared.context_version,
+            context_entry_refs=prepared.context_entry_refs,
+            digest_scope={
+                "workspace_id": prepared.target_workspace_id,
+                "context_version": prepared.context_version,
+                "handoff_signature": submission_signature,
+            })
+
+        # create_work_item() is the cross-process race boundary.  A loser must
+        # verify the winning row instead of trusting ControlPlane's generic
+        # idempotency return path.
+        stored_signature = (record.get("metadata") or {}).get("handoff_signature")
+        if stored_signature != submission_signature:
+            raise HandoffIdempotencyConflict(
+                f"idempotency key {idempotency_key!r} was concurrently claimed by "
+                f"handoff signature {stored_signature!r}")
+        if not record.get("deduplicated"):
+            self.store.append_event(record["task_id"], "handoff_submitted", {
+                "source_work_item_id": prepared.source_work_item_id,
+                "source_attempt_id": prepared.source_attempt_id,
+                "source_session_reference_id": (
+                    prepared.source_session_reference or {}).get("id"),
+                "checkpoint_ref": prepared.checkpoint_ref,
+                "handoff_signature": submission_signature,
+            })
+        out = dict(record)
+        out["handoff_context"] = prepared_dict
         return out
 
     # ------------------------------------------------------------------ #
@@ -351,6 +497,10 @@ class ProjectService:
         if not self.store.get_project(project_id):
             raise KeyError(f"no project {project_id}")
         return self.store.session_references(project_id, limit=limit)
+
+    def list_project_sessions(self, project_id: str, limit: int = 50) -> list[dict]:
+        """M3 name for the observed Session Registry projection."""
+        return self.list_session_references(project_id, limit=limit)
 
 
 def project_service(plane: ControlPlane, **kwargs: Any) -> ProjectService:

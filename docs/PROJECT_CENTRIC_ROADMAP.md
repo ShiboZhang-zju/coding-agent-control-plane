@@ -21,8 +21,8 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 | 阶段 | 目标 | 依赖 | 状态 |
 |---|---|---|---|
 | M1 | Project Context Foundation | v0.2 已完成 | **已完成** |
-| **M2** | Project Context Update Loop | M1 | **已完成（本轮）** |
-| M3 | Session Registry / Handoff | M1（M2 有益但非必需） | 未开始 |
+| M2 | Project Context Update Loop | M1 | **已完成** |
+| **M3** | Session Registry / Handoff | M1（M2 有益但非必需） | **功能已实现，未验证** |
 | M4 | LD MVP | M1 + M2 + M3 | 未开始 |
 | M5 | Distributed Workspace | M1–M4 | 未开始 |
 
@@ -161,7 +161,7 @@ M5 之前不得宣称支持跨机器协同。
 
 ---
 
-## M3 — Session Registry / Handoff
+## M3 — Session Registry / Handoff ⚠️ 功能已实现，未验证
 
 ### 目标
 
@@ -177,12 +177,44 @@ M5 之前不得宣称支持跨机器协同。
 4. 一个可执行的**交接验证**：Session A 做到一半 → 关闭 → Session B 用
    Project Context 继续 → 产出通过验收。
 
+### 已实现的功能切片
+
+| 交付物 | 实现位置 | 当前状态 |
+|---|---|---|
+| Snapshot 观测时登记 Session，不再写 enqueue 空占位 | `ControlPlane._save_snapshot()` | 已实现，未运行验证 |
+| `node / worker_instance / session / task / attempt` 完整链 | `TaskStore.observe_session_reference()` | 已实现，未运行验证 |
+| Attempt 级唯一绑定 + 异 Session 冲突显式转人工 | `session_references` 部分唯一索引 + Store/Plane | 已实现，未运行验证 |
+| 只读 Handoff Prepare（来源/Session/Workspace/checkpoint/context） | `controlplane/handoff.py` | 已实现，未运行验证 |
+| Handoff Submit 创建普通 WorkItem，来源与 checkpoint 原子落 metadata | `ProjectService.submit_handoff()` | 已实现，未运行验证 |
+| 提交前重检、冻结 Prompt/context/workspace、内容签名幂等 | 同上 + `ControlPlane.enqueue()` | 已实现，未运行验证 |
+| CLI `project handoff-prepare / handoff-submit / sessions` | `scripts/controlplane_cli.py` | 已实现，未运行验证 |
+
+实现采用的最小模型是：
+
+```text
+session_references（增强现有表）
++ 来源/Session/checkpoint/context 随目标 WorkItem 原子落库
++ 复用 attempts / events / idempotency / approval / verdict
+```
+
+没有新建 `sessions + session_attempt_links + handoff_intents`，也没有新建
+Handoff 状态机或第二份验收真相。
+
 ### 退出条件
 
 - 关闭 Session A（进程退出）后，Session B 从 Project Context 能回答：
   项目目标、当前进度、上次结论、下一步。
 - 交接验证任务在"无旧会话"条件下通过验收（`verified`）。
 - SessionReference 中不存在指向已删除项目/工作区的悬挂记录（或悬挂被显式标记）。
+
+**当前退出判定：未满足。** 按本轮要求没有启动 CodeBuddy，也没有执行
+stub/SQLite 验证，因此不存在新的 evidence 或 Pass 结论。尤其以下仍为
+**未验证**：
+
+- 真实 CodeBuddy Snapshot 的 Session ID 是否在所有路径稳定可用；
+- 真实 Worker worktree 关闭后 checkpoint 的保留与可达性；
+- Session A 关闭后，Session B 不读旧 transcript 完成并通过 verdict 验收；
+- 新 schema 迁移、并发 Session 冲突、Handoff 幂等的实际回归。
 
 ### 明确不做
 

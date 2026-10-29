@@ -6,9 +6,10 @@
 **Project**，每个 Project 通过 **Coding Agent** 执行具体任务。Control Plane 是这个系统的
 **基础设施层**——它不再是产品本身，而是让上述结构可靠运转的执行治理层。
 
-当前阶段：**M2（Project Context Update Loop）已实现并通过测试**。
+当前阶段：**M3（Session Registry / Handoff）功能已实现，但未验证**。
 多 Agent 派发、幂等、审批、验收、恢复、并发限制等既有能力保持完整。
-下一阶段是 M3（Session Registry / Handoff）；完整 LD Agent、跨机器远程执行尚未实现，
+本机没有执行 CodeBuddy 或 stub/SQLite 实验，不宣称双 Session 交接通过。
+完整 LD Agent、跨机器远程执行尚未实现，
 见 [路线图](docs/PROJECT_CENTRIC_ROADMAP.md)。
 
 ---
@@ -30,7 +31,7 @@
 
 因此本项目做两件事：
 1. **Control Plane**（已实现）：把派发、幂等、审批、验收、恢复变成厂商无关的确定性能力。
-2. **Project Context**（M1–M2 已实现）：把项目知识变成独立于 Session 的持久实体，
+2. **Project Context / Handoff**（M1–M3 功能已实现）：把项目知识变成独立于 Session 的持久实体，
    在任务执行前注入，并在验收后以确定性规则回写候选进度与知识。
 
 ---
@@ -77,7 +78,7 @@ Control Plane（公共执行治理层，与厂商无关）
 | **Durable project context** | 背景/约束/知识/决策持久化在 SQLite，重启后仍在，不依赖会话内存。 |
 | **Context injection before execution** | 派发前由 `ContextBuilder` 生成 Effective Prompt；Coding Agent 一上岗就带着项目知识。 |
 | **Evidence-based progress** | `get_project_progress()` 从 Ledger 的任务与验收状态派生，不靠 LLM 总结判断成败。 |
-| **Session-independent continuity** | 换 Session、换进程、重启都不丢项目状态；SessionReference 只记录关系，不承载真相。 |
+| **Session-independent continuity** | 项目状态持久在 Context + Ledger；SessionReference 只记录关系，不承载真相。真实换 Session 接续待 M3 验证。 |
 | **Separation of decision and execution** | LD 决定"做什么/优先级"，Control Plane 决定"怎么可靠地做/是否算做成功"。 |
 | **Security-domain awareness** | 条目区分 `local` / `shareable`；没有任何代码路径会自动把内部信息推到外部。 |
 | **Freeze what you dispatch** | 入队即冻结 Effective Prompt；之后改上下文不会静默改写已排队任务。 |
@@ -87,7 +88,7 @@ Control Plane（公共执行治理层，与厂商无关）
 
 ## 4. 当前已实现能力
 
-只列真实实现且有证据的项。证据在 `evidence/**/*.json`。
+已验证项只引用真实 `evidence/**/*.json`；M3 本轮只实现功能，统一显式标为“未验证”。
 
 ### 4.1 Control Plane（PoC / v0.2，已验证）
 
@@ -104,13 +105,13 @@ Control Plane（公共执行治理层，与厂商无关）
 | 项目注册与目录边界校验 | 已实现 | `evidence/v02*`、`T14*` |
 | T26 恢复修复（降级跨重启、lost 统一判定、claim 租约、attempt 终态） | 已实现 | `evidence/recovery/T26-p0-fixes.json` |
 
-### 4.2 Project-Centric（M1–M2，已实测）
+### 4.2 Project-Centric（M1–M3）
 
 | 能力 | 状态 | 证据 |
 |---|---|---|
 | Project Context Store（6 类知识、项目隔离、版本 CAS、来源与证据） | 已实现并测试 | `evidence/project/T27-project-context.json` |
 | Workspace 表 + `projects.root` 自动映射为默认本地 Workspace | 已实现并测试 | `T27`、`T28` |
-| SessionReference（project↔workspace↔session↔task↔attempt） | 已实现（写入点已接入提交路径） | `T28`、`T30` |
+| SessionReference（node↔worker↔session↔task↔attempt） | 已改为真实 Snapshot 观测登记；未验证 | 无新证据 |
 | Context Builder（有限预算、相关性筛选、硬约束完整注入） | 已实现并测试 | `T27`、`T28` |
 | Effective Prompt 冻结 + 可追溯（original_task / context_version / entry_refs） | 已实现并测试 | `T28`、`T30` |
 | 审批绑定执行内容（上下文版本或工作区变化即失效） | 已实现并测试 | `T28` |
@@ -123,6 +124,8 @@ Control Plane（公共执行治理层，与厂商无关）
 | CAS 冲突保留双方并标记 `needs_merge` | 已实现并测试 | `T31` case C |
 | 自动写入安全边界（仅 candidate、禁止 constraints、禁止跨项目） | 已实现并测试 | `T31` case D |
 | verdict/回执间崩溃窗口恢复 | 已实现并测试 | `T31` case E |
+| Handoff 只读准备（来源/Session/checkpoint/Workspace/context） | 已实现，未验证 | 无新证据 |
+| Handoff 提交（普通 WorkItem + 原子来源 metadata + 签名幂等） | 已实现，未验证 | 无新证据 |
 
 ---
 
@@ -132,8 +135,9 @@ Control Plane（公共执行治理层，与厂商无关）
 
 - **完整 LD Agent。** 本轮只准备好了 LD 将来调用的确定性工具（`ProjectService`），
   没有接入任何 LLM，没有自动规划循环。
-- **Session 自动交接。** SessionReference 已有持久化骨架，但“关闭 Session A 后由
-  Session B 在不读取旧 transcript 的情况下继续并通过验收”属于 M3，尚未实现。
+- **经真实 Worker 验证的 Session 自动交接。** prepare/submit 功能已实现，
+  但“关闭 Session A 后由 Session B 不读旧 transcript 继续并通过验收”
+  本轮未执行，仍属未验证。
 - **可靠跨机器远程执行。** `workspaces.node_id` 字段已存在，但非 `local` 节点会被
   `ContextBuilder` 判为阻塞缺口并拒绝派发。不存在"看起来能远程、实际本地跑"的假实现。
 - **跨机器原生 Session 迁移。** 未实现，也不承诺。
@@ -212,7 +216,20 @@ python scripts/controlplane_cli.py --ledger $L project progress <project-id>
 # 7) M2 自动回写通常由 Runtime 在终态验收后触发；也可安全重放并查看回执
 python scripts/controlplane_cli.py --ledger $L project context-sync-task <project-id> <task-id>
 python scripts/controlplane_cli.py --ledger $L project context-update-log <project-id> <task-id>
+
+# 8) M3：先做只读交接检查（不入队、不调 Worker）
+python scripts/controlplane_cli.py --ledger $L project handoff-prepare `
+  <project-id> <source-task-id> "continue the implementation"
+
+# 9) 建议携带 prepare 返回的签名，防止准备后上下文/checkpoint 漂移
+python scripts/controlplane_cli.py --ledger $L project handoff-submit `
+  <project-id> <source-task-id> "continue the implementation" `
+  --expected-signature <prepared-handoff-signature> `
+  --idempotency-key handoff-1 --assert-file <expected-artifact>
 ```
+
+M3 命令只是当前功能接口示例，本轮未运行；它们不构成真实
+CodeBuddy 双 Session 验收证据。
 
 `--preview` 的输出形如（节选，真实输出来自 T30）：
 
@@ -251,7 +268,7 @@ python scripts/controlplane_cli.py approval approve <approval-id>
 ### 6.4 测试
 
 ```powershell
-# M1–M2 新增
+# M1–M3 新增
 python scripts/t27_project_context.py      # 隔离 / 版本 CAS / 来源 / 安全域
 python scripts/t28_project_dispatch.py     # 注入 / 冻结 / 审批绑定 / 阻塞 / 兼容
 python scripts/t29_reliability_edges.py    # PID 三态 / 降级标记 I/O
@@ -288,8 +305,9 @@ controlplane/runtime.py         常驻循环：队列派发 / 刷新 / 孤儿扫
 controlplane/project_context.py 【M1】版本化项目知识存储（CAS + 来源 + 验证状态 + 安全域）
 controlplane/context_builder.py 【M1】Effective Prompt 构建（预算 / 筛选 / 阻塞缺口）
 controlplane/context_update.py  【M2】验收后确定性候选回写（幂等 + 冲突保留）
-controlplane/project_service.py 【M1–M2】LD 将来调用的确定性 Facade
-docs/PROJECT_CENTRIC_ROADMAP.md 【M1–M2】M1–M5 路线图与退出条件
+controlplane/handoff.py         【M3】只读交接准备与 checkpoint 校验
+controlplane/project_service.py 【M1–M3】LD 将来调用的确定性 Facade
+docs/PROJECT_CENTRIC_ROADMAP.md 【M1–M3】M1–M5 路线图与退出条件
 docs/V0.2_PLAN.md               历史计划（v0.2 阶段，已完成其范围）
 scripts/                        服务管控、测试脚本、CLI、detached 运行器
 evidence/                       每次测试的证据（已脱敏；原始日志不入库）
@@ -306,7 +324,7 @@ sandbox/                        两个一次性 Git 仓库（不入库）
 |---|---|---|
 | M1 | Project Context Foundation | **已完成** |
 | M2 | Project Context Update Loop（验收后回写、候选知识、幂等） | **已完成** |
-| M3 | Session Registry / Handoff（单机多 Session） | 未开始 |
+| M3 | Session Registry / Handoff（单机多 Session） | **功能已实现，未验证** |
 | M4 | LD MVP（唯一全局 LD 接上确定性工具） | 未开始 |
 | M5 | Distributed Workspace（多节点、远程派工、受控同步） | 未开始 |
 

@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 
 from adapters.base import ArtifactAssertion, DispatchPolicy  # noqa: E402
 from controlplane.context_builder import ContextBuildBlocked  # noqa: E402
+from controlplane.handoff import HandoffNotReady  # noqa: E402
 from controlplane.plane import ControlPlane  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 
@@ -111,7 +112,7 @@ def approval_by_id(store: TaskStore, approval_id: int) -> dict:
 _PROJECT_CONTEXT_COMMANDS = (
     "brief", "progress", "tasks", "context", "workspaces", "sessions",
     "context-add", "context-update", "context-verify", "context-sync-task",
-    "context-update-log", "submit")
+    "context-update-log", "submit", "handoff-prepare", "handoff-submit")
 
 
 def _run_project_command(args, plane: ControlPlane, store: TaskStore) -> int:
@@ -123,9 +124,21 @@ def _run_project_command(args, plane: ControlPlane, store: TaskStore) -> int:
     from controlplane.project_context import ContextEntry
     from controlplane.project_service import ProjectService
 
-    service = ProjectService(plane)
     project = plane.project(args.project)
+    # Ledger-only CLI commands never call the Worker, but queued work must still
+    # be routed to the project's real Adapter name for the Runtime to claim it.
+    service_plane = ControlPlane(
+        AdapterRef(project.get("default_adapter") or "codebuddy"), store)
+    service = ProjectService(service_plane)
     cmd = args.project_command
+    if cmd in ("handoff-prepare", "handoff-submit"):
+        source = store.get(args.source_task_id)
+        if not source:
+            raise KeyError(f"no task {args.source_task_id}")
+        if source.get("project_id") != project["id"]:
+            raise ValueError(
+                f"source task {args.source_task_id} belongs to project "
+                f"{source.get('project_id')}, not {project['id']}")
 
     if cmd == "brief":
         emit(service.get_project_brief(project["id"]), compact=args.compact)
@@ -138,7 +151,7 @@ def _run_project_command(args, plane: ControlPlane, store: TaskStore) -> int:
     elif cmd == "workspaces":
         emit(service.list_workspaces(project["id"]), compact=args.compact)
     elif cmd == "sessions":
-        emit(service.list_session_references(project["id"]), compact=args.compact)
+        emit(service.list_project_sessions(project["id"]), compact=args.compact)
     elif cmd == "context-add":
         entry = ContextEntry(
             project_id=project["id"], kind=args.kind, title=args.title,
@@ -209,6 +222,32 @@ def _run_project_command(args, plane: ControlPlane, store: TaskStore) -> int:
                   "effective_prompt": rec.get("effective_prompt"),
                   "workspace_id": rec.get("workspace_id"),
                   "context": rec.get("context")}, compact=args.compact)
+    elif cmd == "handoff-prepare":
+        emit(service.prepare_handoff(
+            args.source_task_id, args.task,
+            target_workspace_id=args.workspace,
+            tags=args.tag, prerequisites=args.prerequisite,
+            require_verified_constraints=args.require_verified_constraints,
+            require_checkpoint=not args.allow_context_only),
+            compact=args.compact)
+    elif cmd == "handoff-submit":
+        rec = service.submit_handoff(
+            args.source_task_id, args.task,
+            title=args.title, idempotency_key=args.idempotency_key,
+            priority=args.priority, timeout_s=args.timeout,
+            assertions=assertions_from_args(args),
+            target_workspace_id=args.workspace,
+            tags=args.tag, prerequisites=args.prerequisite,
+            require_verified_constraints=args.require_verified_constraints,
+            require_checkpoint=not args.allow_context_only,
+            expected_handoff_signature=args.expected_signature)
+        emit({**item_view(rec),
+              "deduplicated": rec.get("deduplicated", False),
+              "workspace_id": rec.get("workspace_id"),
+              "context_version": rec.get("context_version"),
+              "context_entry_refs": rec.get("context_entry_refs"),
+              "handoff_context": rec.get("handoff_context")},
+             compact=args.compact)
     return 0
 
 
@@ -345,6 +384,40 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--assert-contains", action="append", default=[])
     submit.add_argument("--assert-absent", action="append", default=[])
 
+    handoff_prepare = project_sub.add_parser(
+        "handoff-prepare", help="read-only readiness check for a new Session")
+    handoff_prepare.add_argument("project")
+    handoff_prepare.add_argument("source_task_id")
+    handoff_prepare.add_argument("task")
+    handoff_prepare.add_argument("--workspace", default=None)
+    handoff_prepare.add_argument("--tag", action="append", default=[])
+    handoff_prepare.add_argument("--prerequisite", action="append", default=[])
+    handoff_prepare.add_argument("--require-verified-constraints", action="store_true")
+    handoff_prepare.add_argument(
+        "--allow-context-only", action="store_true",
+        help="explicitly allow a handoff with no recorded Git checkpoint")
+
+    handoff_submit = project_sub.add_parser(
+        "handoff-submit", help="enqueue a prepared handoff as a normal WorkItem")
+    handoff_submit.add_argument("project")
+    handoff_submit.add_argument("source_task_id")
+    handoff_submit.add_argument("task")
+    handoff_submit.add_argument("--workspace", default=None)
+    handoff_submit.add_argument("--tag", action="append", default=[])
+    handoff_submit.add_argument("--prerequisite", action="append", default=[])
+    handoff_submit.add_argument("--require-verified-constraints", action="store_true")
+    handoff_submit.add_argument("--allow-context-only", action="store_true")
+    handoff_submit.add_argument(
+        "--expected-signature", default=None,
+        help="prepared handoff signature; submit fails if context/checkpoint drifted")
+    handoff_submit.add_argument("--title", default="")
+    handoff_submit.add_argument("--idempotency-key", default="")
+    handoff_submit.add_argument("--priority", type=int, default=0)
+    handoff_submit.add_argument("--timeout", type=int, default=900)
+    handoff_submit.add_argument("--assert-file", action="append", default=[])
+    handoff_submit.add_argument("--assert-contains", action="append", default=[])
+    handoff_submit.add_argument("--assert-absent", action="append", default=[])
+
     provenance = sub.add_parser(
         "provenance", help="original task, effective prompt and context refs")
     provenance.add_argument("task_id")
@@ -470,6 +543,11 @@ def main() -> int:
             # operator must have reviewed the *.corrupt-* quarantine copy first.
             emit(store.recover_degraded(args.note), compact=args.compact)
         return 0
+    except HandoffNotReady as exc:
+        emit({"error": f"{type(exc).__name__}: {exc}",
+              "blockers": exc.blockers, "prepared": exc.prepared},
+             compact=args.compact)
+        return 3
     except (KeyError, ValueError) as exc:
         emit({"error": f"{type(exc).__name__}: {exc}"}, compact=args.compact)
         return 2
