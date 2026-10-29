@@ -37,7 +37,7 @@
       "body": {
         "error": {
           "code": "INTERNAL_ERROR",
-          "message": "[safe-delete] 操作失败: ERROR C:\\Users\\Sebzhang\\.codebuddy\\jobs\\.locks\\3a75c1d8.state.lock.guard: Error during a `trash` operation: Os { code: -2147024894, description: \"windows error: 系统找不到指定的文件。 (0x80070002)\" }"
+          "message": "[safe-delete] 操作失败: ERROR <HOME>\\.codebuddy\\jobs\\.locks\\3a75c1d8.state.lock.guard: Error during a `trash` operation: Os { code: -2147024894, description: \"windows error: 系统找不到指定的文件。 (0x80070002)\" }"
         }
       },
       "content_type": "application/json; charset=utf-8"
@@ -173,7 +173,7 @@
         "data": {
           "jobs": [
             {
-              "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+              "cwd": "<REPO>\\sandbox\\repo-a",
               "kind": "background",
               "startedAt": 1793194465474,
               "id": "3a75c1d8",

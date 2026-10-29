@@ -18,7 +18,8 @@ sys.path.insert(0, str(ROOT))
 from adapters.base import ArtifactAssertion  # noqa: E402
 from adapters.codebuddy.adapter import CodeBuddyAdapter  # noqa: E402
 from adapters.codebuddy.client import Api, iter_sse_lines, write_evidence  # noqa: E402
-from controlplane.plane import ControlPlane  # noqa: E402
+from controlplane.plane import ControlPlane
+from controlplane.policies import agent_worktree, poc_shell  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 
 CWD = str(ROOT / "sandbox" / "repo-b")
@@ -52,7 +53,7 @@ def main() -> int:
     th.start()
     time.sleep(2)
     rec = plane.dispatch(CMD, CWD, assertions=[ArtifactAssertion("file_exists", "sseb.txt")],
-                         mode="shell", title="T05b-sse-subject", idempotency_key="t05b")
+                         policy=poc_shell(), title="T05b-sse-subject", idempotency_key="t05b")
     job_id = rec["worker_job_id"]
     log["job"] = {"task_id": rec["task_id"], "worker_job_id": job_id}
     time.sleep(3)

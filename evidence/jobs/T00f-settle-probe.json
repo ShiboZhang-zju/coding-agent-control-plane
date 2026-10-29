@@ -192,7 +192,7 @@
         "state": "working",
         "tempo": "active",
         "startedAt": 1793198576905,
-        "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+        "cwd": "<REPO>\\sandbox\\repo-a",
         "kind": "background",
         "intent": "timeout /t 5 /nobreak >nul & echo settle-ok > settle_probe.txt",
         "detail": "running",

@@ -1,6 +1,6 @@
 {
   "test": "T09-permission-request",
-  "target": "F:\\coding-agent-control-plane\\sandbox\\repo-b\\approval_probe.txt",
+  "target": "<REPO>\\sandbox\\repo-b\\approval_probe.txt",
   "job": {
     "task_id": "cp-e835476139d8",
     "worker_job_id": "f3ef42d1",

@@ -1,6 +1,6 @@
 {
   "test": "T00e-list-latency",
-  "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+  "cwd": "<REPO>\\sandbox\\repo-a",
   "runs": [
     {
       "variant": "all=1",

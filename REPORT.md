@@ -142,12 +142,15 @@ respawn（重开对话）、agent 任务的 worktree 隔离、会话持久化与
 
 ### 9) 最终结论
 
-**Conditional Go**。Go 条件中已满足：四任务可靠并行、worktree 隔离有效（agent 任务）、
-集中查询可用、cancel 不误报成功、服务重启后状态可重建、CodeBuddy 专有逻辑被限制在
-Adapter 内、无需完整进程监管器。
+**Conditional Go（受限试点）**。Go 条件中已满足：后台任务可并行派发（shell 4 路、
+agent 4 路在 Job 层被同时接受）、worktree 隔离有效（agent 任务）、集中查询可用、
+cancel 不误报成功、服务重启后**控制平面侧**状态可重建、CodeBuddy 专有逻辑被限制在
+Adapter 内、无需完整进程监管器；评审指出的验收误报（B1）已修复（T13/T14）。
 
-未满足/需补充：SSE 无 replay（可用轮询 + reconcile 兜底）、shell 任务无文件隔离、
-background job 无人工审批路径、job 列表 30s 级延迟、终态偶发不落盘。
+未满足/需补充：真实 agent 并发目前只能跑到 1–2 路（本机 hook 阻塞，非 Jobs 能力）、
+OS 级跨项目隔离未实现（只有检测+否决）、SSE 无 replay（轮询 + reconcile 兜底）、
+shell 任务无文件隔离、background job 无"人工批准后执行"通道、job 列表 30s 级延迟、
+终态偶发不落盘。
 
 No-Go 条件均未触发：后台任务可查、重启后任务仍可发现、工作目录可隔离（agent 任务）、
 权限拒绝无副作用、失败任务没有被判成通过（验收器拦住了）。
@@ -176,7 +179,59 @@ No-Go 条件均未触发：后台任务可查、重启后任务仍可发现、�
 - 原始服务日志、job 日志、`.poc-state/` 全部 git 忽略；
 - 提交前用 `git grep` 校验过凭据字样。
 
-## 7. 复现 / 推送
+## 7. 评审后的可靠性收敛（2026-10-29，v0.1）
+
+针对评审提出的问题逐条修复，并在同一分支上验证。
+
+### 7.1 已修复
+
+| 编号 | 问题 | 修复 | 证据 |
+|---|---|---|---|
+| P0-1 | `ControlPlane.dispatch()` 默认 `mode="shell", isolation="none"`，与 `DispatchRequest` 默认不一致 | 引入 `DispatchPolicy`：默认 `agent + worktree`；`shell + 无隔离` 必须显式 `allow_unisolated_shell=True`，否则 `ValueError`；`bypassPermissions` 直接拒；每次派发的策略写入 ledger，风险进 `warnings` | `evidence/jobs/T12-idempotency.json` |
+| P0-2 | 验收只看"文件存在"，B1 越界写入仍 `verified` | dispatch 前 `capture_baseline()`（HEAD/status、断言目标 sha256、同级仓库指纹）；验收要求产物**归属本次 attempt**（新文件或内容变化、提交在 `baseline_head..HEAD`）；同级仓库指纹变化 → `rejected`；agent 任务在 worktree 根目录验收 | `evidence/jobs/T13-fake-success.json`、`evidence/isolation/T14-cross-project-rejected.json` |
+| P0-3 | 派发失败会自动重 POST，可能重复起任务 | 每次 `dispatch()` 只 POST 一次；查不到就 `state=dispatch_unknown`，由 `resolve_dispatch()` 对账（绑定或证明不存在），之后才允许新 attempt | `docs/adapter-contract.md` §5（该分支本机未触发 → **未验证**） |
+| P1-1 | `TaskStore.load()` JSON 损坏时静默清空 | 换成 SQLite ledger，`integrity_check` 失败即隔离到 `.corrupt-<ts>` + 写 `LEDGER_DEGRADED.txt` + stderr，绝不静默空表；旧 `tasks.json` 一次性迁移 | `controlplane/store.py` |
+| P1-2 | `resume()` 创建新 Job 后没更新 `worker_job_id` | `work_item → run_attempt → worker_job` 显式映射；`resume`/`respawn` 追加 attempt 并更新当前 job | `controlplane/plane.py` |
+| P1-3 | worktree ≠ OS 级文件隔离 | 明确写入能力矩阵：worktree 只隔离 Git 工作区；shell 任务无隔离（T03/T14）；OS 级边界未实现 | `capability-matrix.md` |
+| 文档 | `lifecycle.md` 仍写"服务重启后子进程存活" | 已按 T08c 证据改正：停服务即杀子进程、命令不续跑 | `lifecycle.md` |
+
+### 7.2 新增测试
+
+- **T12 幂等 / 策略强制**：同一 idempotency key 只起 1 个 job（第二、三次 `deduplicated=true`）；
+  无 `allow_unisolated_shell` 的 shell 派发被拒绝 → `Pass`。
+- **T13 假成功**：旧产物、他人产物、未发生的提交 → 全部 `rejected`；两个正向对照 `verified`
+  （证明验收器不是"一律拒绝"）→ `Pass`。
+- **T14 越界否决**：repo-b 的任务写了 repo-a，自己的断言通过、worker 报 `done`，
+  最终仍 `rejected` 并记录 `SIDE_EFFECT:cross_project_change` → `Pass`。
+
+### 7.3 更正一条 PoC 结论
+
+**T01 是四个 shell job 并发，不是四个 LLM Agent 并发**（评审指出，成立）。
+T11 专门测 agent 并发，结果是：
+
+- Job 层：4 个 agent 会话被同时接受（`peak_from_timestamps=4`），确属真并发；
+- 但 4 路、2 路并行时所有会话都在 prompt 阶段失败，worker 只报 `model run failed`；
+  读 `~/.codebuddy/logs/job-*.log` 才看到真因：
+  `UserPromptSubmit operation blocked by hook: ["longmemory.exe" recall]: Hook timed out after 5000ms`；
+- 串行提交 + 并行执行时曾拿到 3/4 `verified`、3 个独立 worktree（控制台原始输出见证据）。
+
+所以当前**可用 agent 并发度 ≈1–2，瓶颈是本机 5 秒记忆 hook，不是 CodeBuddy Jobs**，
+也不是模型配额。完整记录：`evidence/isolation/T11-parallel-blocked.md`。
+
+### 7.4 下一阶段验收对照
+
+| 评审验收项 | 当前状态 |
+|---|---|
+| 4 个 Agent 并行（独立 Job/worktree/产物归属） | **Blocked**：Job 层已证并发，hook 修好即可复跑（`POC_T11_TASKS=4 python scripts/t11_four_agents.py`） |
+| 项目隔离（越界被 OS 拒绝） | **未实现**：当前靠"检测并否决"（T14），不是 OS 级隔离 |
+| 重复派发（同一幂等键最多一次） | **Pass**（T12） |
+| 进程崩溃（无静默丢失/重复） | 部分：`lost` 判定 + 对账已验证（T02/T08c），崩溃后的自动重派未实现 |
+| 假成功（旧产物/他人产物/失败测试） | **Pass**（T13） |
+| 服务重启（恢复映射、标记中断） | 部分：ledger 重建已验证，执行中断只标记不重派（T08c） |
+| SSE 断线（快照恢复当前可信状态） | 部分：无 replay，靠 `reconcile()` + 单任务查询（T05/T05c） |
+| 人工审批（未批准无法执行） | **Pass（安全侧）**：background job 直接 auto-deny 且无副作用（T09）；但无"人工批准后执行"通道 |
+
+## 8. 复现 / 推送
 
 ```powershell
 python scripts/serve_ctl.py start

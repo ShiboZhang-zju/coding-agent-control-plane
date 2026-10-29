@@ -1,7 +1,7 @@
 {
   "test": "T03b-worktree-isolation",
-  "repo": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
-  "worktrees_before": "F:/coding-agent-control-plane/sandbox/repo-a 33a0286 [main]",
+  "repo": "<REPO>\\sandbox\\repo-a",
+  "worktrees_before": "<REPO>/sandbox/repo-a 33a0286 [main]",
   "samples": [
     {
       "t": 23.5,
@@ -16,7 +16,7 @@
       "state": "succeeded",
       "worker_state": "done",
       "detail": "result: 已在当前仓库目录创建 `agent_marker.txt`，内容为 `agent-ok`。任务完成，未做其他改动。",
-      "worktree": "F:\\coding-agent-control-plane\\sandbox\\repo-a\\.codebuddy\\worktrees\\bg-443541fd",
+      "worktree": "<REPO>\\sandbox\\repo-a\\.codebuddy\\worktrees\\bg-443541fd",
       "pid": 15512
     }
   ],
@@ -29,7 +29,7 @@
   "final": {
     "state": "succeeded",
     "detail": "result: 已在当前仓库目录创建 `agent_marker.txt`，内容为 `agent-ok`。任务完成，未做其他改动。",
-    "worktree_field": "F:\\coding-agent-control-plane\\sandbox\\repo-a\\.codebuddy\\worktrees\\bg-443541fd",
+    "worktree_field": "<REPO>\\sandbox\\repo-a\\.codebuddy\\worktrees\\bg-443541fd",
     "session_id": "443541fd-ba9a-49c6-97e4-bf44082c1840",
     "pid": 15512,
     "worker_meta": {
@@ -50,21 +50,21 @@
       "lost_candidate": false
     }
   },
-  "worktrees_after": "F:/coding-agent-control-plane/sandbox/repo-a                                  33a0286 [main]\nF:/coding-agent-control-plane/sandbox/repo-a/.codebuddy/worktrees/bg-443541fd 33a0286 [worktree-bg-443541fd]",
+  "worktrees_after": "<REPO>/sandbox/repo-a                                  33a0286 [main]\n<REPO>/sandbox/repo-a/.codebuddy/worktrees/bg-443541fd 33a0286 [worktree-bg-443541fd]",
   "main_checkout_status": "?? .codebuddy/\n?? a2_partial.txt\n?? cross_from_b.txt\n?? sse_t05.txt",
   "main_checkout_has_marker": false,
   "worktree_paths": [
-    "F:/coding-agent-control-plane/sandbox/repo-a/.codebuddy/worktrees/bg-443541fd"
+    "<REPO>/sandbox/repo-a/.codebuddy/worktrees/bg-443541fd"
   ],
   "marker_in_worktrees": [
     {
-      "path": "F:\\coding-agent-control-plane\\sandbox\\repo-a\\.codebuddy\\worktrees\\bg-443541fd\\agent_marker.txt",
+      "path": "<REPO>\\sandbox\\repo-a\\.codebuddy\\worktrees\\bg-443541fd\\agent_marker.txt",
       "content": "agent-ok\n"
     }
   ],
   "state_json_worktree_keys": {
-    "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
-    "worktreePath": "F:\\coding-agent-control-plane\\sandbox\\repo-a\\.codebuddy\\worktrees\\bg-443541fd",
+    "cwd": "<REPO>\\sandbox\\repo-a",
+    "worktreePath": "<REPO>\\sandbox\\repo-a\\.codebuddy\\worktrees\\bg-443541fd",
     "worktreeBranch": "worktree-bg-443541fd"
   },
   "verdict": "verified",
@@ -97,8 +97,8 @@
             "observed": "exists"
           }
         ],
-        "verify_root": "F:\\coding-agent-control-plane\\sandbox\\repo-a\\.codebuddy\\worktrees\\bg-443541fd",
-        "worktree": "F:\\coding-agent-control-plane\\sandbox\\repo-a\\.codebuddy\\worktrees\\bg-443541fd"
+        "verify_root": "<REPO>\\sandbox\\repo-a\\.codebuddy\\worktrees\\bg-443541fd",
+        "worktree": "<REPO>\\sandbox\\repo-a\\.codebuddy\\worktrees\\bg-443541fd"
       }
     }
   }

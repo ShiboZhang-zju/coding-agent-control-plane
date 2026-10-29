@@ -1,0 +1,26 @@
+{
+  "test": "T12-idempotency-and-policy",
+  "unsafe_policy_refused": "refusing dispatch: mode=shell without isolation. Shell jobs are not filesystem-isolated by the worker; pass allow_unisolated_shell=True explicitly if you accept that risk (see capability-matrix.md).",
+  "first": {
+    "task_id": "cp-be7097625e6a",
+    "worker_job_id": "837981e4",
+    "deduplicated": false
+  },
+  "second": {
+    "task_id": "cp-be7097625e6a",
+    "worker_job_id": "837981e4",
+    "deduplicated": true
+  },
+  "worker_jobs_with_this_prompt": {
+    "before": 0,
+    "after": 1,
+    "delta": 1
+  },
+  "pass": {
+    "unsafe_policy_refused": true,
+    "same_task_id": true,
+    "second_marked_deduplicated": true,
+    "only_one_worker_job": true
+  },
+  "result": "Pass"
+}

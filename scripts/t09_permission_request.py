@@ -16,7 +16,8 @@ sys.path.insert(0, str(ROOT))
 
 from adapters.codebuddy.adapter import CodeBuddyAdapter  # noqa: E402
 from adapters.codebuddy.client import write_evidence  # noqa: E402
-from controlplane.plane import ControlPlane  # noqa: E402
+from controlplane.plane import ControlPlane
+from controlplane.policies import agent_worktree, poc_shell  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 
 CWD = str(ROOT / "sandbox" / "repo-b")
@@ -31,7 +32,7 @@ def main() -> int:
     log = {"test": "T09-permission-request", "target": str(TARGET)}
 
     idem = f"t09-{int(time.time())}"
-    rec = plane.dispatch(PROMPT, CWD, mode="agent", isolation="none",
+    rec = plane.dispatch(PROMPT, CWD, policy=agent_worktree(),
                          title="T09-approval-subject", idempotency_key=idem,
                          metadata={"permissionMode": "default"})
     job_id = rec["worker_job_id"]

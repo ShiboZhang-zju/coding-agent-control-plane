@@ -16,7 +16,8 @@ sys.path.insert(0, str(ROOT))
 from adapters.base import ArtifactAssertion, UnsupportedOperation  # noqa: E402
 from adapters.codebuddy.adapter import CodeBuddyAdapter  # noqa: E402
 from adapters.codebuddy.client import write_evidence  # noqa: E402
-from controlplane.plane import ControlPlane  # noqa: E402
+from controlplane.plane import ControlPlane
+from controlplane.policies import agent_worktree, poc_shell  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 
 CWD = str(ROOT / "sandbox" / "repo-a")
@@ -29,7 +30,7 @@ def main() -> int:
     log = {"test": "T06-cancel-stop", "cancel": {}, "resume": {}, "respawn": {}}
 
     rec = plane.dispatch(CMD, CWD, assertions=[ArtifactAssertion("file_exists", "cancel_target.txt")],
-                         mode="shell", title="T06-cancel-subject", idempotency_key="t06")
+                         policy=poc_shell(), title="T06-cancel-subject", idempotency_key="t06")
     job_id = rec["worker_job_id"]
     log["cancel"]["job"] = {"task_id": rec["task_id"], "worker_job_id": job_id}
     time.sleep(8)

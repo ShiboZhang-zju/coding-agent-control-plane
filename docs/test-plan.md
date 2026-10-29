@@ -21,6 +21,10 @@
 | T08 | 服务重启后状态重建 | `t08_service_restart.py`、`t08b_exec_survival.py`、`t08c_exec_precise.py` | `evidence/recovery/T08*.json` | 部分：可发现/可重建，但执行不继续 |
 | T09 | 权限请求 + 人工拒绝 | `t09_permission_request.py`、`t09_permission_final.py`、`t09b_permission_verify.py` | `evidence/permissions/T09*.json` | 安全行为 Pass；人工审批路径 Not Supported（background job 自动拒绝） |
 | T10 | 主 Agent 汇总 | `t01_concurrency.py`（`plane.summary()`） | `evidence/jobs/T10-summary.json` | Pass |
+| T11 | 多个**真实 Agent** 并行（独立 Job/worktree/产物归属） | `t11_four_agents.py` | `evidence/isolation/T11-parallel-blocked.md` + `T11-4way/2way-*.json` | Blocked（Job 层 peak=4 已验证；本机 hook 5s 超时导致会话全失败） |
+| T12 | 幂等派发 + 不安全策略拒绝 | `t12_idempotency.py` | `evidence/jobs/T12-idempotency.json` | Pass |
+| T13 | 假成功：旧产物/他人产物/未发生提交 | `t13_fake_success.py` | `evidence/jobs/T13-fake-success.json` | Pass（3 rejected + 2 正向对照 verified） |
+| T14 | 跨项目写入 → 否决 | `t14_cross_project.py` | `evidence/isolation/T14-cross-project-rejected.json` | Pass |
 
 ## 环境级缺陷（影响所有测试解释）
 
@@ -29,6 +33,13 @@
 2. **任何触碰 job store 的读接口固定 ~30s**：`GET /api/v1/jobs?all=1`、`?all=0`、`?cwd=`、
    `/jobs/resumable` 全部 ~30.3s；`/jobs/prefs` 与单任务 `GET /jobs/{id}` 是毫秒级。
    清理 `.locks`（1788 个残留文件）后仍是 ~32s，说明不是锁文件本身，而是 store 扫描路径。
+
+## 评审后新增的环境阻塞（2026-10-29）
+
+`UserPromptSubmit` hook（`longmemory.exe recall`，timeout=5s）在并发/连续派发时超时，
+导致 agent 会话在 prompt 阶段就被拒绝，worker 只报 `model run failed`。
+**这不是 CodeBuddy Jobs 的能力问题**，但它决定了当前可用的 agent 并发度（≈1–2）。
+详见 `evidence/isolation/T11-parallel-blocked.md`。
 
 ## 复现方式
 

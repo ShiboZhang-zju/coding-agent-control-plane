@@ -83,21 +83,21 @@
       "task_id": "cp-6936436d8884",
       "worker_job_id": "d7cfd2b9",
       "title": "T08-restart-subject",
-      "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+      "cwd": "<REPO>\\sandbox\\repo-a",
       "state": "running",
       "verdict": "pending",
       "detail": "running",
       "session_id": "d7cfd2b9-f521-416b-b195-4fba947bd783",
       "pid": 2324,
       "artifacts": [
-        "F:\\coding-agent-control-plane\\sandbox\\repo-a\\.codebuddy/",
-        "F:\\coding-agent-control-plane\\sandbox\\repo-a\\a2_partial.txt",
-        "F:\\coding-agent-control-plane\\sandbox\\repo-a\\cross_from_b.txt",
-        "F:\\coding-agent-control-plane\\sandbox\\repo-a\\sse_t05.txt",
-        "F:\\coding-agent-control-plane\\sandbox\\repo-a\\ssec.txt",
+        "<REPO>\\sandbox\\repo-a\\.codebuddy/",
+        "<REPO>\\sandbox\\repo-a\\a2_partial.txt",
+        "<REPO>\\sandbox\\repo-a\\cross_from_b.txt",
+        "<REPO>\\sandbox\\repo-a\\sse_t05.txt",
+        "<REPO>\\sandbox\\repo-a\\ssec.txt",
         "commit:33a0286 A1_artifact",
         "commit:cb3b6ec init repo-a",
-        "C:\\Users\\Sebzhang\\.codebuddy\\logs\\exec-d7cfd2b9.log"
+        "<HOME>\\.codebuddy\\logs\\exec-d7cfd2b9.log"
       ],
       "assertions": {
         "file_exists:restart_target.txt": false

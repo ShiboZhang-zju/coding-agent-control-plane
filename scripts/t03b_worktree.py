@@ -18,7 +18,8 @@ sys.path.insert(0, str(ROOT))
 from adapters.base import ArtifactAssertion  # noqa: E402
 from adapters.codebuddy.adapter import CodeBuddyAdapter  # noqa: E402
 from adapters.codebuddy.client import write_evidence  # noqa: E402
-from controlplane.plane import ControlPlane  # noqa: E402
+from controlplane.plane import ControlPlane
+from controlplane.policies import agent_worktree, poc_shell  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 
 REPO_A = str(ROOT / "sandbox" / "repo-a")
@@ -39,7 +40,7 @@ def main() -> int:
 
     rec = plane.dispatch(PROMPT, REPO_A,
                          assertions=[ArtifactAssertion("file_exists", "agent_marker.txt")],
-                         mode="agent", isolation="worktree", title="T03b-worktree-agent",
+                         policy=agent_worktree(), title="T03b-worktree-agent",
                          idempotency_key="t03b",
                          metadata={"permissionMode": "acceptEdits"})
     job_id = rec.get("worker_job_id")

@@ -13,7 +13,7 @@
         },
         {
           "dt": 0.0,
-          "line": "data: [{\"cwd\":\"F:\\\\coding-agent-control-plane\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793194587909,\"id\":\"30117b40\",\"state\":\"done\",\"sessionId\":\"30117b40-8a05-4339-85f6-6e2938e0338f\",\"initialSessionId\":\"30117b40-8a05-4339-85f6-6e2938e0338f\",\"name\":\"echo boom >&2; exit 3\",\"webUrl\":null,\"alive\":false,\"settled\":true,\"tempo\":\"idle\",\"detail\":\"command exited — output in logs\",\"intent\":\"echo boom >&2; exit 3\",\"updatedAt\":1793194599992,\"firstTerminalAt\":1793194598951},{\"cwd\":\"F:\\\\coding-agent-control-plane\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793194544894,\"id\":\"6546eecc\",\"state\":\"done\",\"sessionId\":\"6546eecc-27f4-4790-b04f-bc7be4f9222b\",\"initialSessionId\":\"6546eecc-27f4-4790-b04f-bc7be4f9222b\",\"name\":\"echo ok > ok.txt\",\"webUrl\":null,\"alive\":false,\"settled\":true,\"tempo\":\"idle\",\"detail\":\"command exited — output in logs\",\"intent\":\"echo ok > ok.txt\",\"updatedAt\":1793194569833,\"firstTerminalAt\":1793194568878},{\"cwd\":\"F:\\\\coding-agent-control-plane\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793194465474,\"id\":\"3a75c1d8\",\"state\":\"done\",\"sessionId\":\"3a75c1d8-8e66-43fb-9dc4-f99c4841dbb5\",\"initialSessionId\":\"3a75c1d8-8e66-43fb-9dc4-f99c4841dbb5\",\"name\":\"echo probe > probe.txt\",\"webUrl\":null,\"alive\":false,\"settled\":true,\"tempo\":\"idle\",\"detail\":\"command exited — output in logs\",\"intent\":\"echo probe > probe.txt\",\"updatedAt\":1793194481113,\"firstTerminalAt\":1793194479960}]"
+          "line": "data: [{\"cwd\":\"<REPO>\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793194587909,\"id\":\"30117b40\",\"state\":\"done\",\"sessionId\":\"30117b40-8a05-4339-85f6-6e2938e0338f\",\"initialSessionId\":\"30117b40-8a05-4339-85f6-6e2938e0338f\",\"name\":\"echo boom >&2; exit 3\",\"webUrl\":null,\"alive\":false,\"settled\":true,\"tempo\":\"idle\",\"detail\":\"command exited — output in logs\",\"intent\":\"echo boom >&2; exit 3\",\"updatedAt\":1793194599992,\"firstTerminalAt\":1793194598951},{\"cwd\":\"<REPO>\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793194544894,\"id\":\"6546eecc\",\"state\":\"done\",\"sessionId\":\"6546eecc-27f4-4790-b04f-bc7be4f9222b\",\"initialSessionId\":\"6546eecc-27f4-4790-b04f-bc7be4f9222b\",\"name\":\"echo ok > ok.txt\",\"webUrl\":null,\"alive\":false,\"settled\":true,\"tempo\":\"idle\",\"detail\":\"command exited — output in logs\",\"intent\":\"echo ok > ok.txt\",\"updatedAt\":1793194569833,\"firstTerminalAt\":1793194568878},{\"cwd\":\"<REPO>\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793194465474,\"id\":\"3a75c1d8\",\"state\":\"done\",\"sessionId\":\"3a75c1d8-8e66-43fb-9dc4-f99c4841dbb5\",\"initialSessionId\":\"3a75c1d8-8e66-43fb-9dc4-f99c4841dbb5\",\"name\":\"echo probe > probe.txt\",\"webUrl\":null,\"alive\":false,\"settled\":true,\"tempo\":\"idle\",\"detail\":\"command exited — output in logs\",\"intent\":\"echo probe > probe.txt\",\"updatedAt\":1793194481113,\"firstTerminalAt\":1793194479960}]"
         },
         {
           "dt": 0.0,
@@ -25,7 +25,7 @@
         },
         {
           "dt": 6.001,
-          "line": "data: {\"cwd\":\"F:\\\\coding-agent-control-plane\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793194672505,\"id\":\"85679c8c\",\"state\":\"working\",\"sessionId\":\"85679c8c-c285-42ff-b7a3-5d7de8349d3a\",\"initialSessionId\":\"85679c8c-c285-42ff-b7a3-5d7de8349d3a\",\"name\":\"sleep 6; echo sse-probe > sse.txt\",\"webUrl\":null,\"alive\":false,\"settled\":false,\"tempo\":\"active\",\"detail\":\"running\",\"intent\":\"sleep 6; echo sse-probe > sse.txt\",\"updatedAt\":1793194672505}"
+          "line": "data: {\"cwd\":\"<REPO>\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793194672505,\"id\":\"85679c8c\",\"state\":\"working\",\"sessionId\":\"85679c8c-c285-42ff-b7a3-5d7de8349d3a\",\"initialSessionId\":\"85679c8c-c285-42ff-b7a3-5d7de8349d3a\",\"name\":\"sleep 6; echo sse-probe > sse.txt\",\"webUrl\":null,\"alive\":false,\"settled\":false,\"tempo\":\"active\",\"detail\":\"running\",\"intent\":\"sleep 6; echo sse-probe > sse.txt\",\"updatedAt\":1793194672505}"
         },
         {
           "dt": 6.001,
@@ -49,7 +49,7 @@
         },
         {
           "dt": 15.256,
-          "line": "data: {\"cwd\":\"F:\\\\coding-agent-control-plane\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793194672505,\"id\":\"85679c8c\",\"state\":\"done\",\"sessionId\":\"85679c8c-c285-42ff-b7a3-5d7de8349d3a\",\"initialSessionId\":\"85679c8c-c285-42ff-b7a3-5d7de8349d3a\",\"name\":\"sleep 6; echo sse-probe > sse.txt\",\"webUrl\":null,\"alive\":false,\"settled\":true,\"tempo\":\"idle\",\"detail\":\"command exited — output in logs\",\"intent\":\"sleep 6; echo sse-probe > sse.txt\",\"updatedAt\":1793194682014,\"firstTerminalAt\":1793194680939}"
+          "line": "data: {\"cwd\":\"<REPO>\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793194672505,\"id\":\"85679c8c\",\"state\":\"done\",\"sessionId\":\"85679c8c-c285-42ff-b7a3-5d7de8349d3a\",\"initialSessionId\":\"85679c8c-c285-42ff-b7a3-5d7de8349d3a\",\"name\":\"sleep 6; echo sse-probe > sse.txt\",\"webUrl\":null,\"alive\":false,\"settled\":true,\"tempo\":\"idle\",\"detail\":\"command exited — output in logs\",\"intent\":\"sleep 6; echo sse-probe > sse.txt\",\"updatedAt\":1793194682014,\"firstTerminalAt\":1793194680939}"
         },
         {
           "dt": 15.256,
@@ -80,7 +80,7 @@
     "body": {
       "error": {
         "code": "INTERNAL_ERROR",
-        "message": "[safe-delete] 操作失败: ERROR C:\\Users\\Sebzhang\\.codebuddy\\jobs\\.locks\\85679c8c.state.lock.guard: Error during a `trash` operation: Os { code: -2147024894, description: \"windows error: 系统找不到指定的文件。 (0x80070002)\" }"
+        "message": "[safe-delete] 操作失败: ERROR <HOME>\\.codebuddy\\jobs\\.locks\\85679c8c.state.lock.guard: Error during a `trash` operation: Os { code: -2147024894, description: \"windows error: 系统找不到指定的文件。 (0x80070002)\" }"
       }
     }
   },

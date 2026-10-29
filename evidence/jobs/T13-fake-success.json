@@ -1,0 +1,80 @@
+{
+  "test": "T13-fake-success",
+  "cwd": "<REPO>\\sandbox\\repo-a",
+  "cases": [
+    {
+      "case": "old_artifact",
+      "verdict": "rejected",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "stale.txt",
+          "passed": false,
+          "owned": false,
+          "observed": "pre-existing and unchanged (not produced by this attempt)"
+        }
+      ]
+    },
+    {
+      "case": "foreign_artifact",
+      "verdict": "rejected",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "stale.txt",
+          "passed": false,
+          "owned": false,
+          "observed": "pre-existing and unchanged (not produced by this attempt)"
+        }
+      ]
+    },
+    {
+      "case": "missing_commit",
+      "verdict": "rejected",
+      "assertions": [
+        {
+          "kind": "git_commit",
+          "target": "HEAD",
+          "passed": false,
+          "owned": false,
+          "observed": "no new commit (head log: ['d0ed3df init repo-a'])"
+        }
+      ]
+    },
+    {
+      "case": "fresh_artifact",
+      "verdict": "verified",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "fresh.txt",
+          "passed": true,
+          "owned": true,
+          "observed": "changed since baseline"
+        }
+      ]
+    },
+    {
+      "case": "fresh_commit",
+      "verdict": "verified",
+      "assertions": [
+        {
+          "kind": "git_commit",
+          "target": "HEAD",
+          "passed": true,
+          "owned": true,
+          "observed": "commits since baseline: ['2b6020a T13_real_commit']"
+        }
+      ]
+    }
+  ],
+  "pass": {
+    "old_artifact_rejected": true,
+    "foreign_artifact_rejected": true,
+    "missing_commit_rejected": true,
+    "fresh_artifact_verified": true,
+    "fresh_commit_verified": true
+  },
+  "result": "Pass",
+  "note": "所有 case 都以 worker 自报 state=succeeded 喂给验收器；拒绝只可能来自产物归属判定，而不是 worker 状态"
+}

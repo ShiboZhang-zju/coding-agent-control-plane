@@ -28,6 +28,9 @@ class TaskState(str, enum.Enum):
     CANCELLED = "cancelled"
     LOST = "lost"
     UNKNOWN = "unknown"
+    # dispatch outcome is genuinely unknown (the worker errored but may have
+    # created the job). Never retried blindly: reconcile first, then decide.
+    DISPATCH_UNKNOWN = "dispatch_unknown"
 
     @property
     def terminal(self) -> bool:
@@ -151,8 +154,45 @@ class DispatchResult:
     task_id: str
     worker_job_id: str | None
     accepted: bool
+    # True when the adapter cannot prove whether a job was created. The plane
+    # must reconcile (look for the job) before it may dispatch again.
+    uncertain: bool = False
     warnings: list[str] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class DispatchPolicy:
+    """Explicit dispatch policy. There is no implicit "just run it" default.
+
+    Automated dispatch (Foreman or any unattended caller) must run as an agent
+    session inside its own workspace. Un-isolated shell execution has to be
+    requested deliberately, and it is recorded as a policy risk in the ledger.
+    """
+
+    mode: str = "agent"          # "agent" | "shell"
+    isolation: str = "worktree"  # "worktree" | "none"
+    permission_mode: str = "acceptEdits"
+    allow_unisolated_shell: bool = False
+
+    def validate(self) -> list[str]:
+        """Return policy risks; raise-free so callers decide."""
+        risks = []
+        if self.mode == "shell" and self.isolation != "worktree":
+            if not self.allow_unisolated_shell:
+                raise ValueError(
+                    "refusing dispatch: mode=shell without isolation. Shell jobs are not "
+                    "filesystem-isolated by the worker; pass allow_unisolated_shell=True "
+                    "explicitly if you accept that risk (see capability-matrix.md).")
+            risks.append("UNISOLATED_SHELL: shell job has no filesystem isolation")
+        if self.permission_mode in ("bypassPermissions",):
+            raise ValueError("refusing dispatch: bypassPermissions is forbidden by policy")
+        return risks
+
+    def to_dict(self) -> dict:
+        return {"mode": self.mode, "isolation": self.isolation,
+                "permission_mode": self.permission_mode,
+                "allow_unisolated_shell": self.allow_unisolated_shell}
 
 
 # --------------------------------------------------------------------------- #

@@ -1,0 +1,224 @@
+{
+  "test": "T11-four-agents",
+  "started_at": 1793244104.9051664,
+  "sandbox": {
+    "created_at": 1793244096.896456,
+    "suffix": "t11-112134",
+    "repo_a": "<REPO>\\sandbox\\repo-a-t11-112134",
+    "repo_b": "<REPO>\\sandbox\\repo-b-t11-112134"
+  },
+  "tasks": [
+    {
+      "name": "agent-a1",
+      "task_id": "cp-fc788ab36d9f",
+      "worker_job_id": "743a885d",
+      "dispatch_http": 200,
+      "policy": {
+        "mode": "agent",
+        "isolation": "worktree",
+        "permission_mode": "acceptEdits",
+        "allow_unisolated_shell": false
+      },
+      "state": "failed",
+      "dispatched_at": 1793244356.98928,
+      "worktree": null,
+      "session_id": "743a885d-1d16-4ae4-a2eb-15d1b87cbc3a",
+      "pid": 28432,
+      "started_at": 1793244215.686,
+      "finished_at": 1793244265.214,
+      "detail": "model run failed — check the worker log for the provider error",
+      "verdict": "rejected",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "agent-a1.txt",
+          "value": null,
+          "passed": false,
+          "owned": null,
+          "observed": "missing"
+        }
+      ],
+      "artifacts": [
+        "commit:699ce08 init repo-a-t11-112134",
+        "<HOME>\\.codebuddy\\logs\\job-743a885d.log"
+      ],
+      "warnings": [],
+      "attempts": [
+        "743a885d"
+      ]
+    },
+    {
+      "name": "agent-a2",
+      "task_id": "cp-63151a9012e0",
+      "worker_job_id": "9cc29dec",
+      "dispatch_http": 200,
+      "policy": {
+        "mode": "agent",
+        "isolation": "worktree",
+        "permission_mode": "acceptEdits",
+        "allow_unisolated_shell": false
+      },
+      "state": "failed",
+      "dispatched_at": 1793244349.1653035,
+      "worktree": null,
+      "session_id": "9cc29dec-50b9-485d-a08d-ecb76f739c02",
+      "pid": 28956,
+      "started_at": 1793244208.495,
+      "finished_at": 1793244264.6,
+      "detail": "model run failed — check the worker log for the provider error",
+      "verdict": "rejected",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "agent-a2.txt",
+          "value": null,
+          "passed": false,
+          "owned": null,
+          "observed": "missing"
+        }
+      ],
+      "artifacts": [
+        "commit:699ce08 init repo-a-t11-112134",
+        "<HOME>\\.codebuddy\\logs\\job-9cc29dec.log"
+      ],
+      "warnings": [],
+      "attempts": [
+        "9cc29dec"
+      ]
+    },
+    {
+      "name": "agent-b1",
+      "task_id": "cp-d9ae1fe58c90",
+      "worker_job_id": "7f43a5dc",
+      "dispatch_http": 200,
+      "policy": {
+        "mode": "agent",
+        "isolation": "worktree",
+        "permission_mode": "acceptEdits",
+        "allow_unisolated_shell": false
+      },
+      "state": "failed",
+      "dispatched_at": 1793244346.4237916,
+      "worktree": null,
+      "session_id": "7f43a5dc-9097-4ffe-8313-9e95db7d1c54",
+      "pid": 37940,
+      "started_at": 1793244213.132,
+      "finished_at": 1793244268.15,
+      "detail": "model run failed — check the worker log for the provider error",
+      "verdict": "rejected",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "agent-b1.txt",
+          "value": null,
+          "passed": false,
+          "owned": null,
+          "observed": "missing"
+        }
+      ],
+      "artifacts": [
+        "commit:743b7d7 init repo-b-t11-112134",
+        "<HOME>\\.codebuddy\\logs\\job-7f43a5dc.log"
+      ],
+      "warnings": [],
+      "attempts": [
+        "7f43a5dc"
+      ]
+    },
+    {
+      "name": "agent-b2",
+      "task_id": "cp-f5f683c6b846",
+      "worker_job_id": "f83d9ace",
+      "dispatch_http": 200,
+      "policy": {
+        "mode": "agent",
+        "isolation": "worktree",
+        "permission_mode": "acceptEdits",
+        "allow_unisolated_shell": false
+      },
+      "state": "failed",
+      "dispatched_at": 1793244349.193056,
+      "worktree": null,
+      "session_id": "f83d9ace-1634-4a15-940e-eb92c497c049",
+      "pid": 7472,
+      "started_at": 1793244212.111,
+      "finished_at": 1793244258.175,
+      "detail": "model run failed — check the worker log for the provider error",
+      "verdict": "rejected",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "agent-b2.txt",
+          "value": null,
+          "passed": false,
+          "owned": null,
+          "observed": "missing"
+        }
+      ],
+      "artifacts": [
+        "commit:743b7d7 init repo-b-t11-112134",
+        "<HOME>\\.codebuddy\\logs\\job-f83d9ace.log"
+      ],
+      "warnings": [],
+      "attempts": [
+        "f83d9ace"
+      ]
+    }
+  ],
+  "timeline": [
+    {
+      "t": 263.9,
+      "states": {
+        "agent-a1": "failed",
+        "agent-a2": "failed",
+        "agent-b1": "failed",
+        "agent-b2": "failed"
+      },
+      "running": 0
+    }
+  ],
+  "worktrees": [],
+  "main_checkouts": {
+    "repo_a_status": "",
+    "repo_b_status": "",
+    "repo_a_branch": "main",
+    "repo_b_branch": "main"
+  },
+  "overlap": {
+    "peak": 4,
+    "peak_at": 1793244215.686,
+    "spans": [
+      {
+        "name": "agent-a1",
+        "start": 1793244215.686,
+        "end": 1793244265.214
+      },
+      {
+        "name": "agent-a2",
+        "start": 1793244208.495,
+        "end": 1793244264.6
+      },
+      {
+        "name": "agent-b1",
+        "start": 1793244213.132,
+        "end": 1793244268.15
+      },
+      {
+        "name": "agent-b2",
+        "start": 1793244212.111,
+        "end": 1793244258.175
+      }
+    ]
+  },
+  "result": {
+    "peak_concurrent_running": 0,
+    "peak_from_timestamps": 4,
+    "distinct_worktrees": 0,
+    "all_have_own_artifact": false,
+    "no_foreign_artifacts": true,
+    "all_verified": false,
+    "verified_count": 0,
+    "failed_count": 4,
+    "main_checkout_untouched": true
+  }
+}

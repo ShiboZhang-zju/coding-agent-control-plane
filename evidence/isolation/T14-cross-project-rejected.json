@@ -1,0 +1,36 @@
+{
+  "test": "T14-cross-project",
+  "task": {
+    "task_id": "cp-06964405be65",
+    "worker_job_id": "e732e98c",
+    "worker_state": "succeeded",
+    "verdict": "rejected",
+    "own_assertions": [
+      {
+        "kind": "file_exists",
+        "target": "b_own.txt",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "changed since baseline"
+      }
+    ],
+    "warnings": [
+      "UNISOLATED_SHELL: shell job has no filesystem isolation",
+      "SIDE_EFFECT:cross_project_change:<REPO>\\sandbox\\repo-a"
+    ]
+  },
+  "observed": {
+    "own_file_in_repo_b": true,
+    "intruder_file_in_repo_a": true,
+    "repo_a_status": "?? intruder.txt",
+    "repo_b_status": "?? b_own.txt"
+  },
+  "pass": {
+    "own_assertion_passed": true,
+    "cross_project_write_happened": true,
+    "verdict_rejected": true,
+    "violation_recorded": true
+  },
+  "result": "Pass"
+}

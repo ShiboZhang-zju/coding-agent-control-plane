@@ -24,12 +24,12 @@
     "body": {
       "error": {
         "code": "INTERNAL_ERROR",
-        "message": "Timed out acquiring job lock: C:\\Users\\Sebzhang\\.codebuddy\\jobs\\.locks\\e3efb144.state.lock.guard"
+        "message": "Timed out acquiring job lock: <HOME>\\.codebuddy\\jobs\\.locks\\e3efb144.state.lock.guard"
       }
     }
   },
   "respawn": {
-    "unsupported": "respawn rejected: HTTP 500 {'error': {'code': 'INTERNAL_ERROR', 'message': 'Timed out acquiring job lock: C:\\\\Users\\\\Sebzhang\\\\.codebuddy\\\\jobs\\\\.locks\\\\e3efb144.state.lock.guard'}}"
+    "unsupported": "respawn rejected: HTTP 500 {'error': {'code': 'INTERNAL_ERROR', 'message': 'Timed out acquiring job lock: <HOME>\\\\.codebuddy\\\\jobs\\\\.locks\\\\e3efb144.state.lock.guard'}}"
   },
   "resumable": {
     "http": 200,

@@ -1,7 +1,7 @@
 {
   "test": "T08c-exec-survival-precise",
   "cmd": "ping -n 31 127.0.0.1 >nul & echo late > survival3.txt",
-  "target": "F:\\coding-agent-control-plane\\sandbox\\repo-a\\survival3.txt",
+  "target": "<REPO>\\sandbox\\repo-a\\survival3.txt",
   "job_id": "44c3480b",
   "before_stop": {
     "pid": 9796,

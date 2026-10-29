@@ -1,6 +1,6 @@
 {
   "test": "T00d-shell-semantics",
-  "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+  "cwd": "<REPO>\\sandbox\\repo-a",
   "cases": [
     {
       "case": "semicolon",

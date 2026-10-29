@@ -6,7 +6,10 @@
 |---|---|---|---|
 | 任务派发 | 原生支持 | `evidence/jobs/T01-concurrency.json` | `POST /api/v1/jobs`，返回 `id/sessionId/cwd/state` |
 | 后台运行 | 原生支持 | `evidence/jobs/T00-api-probe.json` | `kind=background`，CLI 侧 `--bg` 亦存在 |
-| 并发任务 | 原生支持 | `evidence/jobs/T01-concurrency.json` | 4 任务同时 `running`（peak=4），互不阻塞 |
+| 并发任务（shell） | 原生支持 | `evidence/jobs/T01-concurrency.json` | 4 个 shell job 同时 `running`（peak=4），互不阻塞 |
+| 并发任务（真实 Agent） | 需要配置 | `evidence/isolation/T11-parallel-blocked.md` | Job 层实测可同时接受 4 个 agent 会话（peak=4）；但本机 `UserPromptSubmit` hook 5s 超时会让并行会话集体失败，可用并发度 ≈1–2 |
+| 幂等派发 | 需要控制平面开发 | `evidence/jobs/T12-idempotency.json` | 同一 idempotency key 只起 1 个 job；第二/三次返回 deduplicated |
+| 派发不确定（dispatch_unknown） | 需要控制平面开发 | `docs/adapter-contract.md` §5 | 已实现"不确定不重试 + resolve_dispatch"，本机未触发到该分支（**未验证**） |
 | worktree 隔离 | 需要配置 | `evidence/isolation/T03b-worktree-agent.json` | agent 任务传 `bgIsolation=worktree` → `.codebuddy/worktrees/bg-<job>` + 分支 `worktree-bg-<job>` |
 | 文件级隔离（shell 任务） | 不支持 | `evidence/isolation/T03-isolation.json` | repo-b 派发的 shell 任务成功写入 `../repo-a/cross_from_b.txt` |
 | 状态查询（单任务） | 原生支持 | `evidence/recovery/T08-service-restart.json` | `GET /api/v1/jobs/{id}` 毫秒级 |
@@ -28,6 +31,9 @@
 | 产物收集 | 需要 Adapter 开发 | `evidence/isolation/T03b-worktree-agent.json` | git status/log + `state.json.logPath` |
 | 失败识别 | 需要控制平面开发 | `evidence/jobs/T00b-state-semantics.json` | `exit 3` 仍报 `done`，无退出码字段 |
 | 自动验收 | 需要控制平面开发 | `evidence/jobs/T04-acceptance.json` | 产物断言：`verified 3 / rejected 1` |
+| 产物归属（防假成功） | 需要控制平面开发 | `evidence/jobs/T13-fake-success.json` | 旧产物/他人产物/未发生的提交全部 `rejected`；两个正向对照 `verified` |
+| 越界副作用否决 | 需要控制平面开发 | `evidence/isolation/T14-cross-project-rejected.json` | 自己的断言通过、worker 报 `done`，仍因跨项目写入被判 `rejected` |
+| 派发策略强制 | 需要控制平面开发 | `evidence/jobs/T12-idempotency.json` | 无 `allow_unisolated_shell` 的 shell 派发直接 `ValueError` |
 | 失联判定（lost） | 需要控制平面开发 | `evidence/recovery/T02-lost-job.json` | `working + alive=false + pid 死 + 停滞>90s` → `lost` |
 | 主 Agent 汇总 | 需要控制平面开发 | `evidence/jobs/T10-summary.json` | `plane.summary()` 一次拿到全部任务/阻塞/下一步 |
 | ACP | 未验证 | `openapi/codebuddy-openapi.json` | `/api/v1/acp`、`/api/v1/acp/connect` 存在，未做端到端会话 |

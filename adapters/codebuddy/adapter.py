@@ -151,38 +151,38 @@ class CodeBuddyAdapter:
         if request.title:
             body["name"] = request.title
 
-        attempts: list[dict] = []
+        # Exactly ONE POST per dispatch() call. The worker can answer 500 *after*
+        # creating the job, so a second POST could start a duplicate; when the
+        # outcome cannot be proven the result is reported as `uncertain` and the
+        # plane decides (state=dispatch_unknown -> resolve_dispatch).
+        attempt_started = time.time()
+        resp = self.api.dispatch(**body)
+        data = resp["body"].get("data") if isinstance(resp["body"], dict) else None
         job_id = None
-        raw: dict[str, Any] = {}
-        for attempt in range(1, 3):                     # T01 showed 500-without-creation under load
-            attempt_started = time.time()
-            resp = self.api.dispatch(**body)
-            attempts.append({"attempt": attempt, "http": resp["status"], "body": resp["body"]})
-            data = resp["body"].get("data") if isinstance(resp["body"], dict) else None
-            if isinstance(data, dict):
-                job_id = data.get("id") or data.get("jobId")
-            if resp["status"] != 200:
-                warnings.append(
-                    f"DISPATCH_HTTP_{resp['status']} (attempt {attempt}): response body is not "
-                    "authoritative; job recovered by diffing GET /api/v1/jobs")
-            if not job_id:
-                job_id = self._recover_job_id(request, since=attempt_started)
-                if job_id:
-                    warnings.append("DISPATCH_RECOVERED_BY_LIST: job existed despite the error response")
-            if job_id:
-                break
-            warnings.append(f"DISPATCH_NOT_CREATED (attempt {attempt}): no new job appeared")
-            time.sleep(2.0)
+        if isinstance(data, dict):
+            job_id = data.get("id") or data.get("jobId")
 
-        raw = {"attempts": attempts,
-               "dispatch_http": attempts[-1]["http"] if attempts else None,
-               "dispatch_body": attempts[-1]["body"] if attempts else None,
-               "recovered_by": "list-jobs diff" if job_id else None}
+        raw: dict[str, Any] = {"dispatch_http": resp["status"], "dispatch_body": resp["body"],
+                               "posted_at": attempt_started}
+        if resp["status"] != 200:
+            warnings.append(
+                f"DISPATCH_HTTP_{resp['status']}: response body is not authoritative "
+                "(the job may still have been created)")
 
         if not job_id:
-            warnings.append("DISPATCH_UNRECOVERABLE: no job after 2 attempts")
+            job_id = self._recover_job_id(request, since=attempt_started)
+            if job_id:
+                warnings.append("DISPATCH_RECOVERED_BY_LIST: job existed despite the error response")
+
+        raw["recovered_by"] = "list-jobs scan" if job_id else None
+
+        if not job_id:
+            # Proven-absent is NOT claimed here: the recovery window may simply
+            # have been too short. The plane must call resolve_dispatch().
+            warnings.append("DISPATCH_UNCERTAIN: no job observed after one POST; "
+                            "not retried (would risk a duplicate)")
             return DispatchResult(task_id=request.task_id, worker_job_id=None, accepted=False,
-                                  warnings=warnings, raw=raw)
+                                  uncertain=True, warnings=warnings, raw=raw)
 
         job = self.api.job(job_id)
         self._jobs[job_id] = job
@@ -191,9 +191,14 @@ class CodeBuddyAdapter:
         return DispatchResult(task_id=request.task_id, worker_job_id=job_id,
                               accepted=True, warnings=warnings, raw=raw)
 
+    def find_job(self, prompt: str, cwd: str, since: float) -> str | None:
+        """Look for a job matching a dispatch signature (read-only, no side effect)."""
+        request = DispatchRequest(prompt=prompt, cwd=cwd, task_id="lookup")
+        return self._recover_job_id(request, since=since)
+
     def _recover_job_id(self, request: DispatchRequest, since: float) -> str | None:
         """The API can 500 after creating the job; find it by cwd+prompt+startedAt."""
-        deadline = time.time() + 20
+        deadline = time.time() + 25
         while time.time() < deadline:
             for j in self.api.jobs():
                 started = (j.get("startedAt") or 0) / 1000.0

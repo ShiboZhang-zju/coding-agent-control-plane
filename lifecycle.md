@@ -4,7 +4,7 @@
 
 | 实体 | 谁创建 | 结束条件 | 能否在控制平面之外存活 | 证据 |
 |---|---|---|---|---|
-| **系统进程**（cmd/node 子进程） | Job 启动时 spawn | 命令退出 / 被杀 | 服务重启后仍在跑（遗留） | `evidence/recovery/T08-service-restart.json` |
+| **系统进程**（cmd/node 子进程） | Job 启动时 spawn | 命令退出 / 被杀 | **否**：服务一停，子进程随之被杀 | `evidence/recovery/T08c-exec-survival-precise.json` |
 | **CodeBuddy Job** | `POST /api/v1/jobs` | 进入 `done/failed/stopped` | 是（落盘在 `~/.codebuddy/jobs/<id>/state.json`） | `evidence/jobs/T01-concurrency.json` |
 | **Session**（对话） | Job 创建时生成 `sessionId` | 归档 / 删除 | 是（可 `resume` 成新 Job） | `evidence/recovery/T07-resume-respawn.json` |
 | **CLI 对话**（`codebuddy -p` / TUI） | 用户命令 | 进程退出 | 仅通过 `--resume <sessionId>` 再开 | `evidence/environment/codebuddy-help.txt` |
@@ -36,13 +36,24 @@ POST /api/v1/jobs                    → state=working, alive=true, pid=<n>
   ├─ 正常结束                         → state=done, settled=true, alive=∅, firstTerminalAt 写入
   ├─ POST /jobs/{id}/stop             → state=stopped（1.9s 内）
   ├─ 进程被杀（worker 不知道）         → 永远 working（需要 plane 侧 120s 停滞判定 → lost）
-  └─ 服务重启                         → Job 记录仍在；运行中的子进程状态见 T08 证据
+  └─ 服务重启                         → Job 记录仍在（可查），但子进程已死、命令不会继续，
+                                        状态永久停在 working（T08c）
 ```
+
+服务重启的准确结论（修正前一版）：
+
+- `stop` / 重启服务会**连带杀死 Job 的子进程**（T08c：`pid_alive_after_stop=false`，
+  30 秒后应有的产物从未出现）；
+- Job 记录仍可查询（`GET /jobs/{id}` 返回 200），但**执行不会续跑**，也**不会**自动变成
+  `failed` —— 它会一直停在 `working`；
+- 因此"执行恢复"能力为 **不支持**，恢复必须由控制平面发起**新的 Attempt**
+  （`work_item -> attempt` 映射在 `controlplane/store.py`）。
 
 ## 控制平面必须自己维护的部分
 
-1. `cp-task-id ↔ job-id ↔ session-id` 映射（worker 不存）；
-2. 幂等键（worker 无此字段：`DISPATCH` 请求体没有 idempotency key）；
+1. `work_item ↔ run_attempt ↔ worker_job ↔ session` 映射（worker 只存 job→session，
+   不存"这次是第几次执行"）；
+2. 幂等键与 `dispatch_unknown` 状态（worker 无 idempotency key 字段，且 500 可能已创建任务）；
 3. `lost` 判定与对账周期；
-4. 验收结论（产断言 vs worker 终态）；
-5. 审批待办队列（worker 只有 `waitingFor` 字符串，没有"我的待办"接口）。
+4. 验收结论（产物归属断言 vs worker 终态）；
+5. 审批待办队列（worker 只有 `waitingFor` 字符串，background job 甚至直接 auto-deny）。

@@ -1,12 +1,12 @@
 {
   "test": "T03-isolation",
   "repos": {
-    "repo_a": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
-    "repo_b": "F:\\coding-agent-control-plane\\sandbox\\repo-b"
+    "repo_a": "<REPO>\\sandbox\\repo-a",
+    "repo_b": "<REPO>\\sandbox\\repo-b"
   },
   "cross_repo_write_attempted_by": "B1 (dispatched in repo-b)",
   "cross_repo_write_landed": true,
-  "cross_repo_path": "F:\\coding-agent-control-plane\\sandbox\\repo-a\\cross_from_b.txt",
+  "cross_repo_path": "<REPO>\\sandbox\\repo-a\\cross_from_b.txt",
   "verdict": "file isolation between two projects is NOT enforced for shell jobs: a job dispatched in repo-b wrote into repo-a",
   "repo_a_status": "?? a2_partial.txt\n?? cross_from_b.txt",
   "repo_b_status": "?? b1.txt",

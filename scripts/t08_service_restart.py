@@ -20,7 +20,8 @@ sys.path.insert(0, str(ROOT))
 from adapters.base import ArtifactAssertion  # noqa: E402
 from adapters.codebuddy.adapter import CodeBuddyAdapter  # noqa: E402
 from adapters.codebuddy.client import Api, write_evidence  # noqa: E402
-from controlplane.plane import ControlPlane  # noqa: E402
+from controlplane.plane import ControlPlane
+from controlplane.policies import agent_worktree, poc_shell  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 
 CWD = str(ROOT / "sandbox" / "repo-a")
@@ -46,7 +47,7 @@ def main() -> int:
     log = {"test": "T08-service-restart"}
 
     rec = plane.dispatch(CMD, CWD, assertions=[ArtifactAssertion("file_exists", "restart_target.txt")],
-                         mode="shell", title="T08-restart-subject", idempotency_key="t08")
+                         policy=poc_shell(), title="T08-restart-subject", idempotency_key="t08")
     job_id = rec["worker_job_id"]
     log["job"] = {"task_id": rec["task_id"], "worker_job_id": job_id}
     time.sleep(6)

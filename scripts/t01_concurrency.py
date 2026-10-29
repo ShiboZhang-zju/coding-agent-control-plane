@@ -23,7 +23,8 @@ sys.path.insert(0, str(ROOT))
 from adapters.base import ArtifactAssertion  # noqa: E402
 from adapters.codebuddy.adapter import CodeBuddyAdapter  # noqa: E402
 from adapters.codebuddy.client import write_evidence  # noqa: E402
-from controlplane.plane import ControlPlane  # noqa: E402
+from controlplane.plane import ControlPlane
+from controlplane.policies import agent_worktree, poc_shell  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 
 D = "timeout /t {} /nobreak >nul & "
@@ -56,7 +57,7 @@ def main() -> int:
     subprocess.run([sys.executable, str(ROOT / "scripts" / "make_sandbox.py")], check=True)
     adapter = CodeBuddyAdapter()
     store = TaskStore(ROOT / ".poc-state" / "t01.json")
-    store.records.clear()
+    store.clear()
     store.save()
     plane = ControlPlane(adapter, store)
     log = {"test": "T01-concurrency", "started_at": time.time(), "dispatches": [], "timeline": []}
@@ -64,7 +65,7 @@ def main() -> int:
     for spec in TASKS:
         t0 = time.time()
         rec = plane.dispatch(spec["prompt"], spec["cwd"], assertions=spec["assertions"],
-                             mode="shell", title=spec["title"],
+                             policy=poc_shell(), title=spec["title"],
                              idempotency_key=f"t01-{spec['key']}")
         jid = rec.get("worker_job_id")
         snap = adapter.get_task(jid) if jid else None

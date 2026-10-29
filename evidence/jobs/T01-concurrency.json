@@ -10,7 +10,7 @@
       "dispatch_http": 200,
       "recovered_by": "list-jobs diff",
       "warnings": [],
-      "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+      "cwd": "<REPO>\\sandbox\\repo-a",
       "worktree": null,
       "session_id": "ae335d3d-0b2b-4931-8e36-2a2904a632c0",
       "pid": 46096,
@@ -48,11 +48,11 @@
         }
       ],
       "artifacts": [
-        "F:\\coding-agent-control-plane\\sandbox\\repo-a\\a2_partial.txt",
-        "F:\\coding-agent-control-plane\\sandbox\\repo-a\\cross_from_b.txt",
+        "<REPO>\\sandbox\\repo-a\\a2_partial.txt",
+        "<REPO>\\sandbox\\repo-a\\cross_from_b.txt",
         "commit:33a0286 A1_artifact",
         "commit:cb3b6ec init repo-a",
-        "C:\\Users\\Sebzhang\\.codebuddy\\logs\\exec-ae335d3d.log"
+        "<HOME>\\.codebuddy\\logs\\exec-ae335d3d.log"
       ],
       "git_after": {
         "log": "33a0286 A1_artifact\ncb3b6ec init repo-a",
@@ -67,7 +67,7 @@
       "dispatch_http": 200,
       "recovered_by": "list-jobs diff",
       "warnings": [],
-      "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+      "cwd": "<REPO>\\sandbox\\repo-a",
       "worktree": null,
       "session_id": "68861e00-097b-45e1-a1fa-3d107747503d",
       "pid": 31464,
@@ -91,11 +91,11 @@
         }
       ],
       "artifacts": [
-        "F:\\coding-agent-control-plane\\sandbox\\repo-a\\a2_partial.txt",
-        "F:\\coding-agent-control-plane\\sandbox\\repo-a\\cross_from_b.txt",
+        "<REPO>\\sandbox\\repo-a\\a2_partial.txt",
+        "<REPO>\\sandbox\\repo-a\\cross_from_b.txt",
         "commit:33a0286 A1_artifact",
         "commit:cb3b6ec init repo-a",
-        "C:\\Users\\Sebzhang\\.codebuddy\\logs\\exec-68861e00.log"
+        "<HOME>\\.codebuddy\\logs\\exec-68861e00.log"
       ],
       "git_after": {
         "log": "33a0286 A1_artifact\ncb3b6ec init repo-a",
@@ -110,7 +110,7 @@
       "dispatch_http": 200,
       "recovered_by": "list-jobs diff",
       "warnings": [],
-      "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-b",
+      "cwd": "<REPO>\\sandbox\\repo-b",
       "worktree": null,
       "session_id": "6cbd6cd4-1902-4be1-942e-02f5efcdb79f",
       "pid": 16480,
@@ -134,10 +134,10 @@
         }
       ],
       "artifacts": [
-        "F:\\coding-agent-control-plane\\sandbox\\repo-b\\b1.txt",
+        "<REPO>\\sandbox\\repo-b\\b1.txt",
         "commit:a69df94 B2_artifact",
         "commit:a43541f init repo-b",
-        "C:\\Users\\Sebzhang\\.codebuddy\\logs\\exec-6cbd6cd4.log"
+        "<HOME>\\.codebuddy\\logs\\exec-6cbd6cd4.log"
       ],
       "git_after": {
         "log": "a69df94 B2_artifact\na43541f init repo-b",
@@ -152,7 +152,7 @@
       "dispatch_http": 200,
       "recovered_by": "list-jobs diff",
       "warnings": [],
-      "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-b",
+      "cwd": "<REPO>\\sandbox\\repo-b",
       "worktree": null,
       "session_id": "469a5e8f-e524-4915-bafb-994f36ba6f88",
       "pid": 46788,
@@ -183,10 +183,10 @@
         }
       ],
       "artifacts": [
-        "F:\\coding-agent-control-plane\\sandbox\\repo-b\\b1.txt",
+        "<REPO>\\sandbox\\repo-b\\b1.txt",
         "commit:a69df94 B2_artifact",
         "commit:a43541f init repo-b",
-        "C:\\Users\\Sebzhang\\.codebuddy\\logs\\exec-469a5e8f.log"
+        "<HOME>\\.codebuddy\\logs\\exec-469a5e8f.log"
       ],
       "git_after": {
         "log": "a69df94 B2_artifact\na43541f init repo-b",
@@ -1286,12 +1286,12 @@
   "isolation": {
     "test": "T03-isolation",
     "repos": {
-      "repo_a": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
-      "repo_b": "F:\\coding-agent-control-plane\\sandbox\\repo-b"
+      "repo_a": "<REPO>\\sandbox\\repo-a",
+      "repo_b": "<REPO>\\sandbox\\repo-b"
     },
     "cross_repo_write_attempted_by": "B1 (dispatched in repo-b)",
     "cross_repo_write_landed": true,
-    "cross_repo_path": "F:\\coding-agent-control-plane\\sandbox\\repo-a\\cross_from_b.txt",
+    "cross_repo_path": "<REPO>\\sandbox\\repo-a\\cross_from_b.txt",
     "verdict": "file isolation between two projects is NOT enforced for shell jobs: a job dispatched in repo-b wrote into repo-a",
     "repo_a_status": "?? a2_partial.txt\n?? cross_from_b.txt",
     "repo_b_status": "?? b1.txt",

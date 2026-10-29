@@ -1,0 +1,87 @@
+{
+  "generated_at": 1793246133.2150013,
+  "total": 2,
+  "ledger": {
+    "path": "<REPO>\\.poc-state\\t11.db",
+    "degraded": false
+  },
+  "counts": {
+    "by_state": {
+      "failed": 2
+    },
+    "running": 0,
+    "waiting_for_approval": 0,
+    "verified": 0,
+    "rejected": 2,
+    "inconclusive": 0,
+    "dispatch_unknown": 0
+  },
+  "needs_human": [],
+  "tasks": [
+    {
+      "task_id": "cp-f293bfa50eb7",
+      "worker_job_id": "92743355",
+      "attempts": [
+        {
+          "attempt_id": "at-d4ad20fc2e",
+          "worker_job_id": "92743355",
+          "reason": "state-change",
+          "at": 1793245545.1644948
+        }
+      ],
+      "title": "T11-agent-a1",
+      "cwd": "<REPO>\\sandbox\\repo-a-t11-114234",
+      "mode": "agent",
+      "isolation": "worktree",
+      "worktree": null,
+      "state": "failed",
+      "verdict": "rejected",
+      "detail": "model run failed — check the worker log for the provider error",
+      "session_id": "92743355-484e-4f63-8a7e-14c9e3ca1d6e",
+      "pid": 12768,
+      "commit": null,
+      "artifacts": [
+        "commit:ced9d8d init repo-a-t11-114234",
+        "<HOME>\\.codebuddy\\logs\\job-92743355.log"
+      ],
+      "assertions": {
+        "file_exists:agent-a1.txt": false
+      },
+      "warnings": []
+    },
+    {
+      "task_id": "cp-33f2b86e138d",
+      "worker_job_id": "1d2504e0",
+      "attempts": [
+        {
+          "attempt_id": "at-c1a042a51a",
+          "worker_job_id": "1d2504e0",
+          "reason": "state-change",
+          "at": 1793245742.7220666
+        }
+      ],
+      "title": "T11-agent-b1",
+      "cwd": "<REPO>\\sandbox\\repo-b-t11-114234",
+      "mode": "agent",
+      "isolation": "worktree",
+      "worktree": null,
+      "state": "failed",
+      "verdict": "rejected",
+      "detail": "model run failed — check the worker log for the provider error",
+      "session_id": "1d2504e0-ab73-4f47-b7c4-ec2ffc8f5f5a",
+      "pid": 12336,
+      "commit": null,
+      "artifacts": [
+        "commit:2bdf19f init repo-b-t11-114234",
+        "<HOME>\\.codebuddy\\logs\\job-1d2504e0.log"
+      ],
+      "assertions": {
+        "file_exists:agent-b1.txt": false
+      },
+      "warnings": []
+    }
+  ],
+  "next_actions": [
+    "未通过验收: cp-f293bfa50eb7, cp-33f2b86e138d"
+  ]
+}

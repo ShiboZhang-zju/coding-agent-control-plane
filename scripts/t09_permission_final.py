@@ -20,7 +20,8 @@ sys.path.insert(0, str(ROOT))
 from adapters.base import ArtifactAssertion  # noqa: E402
 from adapters.codebuddy.adapter import CodeBuddyAdapter  # noqa: E402
 from adapters.codebuddy.client import write_evidence  # noqa: E402
-from controlplane.plane import ControlPlane  # noqa: E402
+from controlplane.plane import ControlPlane
+from controlplane.policies import agent_worktree, poc_shell  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 
 CWD = str(ROOT / "sandbox" / "repo-b")
@@ -33,7 +34,7 @@ def main() -> int:
     plane = ControlPlane(adapter, TaskStore(ROOT / ".poc-state" / "t09-final.json"))
     log = {"test": "T09-permission-denied", "target": str(Path(CWD) / "approval_probe.txt")}
 
-    rec = plane.dispatch(PROMPT, CWD, mode="agent", isolation="none",
+    rec = plane.dispatch(PROMPT, CWD, policy=agent_worktree(),
                          title="T09-approval-subject",
                          idempotency_key=f"t09final-{int(time.time())}",
                          assertions=[ArtifactAssertion("file_exists", "approval_probe.txt")],

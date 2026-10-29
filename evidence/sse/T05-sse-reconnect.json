@@ -12,7 +12,7 @@
         },
         {
           "dt": 0.0,
-          "line": "data: [{\"cwd\":\"F:\\\\coding-agent-control-plane\\\\sandbox\\\\repo-b\",\"kind\":\"background\",\"startedAt\":1793196347020,\"id\":\"469a5e8f\",\"state\":\"done\",\"sessionId\":\"469a5e8f-e524-4915-bafb-994f36ba6f88\",\"initialSessionId\":\"469a5e8f-e524-4915-bafb-994f36ba6f88\",\"name\":\"timeout /t 40 /nobreak >nul & echo b2-ok\","
+          "line": "data: [{\"cwd\":\"<REPO>\\\\sandbox\\\\repo-b\",\"kind\":\"background\",\"startedAt\":1793196347020,\"id\":\"469a5e8f\",\"state\":\"done\",\"sessionId\":\"469a5e8f-e524-4915-bafb-994f36ba6f88\",\"initialSessionId\":\"469a5e8f-e524-4915-bafb-994f36ba6f88\",\"name\":\"timeout /t 40 /nobreak >nul & echo b2-ok\","
         },
         {
           "dt": 3.03,
@@ -20,7 +20,7 @@
         },
         {
           "dt": 3.03,
-          "line": "data: {\"cwd\":\"F:\\\\coding-agent-control-plane\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793196449915,\"id\":\"8d33094b\",\"state\":\"working\",\"sessionId\":\"8d33094b-a703-477d-97bb-9d3664727db1\",\"initialSessionId\":\"8d33094b-a703-477d-97bb-9d3664727db1\",\"name\":\"timeout /t 25 /nobreak >nul & echo sse-o"
+          "line": "data: {\"cwd\":\"<REPO>\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793196449915,\"id\":\"8d33094b\",\"state\":\"working\",\"sessionId\":\"8d33094b-a703-477d-97bb-9d3664727db1\",\"initialSessionId\":\"8d33094b-a703-477d-97bb-9d3664727db1\",\"name\":\"timeout /t 25 /nobreak >nul & echo sse-o"
         },
         {
           "dt": 5.07,
@@ -28,7 +28,7 @@
         },
         {
           "dt": 5.07,
-          "line": "data: {\"cwd\":\"F:\\\\coding-agent-control-plane\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793196449915,\"id\":\"8d33094b\",\"state\":\"working\",\"sessionId\":\"8d33094b-a703-477d-97bb-9d3664727db1\",\"initialSessionId\":\"8d33094b-a703-477d-97bb-9d3664727db1\",\"name\":\"timeout /t 25 /nobreak >nul & echo sse-o"
+          "line": "data: {\"cwd\":\"<REPO>\\\\sandbox\\\\repo-a\",\"kind\":\"background\",\"startedAt\":1793196449915,\"id\":\"8d33094b\",\"state\":\"working\",\"sessionId\":\"8d33094b-a703-477d-97bb-9d3664727db1\",\"initialSessionId\":\"8d33094b-a703-477d-97bb-9d3664727db1\",\"name\":\"timeout /t 25 /nobreak >nul & echo sse-o"
         },
         {
           "dt": 15.01,
@@ -56,7 +56,7 @@
               "state": "working",
               "tempo": "active",
               "startedAt": 1793196449915,
-              "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+              "cwd": "<REPO>\\sandbox\\repo-a",
               "kind": "background",
               "intent": "timeout /t 25 /nobreak >nul & echo sse-ok > sse_t05.txt",
               "detail": "running",
@@ -82,7 +82,7 @@
           "state": "working",
           "tempo": "active",
           "startedAt": 1793196449915,
-          "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a",
+          "cwd": "<REPO>\\sandbox\\repo-a",
           "kind": "background",
           "intent": "timeout /t 25 /nobreak >nul & echo sse-ok > sse_t05.txt",
           "detail": "running",
