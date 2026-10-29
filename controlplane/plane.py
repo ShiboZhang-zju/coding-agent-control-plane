@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -51,10 +52,113 @@ def task_digest(prompt: str, policy: DispatchPolicy,
 
 class ControlPlane:
     def __init__(self, adapter, store: TaskStore | None = None,
-                 policy: DispatchPolicy | None = None):
+                 policy: DispatchPolicy | None = None, *,
+                 require_registered_projects: bool = False):
         self.adapter = adapter
         self.store = store or TaskStore()
         self.policy = policy or DispatchPolicy()
+        self.require_registered_projects = require_registered_projects
+
+    # ------------------------------------------------------------------ #
+    # projects / path boundary
+    # ------------------------------------------------------------------ #
+    def register_project(self, name: str, root: str, *,
+                         default_adapter: str | None = None,
+                         policy: DispatchPolicy | dict | None = None,
+                         concurrency_limit: int = 2,
+                         active: bool = True) -> dict:
+        """Register one canonical Git root as an allowed project boundary."""
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("project name must not be empty")
+        adapter = (default_adapter or self.adapter.name).strip()
+        if not adapter:
+            raise ValueError("project default_adapter must not be empty")
+        canonical = self._canonical_git_root(root)
+        if isinstance(policy, DispatchPolicy):
+            policy.validate()
+            policy_data = policy.to_dict()
+        else:
+            policy_data = dict(policy or {})
+            if policy_data:
+                checked = DispatchPolicy(**policy_data)
+                checked.validate()
+                policy_data = checked.to_dict()
+        return self.store.register_project(
+            clean_name, str(canonical), adapter, policy=policy_data,
+            concurrency_limit=concurrency_limit, active=active)
+
+    def project(self, project_id_or_name: str) -> dict:
+        project = (self.store.get_project(project_id_or_name)
+                   or self.store.project_by_name(project_id_or_name))
+        if not project:
+            raise KeyError(f"no project {project_id_or_name}")
+        return project
+
+    def resolve_project_for_cwd(self, cwd: str, project_id: str | None = None,
+                                *, require_registered: bool | None = None
+                                ) -> tuple[str, dict | None]:
+        """Resolve symlinks/``..`` and bind a task to its registered root.
+
+        An explicit project never falls through to another matching project. This
+        is the boundary check that stops ``project-a/../project-b`` from being
+        executed under project A's policy or concurrency budget.
+        """
+        path = Path(cwd).expanduser().resolve()
+        required = (self.require_registered_projects if require_registered is None
+                    else require_registered)
+        project = self.project(project_id) if project_id else None
+        if project is None:
+            matches = [candidate for candidate in self.store.all_projects()
+                       if self._contains(Path(candidate["root"]), path)]
+            if matches:
+                project = max(matches, key=lambda item: len(Path(item["root"]).parts))
+        if project is None:
+            if required:
+                if not path.is_dir():
+                    raise ValueError(f"cwd is not a directory: {path}")
+                raise ValueError(f"cwd is not inside a registered project: {path}")
+            return str(path), None
+        if not path.is_dir():
+            raise ValueError(f"cwd is not a directory: {path}")
+        if not project.get("active"):
+            raise ValueError(f"project is disabled: {project['name']}")
+        # ``root`` was canonicalized when registered. Do not resolve it again:
+        # if that directory is later replaced by a symlink, a fresh resolution
+        # could silently move the trusted boundary to the symlink target.
+        root = Path(project["root"])
+        if not self._contains(root, path):
+            raise ValueError(
+                f"cwd escapes project {project['name']} boundary: {path} not under {root}")
+        return str(path), project
+
+    @staticmethod
+    def _contains(root: Path, path: Path) -> bool:
+        try:
+            path.relative_to(root)
+            return True
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _canonical_git_root(root: str) -> Path:
+        path = Path(root).expanduser().resolve()
+        if not path.is_dir():
+            raise ValueError(f"project root is not a directory: {path}")
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+                check=False, capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ValueError(f"cannot inspect Git project root {path}: {exc}") from exc
+        if result.returncode != 0 or not result.stdout.strip():
+            detail = result.stderr.strip() or "not a Git working tree"
+            raise ValueError(f"project root must be a Git working tree: {path} ({detail})")
+        git_root = Path(result.stdout.strip()).resolve()
+        if git_root != path:
+            raise ValueError(
+                f"project root must be the Git top-level directory: {path}; use {git_root}")
+        return git_root
 
     # ------------------------------------------------------------------ #
     # dispatch
@@ -62,31 +166,14 @@ class ControlPlane:
     def dispatch(self, prompt: str, cwd: str, *, assertions: list[ArtifactAssertion] | None = None,
                  policy: DispatchPolicy | None = None, title: str = "",
                  idempotency_key: str = "", timeout_s: int = 900,
-                 metadata: dict | None = None) -> dict:
-        """Dispatch with an explicit policy.
-
-        Refuses on: unsafe policy (ValueError), degraded ledger (LedgerDegraded),
-        high-risk task without a matching approval (ApprovalRequired).
-        """
-        assertions = assertions or []
-        policy = policy or self.policy
-        risks = policy.validate()
-
-        # fail closed: a degraded ledger no longer knows what is already running
+                 metadata: dict | None = None, priority: int = 0,
+                 project_id: str | None = None) -> dict:
+        """Persist intent and immediately perform one Worker dispatch."""
         self.store.assert_writable("dispatch")
-
-        digest = task_digest(prompt, policy, assertions, cwd)
-        approval = None
-        if policy.requires_approval():
-            approval = self.store.valid_approval_by_digest(digest)
-            if not approval:
-                self.store.append_event(
-                    "", "approval_required",
-                    {"digest": digest, "risk": policy.effective_risk(), "cwd": str(cwd)})
-                raise ApprovalRequired(
-                    f"risk={policy.effective_risk()}: dispatch requires a human approval whose "
-                    f"digest matches this exact task ({digest}). Call approve(digest=...) first; "
-                    "changing the prompt/policy/assertions invalidates the approval.")
+        assertions = assertions or []
+        cwd, project = self.resolve_project_for_cwd(cwd, project_id)
+        policy = policy or self._project_policy(project) or self.policy
+        risks = policy.validate()
 
         if idempotency_key:
             existing = self.store.by_idempotency_key(idempotency_key)
@@ -95,123 +182,282 @@ class ControlPlane:
                 out["deduplicated"] = True
                 return out
 
-        task_id = self.store.new_task_id()
-        baseline = capture_baseline(cwd, assertions)
-        req = DispatchRequest(prompt=prompt, cwd=cwd, task_id=task_id, title=title,
-                              mode=policy.mode, isolation=policy.isolation,
-                              assertions=assertions, idempotency_key=idempotency_key,
-                              timeout_s=timeout_s,
-                              metadata={**(metadata or {}),
-                                        "permissionMode": policy.permission_mode})
-
-        record = {
-            "task_id": task_id,
-            "title": title or prompt[:60],
-            "prompt": prompt,
-            "cwd": cwd,
-            "mode": policy.mode,
-            "isolation": policy.isolation,
-            "idempotency_key": idempotency_key,
-            "policy": policy.to_dict(),
-            "assertions": [a.to_dict() for a in assertions],
-            "baseline": baseline,
-            "state": TaskState.QUEUED.value,
-            "verdict": Verdict.PENDING.value,
-            "warnings": risks,
-            "metadata": {"adapter": self.adapter.name},
-        }
+        digest = task_digest(prompt, policy, assertions, cwd)
+        approval = self._matching_approval(policy, digest, cwd, required=True)
+        record = self._new_record(
+            self.store.new_task_id(), prompt, cwd, assertions, policy, title,
+            idempotency_key, metadata, risks, queue_status="dispatching",
+            priority=priority, digest=digest,
+            project_id=(project or {}).get("id"))
         record, created = self.store.create_work_item(record)
-        task_id = record["task_id"]
         if not created:
-            # another thread/process won the race on this idempotency key: it owns
-            # the dispatch, so this caller must not POST a second job.
             out = dict(record)
             out["deduplicated"] = True
-            self.store.append_event(task_id, "dispatch_deduplicated_at_insert",
+            self.store.append_event(record["task_id"], "dispatch_deduplicated_at_insert",
                                     {"key": idempotency_key})
             return out
+        return self._dispatch_record(record, approval=approval, timeout_s=timeout_s)
 
-        # Pre-create the attempt so the approval reservation can bind to it, not to
-        # a worker job id that does not exist yet.
+    def enqueue(self, prompt: str, cwd: str, *,
+                assertions: list[ArtifactAssertion] | None = None,
+                policy: DispatchPolicy | None = None, title: str = "",
+                idempotency_key: str = "", timeout_s: int = 900,
+                metadata: dict | None = None, priority: int = 0,
+                project_id: str | None = None) -> dict:
+        """Persist work for automatic Runtime dispatch without calling a Worker."""
+        self.store.assert_writable("enqueue")
+        assertions = assertions or []
+        cwd, project = self.resolve_project_for_cwd(cwd, project_id)
+        policy = policy or self._project_policy(project) or self.policy
+        risks = policy.validate()
+        if idempotency_key:
+            existing = self.store.by_idempotency_key(idempotency_key)
+            if existing:
+                out = dict(existing)
+                out["deduplicated"] = True
+                return out
+
+        digest = task_digest(prompt, policy, assertions, cwd)
+        approval = (self.store.valid_approval_by_digest(digest)
+                    if policy.requires_approval() else None)
+        queue_status = "ready" if (not policy.requires_approval() or approval) else "needs_approval"
+        record = self._new_record(
+            self.store.new_task_id(), prompt, cwd, assertions, policy, title,
+            idempotency_key, {**(metadata or {}), "timeout_s": timeout_s}, risks,
+            queue_status=queue_status, priority=priority, digest=digest,
+            project_id=(project or {}).get("id"))
+        record, created = self.store.create_work_item(record)
+        if not created:
+            out = dict(record)
+            out["deduplicated"] = True
+            return out
+
+        task_id = record["task_id"]
+        self.store.append_event(task_id, "work_enqueued", {
+            "adapter": self.adapter.name, "priority": priority,
+            "queue_status": queue_status, "risk": policy.effective_risk(),
+            "project_id": (project or {}).get("id"),
+        })
+        if queue_status == "needs_approval":
+            pending = [a for a in self.store.all_approvals()
+                       if a.get("digest") == digest and a.get("decision") == "pending"]
+            if not pending:
+                scope = {"risk": policy.effective_risk(),
+                         "cwd": str(Path(cwd).resolve()), "policy": policy.to_dict(),
+                         "assertions": [a.to_dict() for a in assertions]}
+                self.store.request_approval(task_id, digest, scope,
+                                            note="automatic queue approval request")
+            self.store.append_event(task_id, "approval_required", {
+                "digest": digest, "risk": policy.effective_risk(), "cwd": str(cwd)})
+        out = dict(self.store.get(task_id) or record)
+        out["approval_required"] = queue_status == "needs_approval"
+        return out
+
+    def dispatch_next(self, owner: str, concurrency_limit: int = 4) -> dict | None:
+        """Atomically claim and dispatch one queued item for this Adapter."""
+        self.store.assert_writable("dispatch_next")
+        rec = self.store.claim_next_ready(self.adapter.name, owner, concurrency_limit)
+        if not rec:
+            return None
+        try:
+            policy = DispatchPolicy(**(rec.get("policy") or {}))
+            approval = None
+            if policy.requires_approval():
+                approval = self.store.valid_approval_by_digest(rec.get("task_digest") or "")
+                if not approval:
+                    self.store.append_event(rec["task_id"], "approval_required", {
+                        "digest": rec.get("task_digest"), "source": "runtime_dispatch"})
+                    return self.store.update(rec["task_id"], queue_status="needs_approval",
+                                             dispatch_claim_owner=None, dispatch_claimed_at=None)
+            timeout_s = int((rec.get("metadata") or {}).get("timeout_s") or 900)
+            return self._dispatch_record(rec, approval=approval, timeout_s=timeout_s)
+        except ApprovalRequired as exc:
+            self.store.append_event(rec["task_id"], "approval_required", {
+                "digest": rec.get("task_digest"), "source": "reservation_race",
+                "error": str(exc)})
+            return self.store.update(
+                rec["task_id"], queue_status="needs_approval",
+                dispatch_claim_owner=None, dispatch_claimed_at=None)
+        except Exception as exc:  # noqa: BLE001 - never leave a live process stuck in claimed
+            self.store.append_event(rec["task_id"], "dispatch_preparation_failed", {
+                "error": f"{type(exc).__name__}: {exc}", "owner": owner})
+            return self.store.update(
+                rec["task_id"], queue_status="needs_human",
+                dispatch_claim_owner=None, dispatch_claimed_at=None,
+                warnings=list(rec.get("warnings") or []) + [
+                    f"DISPATCH_PREPARATION_FAILED:{type(exc).__name__}"])
+
+    def _new_record(self, task_id: str, prompt: str, cwd: str,
+                    assertions: list[ArtifactAssertion], policy: DispatchPolicy,
+                    title: str, idempotency_key: str, metadata: dict | None,
+                    risks: list[str], *, queue_status: str, priority: int,
+                    digest: str, project_id: str | None) -> dict:
+        return {
+            "task_id": task_id, "title": title or prompt[:60], "prompt": prompt,
+            "cwd": cwd, "mode": policy.mode, "isolation": policy.isolation,
+            "idempotency_key": idempotency_key, "policy": policy.to_dict(),
+            "assertions": [a.to_dict() for a in assertions], "baseline": None,
+            "state": TaskState.QUEUED.value, "verdict": Verdict.PENDING.value,
+            "warnings": risks,
+            "metadata": {**(metadata or {}), "adapter": self.adapter.name},
+            "adapter": self.adapter.name, "queue_status": queue_status,
+            "priority": priority, "task_digest": digest,
+            "project_id": project_id,
+        }
+
+    @staticmethod
+    def _project_policy(project: dict | None) -> DispatchPolicy | None:
+        raw = (project or {}).get("policy") or {}
+        return DispatchPolicy(**raw) if raw else None
+
+    def _matching_approval(self, policy: DispatchPolicy, digest: str, cwd: str,
+                           *, required: bool) -> dict | None:
+        if not policy.requires_approval():
+            return None
+        approval = self.store.valid_approval_by_digest(digest)
+        if approval or not required:
+            return approval
+        self.store.append_event("", "approval_required", {
+            "digest": digest, "risk": policy.effective_risk(), "cwd": str(cwd)})
+        raise ApprovalRequired(
+            f"risk={policy.effective_risk()}: dispatch requires a human approval whose "
+            f"digest matches this exact task ({digest}). Call approve(digest=...) first; "
+            "changing the prompt/policy/assertions invalidates the approval.")
+
+    def _dispatch_record(self, record: dict, *, approval: dict | None,
+                         timeout_s: int) -> dict:
+        """Perform one Worker dispatch with a pre-POST approval reservation."""
+        task_id = record["task_id"]
+        canonical_cwd, project = self.resolve_project_for_cwd(
+            record["cwd"], record.get("project_id"))
+        if canonical_cwd != record["cwd"]:
+            record = self.store.update(task_id, cwd=canonical_cwd)
+        if project:
+            self.store.append_event(task_id, "project_boundary_checked", {
+                "project_id": project["id"], "root": project["root"],
+                "cwd": canonical_cwd})
+        policy = DispatchPolicy(**(record.get("policy") or {}))
+        assertions = [ArtifactAssertion(**a) for a in record.get("assertions") or []]
+        digest = record.get("task_digest") or task_digest(
+            record["prompt"], policy, assertions, record["cwd"])
+        if policy.requires_approval() and not approval:
+            approval = self._matching_approval(policy, digest, record["cwd"], required=True)
+
+        baseline = capture_baseline(record["cwd"], assertions)
+        record = self.store.update(task_id, baseline=baseline,
+                                   queue_status="dispatching",
+                                   state=TaskState.QUEUED.value)
+
+        # The attempt and approval reservation exist durably before the Worker
+        # POST. One approved digest can therefore authorize at most one attempt,
+        # even when several runtimes race.
         attempt = self.store.add_attempt(task_id, None, reason="dispatch")
         attempt_id = attempt["id"]
-
-        approval = None
         if policy.requires_approval():
             approval = self.store.reserve_approval(digest, attempt_id)
             if not approval:
-                # lost the race (or the human never approved this exact content)
                 self.store.update(
-                    task_id, state=TaskState.UNKNOWN.value,
-                    verdict=Verdict.INCONCLUSIVE.value,
-                    warnings=risks + ["APPROVAL_RACE_LOST: another attempt reserved this "
-                                      "approval first, or no approval matches this digest"])
-                self.store.append_event(task_id, "approval_reservation_failed",
-                                        {"digest": digest})
+                    task_id, queue_status="needs_approval",
+                    dispatch_claim_owner=None, dispatch_claimed_at=None,
+                    warnings=list(record.get("warnings") or []) + [
+                        "APPROVAL_RACE_LOST: no unreserved approval matches this digest"])
+                self.store.append_event(task_id, "approval_reservation_failed", {
+                    "digest": digest, "attempt_id": attempt_id})
                 raise ApprovalRequired(
-                    "another attempt already reserved the approval for this digest; "
-                    "no worker call was made")
+                    "another attempt reserved this approval, or no approved digest remains; "
+                    "no Worker call was made")
 
-        self.store.append_event(task_id, "dispatch_requested",
-                                {"policy": policy.to_dict(), "cwd": cwd,
-                                 "attempt_id": attempt_id,
-                                 "approval_id": (approval or {}).get("id")})
+        record = self.store.update(
+            task_id,
+            metadata={**(record.get("metadata") or {}),
+                      "task_digest": digest,
+                      "dispatch_attempt_id": attempt_id,
+                      "approval_id": (approval or {}).get("id")})
+        req = DispatchRequest(
+            prompt=record["prompt"], cwd=record["cwd"], task_id=task_id,
+            title=record.get("title") or "", mode=policy.mode,
+            isolation=policy.isolation, assertions=assertions,
+            idempotency_key=record.get("idempotency_key") or "",
+            timeout_s=timeout_s,
+            metadata={**(record.get("metadata") or {}),
+                      "permissionMode": policy.permission_mode},
+        )
+        self.store.append_event(task_id, "dispatch_requested", {
+            "policy": policy.to_dict(), "cwd": record["cwd"],
+            "attempt_id": attempt_id, "approval_id": (approval or {}).get("id")})
+        try:
+            result = self.adapter.dispatch(req)
+        except Exception as exc:  # noqa: BLE001 - POST outcome may be ambiguous
+            self.store.append_event(task_id, "dispatch_unknown", {
+                "exception": f"{type(exc).__name__}: {exc}",
+                "approval_frozen": bool(approval), "attempt_id": attempt_id})
+            return self.store.update(
+                task_id, state=TaskState.DISPATCH_UNKNOWN.value,
+                verdict=Verdict.PENDING.value, queue_status="needs_human",
+                warnings=list(record.get("warnings") or []) + [
+                    f"DISPATCH_UNKNOWN: adapter raised {type(exc).__name__}; no blind retry",
+                    *( ["APPROVAL_FROZEN: reservation kept until dispatch is resolved"]
+                       if approval else [])],
+                dispatch_claim_owner=None, dispatch_claimed_at=None)
 
-        result = self.adapter.dispatch(req)
         patch: dict[str, Any] = {
-            "warnings": risks + list(result.warnings),
-            "metadata": {"adapter": self.adapter.name, "dispatch_raw": result.raw},
+            "warnings": list(record.get("warnings") or []) + list(result.warnings),
+            "metadata": {**(record.get("metadata") or {}),
+                         "adapter": self.adapter.name, "dispatch_raw": result.raw,
+                         "task_digest": digest,
+                         "approval_id": (approval or {}).get("id")},
+            "dispatch_claim_owner": None, "dispatch_claimed_at": None,
         }
-
         if result.uncertain:
-            # P0: the worker may or may not have created a job. Do not retry, and
-            # keep the approval FROZEN (reserved, never reusable) until a human
-            # resolves it - releasing it could authorise a second execution.
-            patch["state"] = TaskState.DISPATCH_UNKNOWN.value
-            patch["verdict"] = Verdict.PENDING.value
-            patch["warnings"] = patch["warnings"] + [
+            patch.update(state=TaskState.DISPATCH_UNKNOWN.value,
+                         verdict=Verdict.PENDING.value, queue_status="needs_human")
+            patch["warnings"] += [
                 "DISPATCH_UNKNOWN: no blind retry. Call resolve_dispatch(task_id) first; "
                 "it either binds the existing job or proves none was created.",
-                "APPROVAL_FROZEN: reservation kept, it cannot authorise another attempt"]
-            self.store.append_event(task_id, "dispatch_unknown",
-                                    {**result.raw, "approval_frozen": bool(approval)})
+                *( ["APPROVAL_FROZEN: reservation kept until dispatch is resolved"]
+                   if approval else [])]
+            self.store.append_event(task_id, "dispatch_unknown", {
+                **result.raw, "approval_frozen": bool(approval),
+                "attempt_id": attempt_id})
             return self.store.update(task_id, **patch)
 
         if not result.accepted or not result.worker_job_id:
-            if approval:
-                # we know for certain no job was created, so the human's approval is
-                # still good for a later, corrected attempt
-                self.store.release_reservation(approval["id"], attempt_id)
-            patch["state"] = TaskState.UNKNOWN.value
-            patch["verdict"] = Verdict.INCONCLUSIVE.value
-            self.store.append_event(task_id, "dispatch_failed",
-                                    {**result.raw, "approval_released": bool(approval)})
+            released = (self.store.release_reservation(
+                approval["id"], attempt_id) if approval else False)
+            patch.update(state=TaskState.UNKNOWN.value,
+                         verdict=Verdict.INCONCLUSIVE.value, queue_status="needs_human")
+            self.store.append_event(task_id, "dispatch_failed", {
+                **result.raw, "approval_released": released,
+                "attempt_id": attempt_id})
             return self.store.update(task_id, **patch)
 
-        snap = self.adapter.get_task(result.worker_job_id)
-        patch.update(self._snapshot_patch(task_id, snap))
-        patch["metadata"] = {**patch["metadata"], "task_digest": digest,
-                             "approval_id": (approval or {}).get("id")}
-        self.store.append_event(task_id, "dispatch_accepted",
-                                {"worker_job_id": result.worker_job_id,
-                                 "http": result.raw.get("dispatch_http")})
-        out = self.store.update(task_id, worker_job_id=result.worker_job_id, **patch)
-
+        self.store.append_event(task_id, "dispatch_accepted", {
+            "worker_job_id": result.worker_job_id,
+            "http": result.raw.get("dispatch_http")})
+        out = self.store.update(
+            task_id, worker_job_id=result.worker_job_id,
+            state=TaskState.STARTING.value, queue_status="running", **patch)
         if approval:
-            # single use, bound to this attempt; a second dispatch with the same
-            # digest must ask a human again.
-            consumed = self.store.consume_reserved(approval["id"], attempt_id,
-                                                   result.worker_job_id)
-            self.store.append_event(task_id, "approval_consumed",
-                                    {"approval_id": approval["id"], "ok": consumed,
-                                     "attempt_id": attempt_id})
+            consumed = self.store.consume_reserved(
+                approval["id"], attempt_id, result.worker_job_id)
+            self.store.append_event(task_id, "approval_consumed", {
+                "approval_id": approval["id"], "ok": consumed,
+                "attempt_id": attempt_id, "consumed_by": result.worker_job_id})
             if not consumed:
-                # reservation vanished mid-flight: the job exists but the approval
-                # bookkeeping is inconsistent - surface it instead of hiding it
-                self.store.update(task_id, warnings=list(out.get("warnings") or []) +
-                                  ["APPROVAL_CONSUMPTION_MISMATCH: reservation was lost "
-                                   "before consumption; audit this attempt"])
-        return out
+                out = self.store.update(
+                    task_id, warnings=list(out.get("warnings") or []) + [
+                        "APPROVAL_CONSUMPTION_MISMATCH: reservation disappeared; audit attempt"])
+        try:
+            snap = self.adapter.get_task(result.worker_job_id)
+        except Exception as exc:  # noqa: BLE001 - accepted job remains bound
+            self.store.append_event(task_id, "observation_failed", {
+                "phase": "post_dispatch", "error": f"{type(exc).__name__}: {exc}"})
+            return self.store.update(
+                task_id,
+                warnings=list(out.get("warnings") or []) + [
+                    f"POST_DISPATCH_OBSERVATION_FAILED:{type(exc).__name__}"],
+                queue_status="running")
+        return self.store.update(task_id, **self._snapshot_patch(task_id, snap))
 
     # ------------------------------------------------------------------ #
     # approval gating
@@ -219,13 +465,17 @@ class ControlPlane:
     def request_approval_for(self, prompt: str, cwd: str, *,
                              assertions: list[ArtifactAssertion] | None = None,
                              policy: DispatchPolicy | None = None,
-                             note: str = "") -> dict:
+                             note: str = "",
+                             project_id: str | None = None) -> dict:
         """Create a pending approval for the exact content that would be dispatched."""
-        assertions = assertions or []
-        policy = policy or self.policy
         self.store.assert_writable("request_approval")
+        assertions = assertions or []
+        cwd, project = self.resolve_project_for_cwd(cwd, project_id)
+        policy = policy or self._project_policy(project) or self.policy
+        policy.validate()
         digest = task_digest(prompt, policy, assertions, cwd)
         scope = {"risk": policy.effective_risk(), "cwd": str(Path(cwd).resolve()),
+                 "project_id": (project or {}).get("id"),
                  "policy": policy.to_dict(),
                  "assertions": [a.to_dict() for a in assertions]}
         rec = self.store.request_approval("", digest, scope, note=note)
@@ -234,12 +484,7 @@ class ControlPlane:
 
     def _decide(self, digest: str, decision: str, note: str,
                 approval_id: int | None) -> dict:
-        """Shared validation for approve/deny.
-
-        An explicit approval id must still match the digest, must be `pending`, and
-        must not be consumed - otherwise a rejected or spent approval could be
-        revived by passing its id.
-        """
+        """Decide only a matching pending approval; spent/rejected rows stay final."""
         self.store.assert_writable(decision)
         if approval_id is not None:
             row = self.store.approval_by_id(approval_id)
@@ -247,55 +492,60 @@ class ControlPlane:
                 raise KeyError(f"no approval #{approval_id}")
             if row.get("digest") != digest:
                 raise ValueError(
-                    f"approval #{approval_id} is bound to digest {row.get('digest')}, "
-                    f"not {digest}: content changed, the approval no longer applies")
+                    f"approval #{approval_id} is bound to another content digest")
             if row.get("consumed_at"):
                 raise ValueError(f"approval #{approval_id} is already consumed")
             if row.get("decision") != "pending":
                 raise ValueError(
                     f"approval #{approval_id} is already '{row.get('decision')}'")
-            out = self.store.decide_approval(approval_id, decision, note, expect_digest=digest)
-            if not out:
-                raise ValueError(f"approval #{approval_id} is no longer pending (race)")
+            out = self.store.decide_approval(
+                approval_id, decision, note, expect_digest=digest)
         else:
             pending = [a for a in self.store.all_approvals()
                        if a.get("digest") == digest and a.get("decision") == "pending"
                        and not a.get("consumed_at")]
             if not pending:
                 raise KeyError(f"no pending approval for digest {digest}")
-            out = self.store.decide_approval(pending[-1]["id"], decision, note,
-                                             expect_digest=digest)
-            if not out:
-                raise ValueError(f"approval for digest {digest} is no longer pending")
-        self.store.append_event("", f"approval_{'granted' if decision == 'approved' else 'denied'}",
-                                {"digest": digest, "id": (out or {}).get("id")})
-        return out or {}
+            out = self.store.decide_approval(
+                pending[-1]["id"], decision, note, expect_digest=digest)
+        if not out:
+            raise ValueError(f"approval for digest {digest} is no longer pending")
+        return out
 
     def approve(self, digest: str, note: str = "", approval_id: int | None = None) -> dict:
-        """Human decision: approve the content digest (not "the agent in general")."""
-        return self._decide(digest, "approved", note, approval_id)
+        """Approve exact content and release matching queued work."""
+        row = self._decide(digest, "approved", note, approval_id)
+        released = self.store.release_approved_queue(digest)
+        self.store.append_event("", "approval_granted", {
+            "digest": digest, "id": row.get("id"),
+            "queued_items_released": released})
+        out = dict(row)
+        out["queued_items_released"] = released
+        return out
 
     def deny(self, digest: str, note: str = "", approval_id: int | None = None) -> dict:
-        return self._decide(digest, "rejected", note, approval_id)
+        row = self._decide(digest, "rejected", note, approval_id)
+        self.store.append_event("", "approval_denied", {
+            "digest": digest, "id": row.get("id")})
+        return row
 
-    # ------------------------------------------------------------------ #
     def dispatch_approved(self, prompt: str, cwd: str, *, assertions=None,
                           policy: DispatchPolicy | None = None, title: str = "",
-                          idempotency_key: str = "", metadata: dict | None = None,
+                          idempotency_key: str = "", timeout_s: int = 900,
+                          metadata: dict | None = None, priority: int = 0,
+                          project_id: str | None = None,
                           approved_by: str = "harness") -> dict:
-        """PoC/test convenience: request + approve + dispatch in one call.
-
-        The approval note records who approved it, so an automated approval is
-        auditable in the ledger and never looks like a human decision. Production
-        callers must use request_approval_for() + a trusted human approve().
-        """
+        """Auditable test helper: request, approve, then dispatch exact content."""
         assertions = assertions or []
-        policy = policy or self.policy
-        req = self.request_approval_for(prompt, cwd, assertions=assertions, policy=policy,
-                                        note=f"approved_by={approved_by}")
-        self.approve(req["digest"], note=f"approved_by={approved_by}", approval_id=req["approval_id"])
-        return self.dispatch(prompt, cwd, assertions=assertions, policy=policy, title=title,
-                             idempotency_key=idempotency_key, metadata=metadata)
+        req = self.request_approval_for(
+            prompt, cwd, assertions=assertions, policy=policy,
+            project_id=project_id, note=f"approved_by={approved_by}")
+        self.approve(req["digest"], note=f"approved_by={approved_by}",
+                     approval_id=req["approval_id"])
+        return self.dispatch(
+            prompt, cwd, assertions=assertions, policy=policy, title=title,
+            idempotency_key=idempotency_key, timeout_s=timeout_s,
+            metadata=metadata, priority=priority, project_id=project_id)
 
     # ------------------------------------------------------------------ #
     def resolve_dispatch(self, task_id: str, confirm_absent: bool = False) -> dict:
@@ -320,11 +570,28 @@ class ControlPlane:
             job_id = find(rec["prompt"], rec["cwd"], since=rec.get("created_at") or 0)
 
         if job_id:
-            snap = self.adapter.get_task(job_id)
+            # Persist the recovered handle before observation, just like the
+            # normal post-dispatch path. A query failure must not lose the job.
+            bound = self.store.update(
+                task_id, worker_job_id=job_id,
+                state=TaskState.STARTING.value, queue_status="running")
+            approval_id, attempt_id = self._reserved_approval_for(bound)
+            consumed = None
+            if approval_id and attempt_id:
+                consumed = self.store.consume_reserved(approval_id, attempt_id, job_id)
             self.store.append_event(task_id, "dispatch_resolved",
-                                    {"worker_job_id": job_id, "note": "job existed"})
-            return self.store.update(task_id, worker_job_id=job_id,
-                                     **self._snapshot_patch(task_id, snap))
+                                    {"worker_job_id": job_id, "note": "job existed",
+                                     "approval_consumed": consumed})
+            try:
+                snap = self.adapter.get_task(job_id)
+            except Exception as exc:  # noqa: BLE001
+                self.store.append_event(task_id, "observation_failed", {
+                    "phase": "dispatch_resolution",
+                    "error": f"{type(exc).__name__}: {exc}"})
+                return self.store.update(
+                    task_id, warnings=list(bound.get("warnings") or []) + [
+                        f"POST_RESOLUTION_OBSERVATION_FAILED:{type(exc).__name__}"])
+            return self.store.update(task_id, **self._snapshot_patch(task_id, snap))
 
         if not confirm_absent:
             self.store.append_event(task_id, "dispatch_unresolved",
@@ -335,12 +602,30 @@ class ControlPlane:
                 ["DISPATCH_STILL_UNKNOWN: 未发现不等于未创建（列表有 ~30s 延迟、无事件重放）；"
                  "禁止自动重派，需人工 confirm_absent"])
 
-        self.store.append_event(task_id, "dispatch_absent_confirmed",
-                                {"by": "operator", "note": "human confirmed no job exists"})
+        approval_id, attempt_id = self._reserved_approval_for(rec)
+        released = bool(
+            approval_id and attempt_id
+            and self.store.release_reservation(approval_id, attempt_id))
+        self.store.append_event(task_id, "dispatch_absent_confirmed", {
+            "by": "operator", "note": "human confirmed no job exists",
+            "approval_released": released})
         return self.store.update(
             task_id, state=TaskState.UNKNOWN.value, verdict=Verdict.INCONCLUSIVE.value,
+            queue_status="needs_human",
             warnings=list(rec.get("warnings") or []) +
             ["DISPATCH_ABSENT_CONFIRMED_BY_OPERATOR: 人工确认未创建，允许新 attempt"])
+
+    def _reserved_approval_for(self, record: dict) -> tuple[int | None, str | None]:
+        """Find reservation metadata, including ledgers written before metadata binding."""
+        attempt_id = record.get("current_attempt_id")
+        approval_id = (record.get("metadata") or {}).get("approval_id")
+        if not approval_id and attempt_id:
+            reserved = next(
+                (row for row in self.store.all_approvals()
+                 if row.get("reserved_by") == attempt_id and not row.get("consumed_at")),
+                None)
+            approval_id = (reserved or {}).get("id")
+        return approval_id, attempt_id
 
     # ------------------------------------------------------------------ #
     # refresh: two independent paths
@@ -352,9 +637,18 @@ class ControlPlane:
         task died (`lost` needs independent process/state evidence).
         """
         updated, anomalies = [], []
+        terminal_states = {state.value for state in TaskState if state.terminal}
         for task in self.store.all():
+            if not self._belongs_to_adapter(task):
+                continue
             jid = task.get("worker_job_id")
             if not jid:
+                continue
+            # Once a terminal observation has been persisted, repeatedly polling
+            # it adds load but cannot improve the acceptance verdict. A manual
+            # operator refresh can be added separately if a worker violates
+            # terminal-state stability.
+            if task.get("state") in terminal_states:
                 continue
             try:
                 try:
@@ -381,12 +675,30 @@ class ControlPlane:
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
                     "note": "full scan failed; known-task state left untouched"}
         worker_ids = {j.get("id") for j in rec["jobs"]}
-        known = {t.get("worker_job_id") for t in self.store.all() if t.get("worker_job_id")}
+        known = {t.get("worker_job_id") for t in self.store.all()
+                 if t.get("worker_job_id") and self._belongs_to_adapter(t)}
         orphans = sorted(worker_ids - known)
         vanished = []
+        terminal_states = {state.value for state in TaskState if state.terminal}
         for task in self.store.all():
+            if not self._belongs_to_adapter(task):
+                continue
             jid = task.get("worker_job_id")
-            if not jid or jid in worker_ids:
+            if not jid:
+                continue
+            if jid in worker_ids:
+                # Misses must be consecutive. A single successful scan resets
+                # the counter instead of letting old failures accumulate until
+                # a healthy task is incorrectly declared lost.
+                metadata = task.get("metadata") or {}
+                if metadata.get("scan_misses"):
+                    self.store.update(task["task_id"],
+                                      metadata={**metadata, "scan_misses": 0})
+                continue
+            # A worker may garbage-collect terminal jobs. Their accepted terminal
+            # observation remains authoritative; disappearance is not a new lost
+            # running task.
+            if task.get("state") in terminal_states:
                 continue
             misses = int((task.get("metadata") or {}).get("scan_misses", 0)) + 1
             self.store.update(task["task_id"],
@@ -437,6 +749,7 @@ class ControlPlane:
 
     def _mark_lost(self, task: dict, jid: str, reason: str) -> dict:
         patch = {"state": TaskState.LOST.value, "verdict": Verdict.REJECTED.value,
+                 "queue_status": "complete",
                  "warnings": list(task.get("warnings") or []) + [f"LOST: {reason}"]}
         self.store.update(task["task_id"], **patch)
         self.store.append_event(task["task_id"], "lost", {"worker_job_id": jid, "reason": reason})
@@ -451,16 +764,28 @@ class ControlPlane:
         """
         recovered = []
         for task in self.store.all():
+            if not self._belongs_to_adapter(task):
+                continue
             if task.get("worker_job_id") or task.get("state") != TaskState.QUEUED.value:
+                continue
+            # Legitimately enqueued work has not crossed the dispatch boundary.
+            # Only a claimed/immediate intent with no job handle is ambiguous.
+            if task.get("queue_status") in ("ready", "needs_approval"):
                 continue
             self.store.update(
                 task["task_id"], state=TaskState.DISPATCH_UNKNOWN.value,
+                queue_status="needs_human",
                 warnings=list(task.get("warnings") or []) +
                 ["DISPATCH_INFLIGHT_AT_RESTART: intent was persisted but no job id; "
                  "run resolve_dispatch() before any new attempt"])
             self.store.append_event(task["task_id"], "recovered_inflight", {})
             recovered.append(task["task_id"])
         return {"recovered": recovered, "count": len(recovered)}
+
+    def _belongs_to_adapter(self, task: dict) -> bool:
+        """Route only this Adapter's work; legacy rows without a name stay local."""
+        adapter = task.get("adapter") or (task.get("metadata") or {}).get("adapter")
+        return not adapter or adapter == self.adapter.name
 
     def _snapshot_patch(self, task_id: str, snap: TaskSnapshot) -> dict:
         # task_id is passed explicitly: after an adapter/plane restart the adapter
@@ -491,6 +816,7 @@ class ControlPlane:
         patch = {
             "state": snap.state.value,
             "verdict": verdict.value,
+            "queue_status": self._queue_status_for(snap.state),
             "session_id": snap.session_id,
             "pid": snap.pid,
             "worktree": snap.worktree,
@@ -501,13 +827,22 @@ class ControlPlane:
             "finished_at": snap.finished_at,
             "artifacts": self.adapter.collect_artifacts(snap.worker_job_id or snap.task_id),
             "assertion_results": results,
-            "worker_metadata": snap.metadata.get("codebuddy", {}),
+            "worker_metadata": snap.metadata,
         }
         if violations:
             patch["warnings"] = list(rec.get("warnings") or []) + [
                 "SIDE_EFFECT:" + v["type"] + ":" + str(v.get("repo") or v.get("cwd"))
                 for v in violations]
         return patch
+
+    @staticmethod
+    def _queue_status_for(state: TaskState) -> str:
+        if state.terminal:
+            return "complete"
+        if state in (TaskState.WAITING_FOR_APPROVAL,
+                     TaskState.UNKNOWN, TaskState.DISPATCH_UNKNOWN):
+            return "needs_human"
+        return "running"
 
     # ------------------------------------------------------------------ #
     # lifecycle
@@ -585,6 +920,8 @@ class ControlPlane:
         inconclusive = [t for t in tasks if t.get("verdict") == Verdict.INCONCLUSIVE.value]
         unknown_dispatch = [t for t in tasks
                             if t.get("state") == TaskState.DISPATCH_UNKNOWN.value]
+        queued = [t for t in tasks if t.get("queue_status") == "ready"]
+        queue_approvals = [t for t in tasks if t.get("queue_status") == "needs_approval"]
 
         next_actions = []
         if unknown_dispatch:
@@ -599,6 +936,11 @@ class ControlPlane:
                                 + ", ".join(t["task_id"] for t in inconclusive))
         if running:
             next_actions.append(f"{len(running)} 个任务仍在运行，稍后 refresh")
+        if queued:
+            next_actions.append(f"{len(queued)} 个任务已入队，等待 Runtime 派发")
+        if queue_approvals:
+            next_actions.append("队列任务等待审批: "
+                                + ", ".join(t["task_id"] for t in queue_approvals))
 
         return {
             "generated_at": time.time(),
@@ -612,6 +954,8 @@ class ControlPlane:
                 "rejected": len(rejected),
                 "inconclusive": len(inconclusive),
                 "dispatch_unknown": len(unknown_dispatch),
+                "queued_ready": len(queued),
+                "queued_needs_approval": len(queue_approvals),
             },
             "needs_human": [t["task_id"] for t in waiting],
             "tasks": [self._task_view(t) for t in tasks],
@@ -630,6 +974,10 @@ class ControlPlane:
             "cwd": t.get("cwd"),
             "mode": t.get("mode"),
             "isolation": t.get("isolation"),
+            "adapter": t.get("adapter") or (t.get("metadata") or {}).get("adapter"),
+            "project_id": t.get("project_id"),
+            "queue_status": t.get("queue_status"),
+            "priority": t.get("priority") or 0,
             "worktree": t.get("worktree"),
             "state": t.get("state"),
             "verdict": t.get("verdict"),

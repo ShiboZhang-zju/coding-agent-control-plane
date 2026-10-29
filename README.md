@@ -2,7 +2,8 @@
 
 一个面向多种 Coding Agent Harness 的**通用控制平面**。目标是把"派发任务、并行执行、状态查询、实时监控、中断恢复、人工审批、失败验收、汇总决策"变成与厂商无关的能力，而不是绑定某一个 CLI。
 
-当前阶段：**PoC**。只做可验证的最小实现 + 通用协议边界，不开发完整产品。
+当前阶段：**PoC 已完成，v0.2 功能实现中**。已有常驻 Runtime、持久任务队列、
+优先级/并发限制、自动对账、项目注册和内容绑定审批；本地 API、任务依赖与第二 Adapter 尚未完成。
 
 首个被测 Worker：**CodeBuddy**（`@tencent-ai/codebuddy-code` 2.169.0）。CodeBuddy 只是第一个 Worker Adapter，控制平面的领域模型、生命周期与调度逻辑不依赖它的专有 API。
 
@@ -20,6 +21,9 @@
 
 完整论证见 [REPORT.md](REPORT.md)，能力矩阵见 [capability-matrix.md](capability-matrix.md)，状态机见 [lifecycle.md](lifecycle.md)。
 
+下一阶段从 PoC 演进到可运行的本地单用户控制平面，见
+[docs/V0.2_PLAN.md](docs/V0.2_PLAN.md)。
+
 ## 目录
 
 ```
@@ -28,6 +32,7 @@ adapters/codebuddy/          唯一允许出现 CodeBuddy 专有知识的地方�
 controlplane/store.py        控制平面自己的任务存储（重启后可恢复"工作流"）
 controlplane/verify.py       基于产物断言的验收器（不看 worker 的终态）
 controlplane/plane.py        门面：dispatch / refresh / cancel / resume / respawn / summary
+controlplane/runtime.py      常驻循环：队列派发 / 已知任务刷新 / 低频孤儿扫描 / 退避
 scripts/                     最小测试工具（服务管控、各测试编号脚本、detached 运行器）
 openapi/                     当前安装版本导出的 OpenAPI（认证信息已脱敏）
 evidence/                    每次测试的证据（已脱敏；原始日志不入库）
@@ -56,6 +61,39 @@ python scripts/detached.py tail  t01
 # 4) 结束时停服务，不留后台进程
 python scripts/serve_ctl.py stop
 ```
+
+## v0.2 本地队列
+
+Worker 服务启动后，可让控制平面常驻运行：
+
+```powershell
+python scripts/run_controlplane.py
+```
+
+另一个终端把任务写入同一 SQLite ledger；CLI 不直接调用 Worker：
+
+```powershell
+python scripts/controlplane_cli.py project add my-repo C:\path\to\repo `
+  --adapter codebuddy --concurrency 2
+
+python scripts/controlplane_cli.py enqueue "实现指定功能并提交" `
+  --project my-repo --cwd C:\path\to\repo --title feature-a --priority 100 `
+  --idempotency-key feature-a-v1 --assert-file src/result.py
+
+python scripts/controlplane_cli.py project list
+python scripts/controlplane_cli.py list
+python scripts/controlplane_cli.py summary
+python scripts/controlplane_cli.py approval list
+python scripts/controlplane_cli.py approval approve <approval-id>
+```
+
+Runtime 默认最多同时运行 4 个任务。任务先持久化再派发；两个 Runtime 竞争同一工作项时，
+SQLite 原子 claim 保证最多一个进程获得派发权。高风险任务在匹配审批前保持
+`needs_approval`，不会调用 Worker。
+
+CLI 默认只允许向已注册的 Git 顶层目录入队；`cwd` 会在解析软链接和 `..`
+后再校验边界。项目可配置默认 Adapter、派发策略和并发上限，并可用
+`project enable/disable` 暂停或恢复新任务。`--allow-unregistered` 仅作旧流程兼容开关。
 
 要求：Python 3.11+（仅标准库）、Git、本机已登录的 CodeBuddy CLI。
 

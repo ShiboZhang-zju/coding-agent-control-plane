@@ -15,13 +15,11 @@
     "kept_unknown_on_miss": true,
     "miss_warnings": [
       "DISPATCH_UNKNOWN: no blind retry. Call resolve_dispatch(task_id) first; it either binds the existing job or proves none was created.",
-      "APPROVAL_FROZEN: reservation kept, it cannot authorise another attempt",
       "DISPATCH_STILL_UNKNOWN: 未发现不等于未创建（列表有 ~30s 延迟、无事件重放）；禁止自动重派，需人工 confirm_absent"
     ],
     "state_after_operator_confirm": "unknown",
     "confirm_warnings": [
       "DISPATCH_UNKNOWN: no blind retry. Call resolve_dispatch(task_id) first; it either binds the existing job or proves none was created.",
-      "APPROVAL_FROZEN: reservation kept, it cannot authorise another attempt",
       "DISPATCH_STILL_UNKNOWN: 未发现不等于未创建（列表有 ~30s 延迟、无事件重放）；禁止自动重派，需人工 confirm_absent",
       "DISPATCH_ABSENT_CONFIRMED_BY_OPERATOR: 人工确认未创建，允许新 attempt"
     ],

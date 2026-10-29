@@ -22,19 +22,14 @@
     "refused": 7,
     "approvals": [
       {
-        "id": 4,
+        "id": 2,
         "consumed": true,
-        "reserved_by": "at-9ef5dddf89"
+        "reserved_by": "at-7e49afdb63"
       }
     ],
     "outcomes": [
       {
-        "i": 3,
-        "ok": false,
-        "refused": "approval_taken"
-      },
-      {
-        "i": 4,
+        "i": 6,
         "ok": false,
         "refused": "approval_taken"
       },
@@ -49,134 +44,139 @@
         "refused": "approval_taken"
       },
       {
+        "i": 2,
+        "ok": false,
+        "refused": "approval_taken"
+      },
+      {
+        "i": 4,
+        "ok": false,
+        "refused": "approval_taken"
+      },
+      {
+        "i": 3,
+        "ok": false,
+        "refused": "approval_taken"
+      },
+      {
         "i": 7,
         "ok": false,
         "refused": "approval_taken"
       },
       {
-        "i": 6,
-        "ok": false,
-        "refused": "approval_taken"
-      },
-      {
         "i": 0,
-        "ok": false,
-        "refused": "approval_taken"
-      },
-      {
-        "i": 2,
         "ok": true
       }
     ],
     "attempts": [
       {
-        "task": "cp-b2e779f76271",
+        "task": "cp-d2262a20ce04",
         "attempts": [
           {
-            "id": "at-9ef5dddf89",
-            "work_item_id": "cp-b2e779f76271",
+            "id": "at-892301fcbe",
+            "work_item_id": "cp-d2262a20ce04",
+            "worker_job_id": null,
+            "state": null,
+            "reason": "dispatch",
+            "created_at": 1793263460.198747,
+            "ended_at": null
+          }
+        ]
+      },
+      {
+        "task": "cp-703b5f5b86fa",
+        "attempts": [
+          {
+            "id": "at-7e49afdb63",
+            "work_item_id": "cp-703b5f5b86fa",
             "worker_job_id": "job-1",
             "state": null,
             "reason": "dispatch",
-            "created_at": 1793262087.4482963,
+            "created_at": 1793263460.192896,
             "ended_at": null
           }
         ]
       },
       {
-        "task": "cp-80cd25a3a7e3",
+        "task": "cp-c2ccb95ada72",
         "attempts": [
           {
-            "id": "at-18454a1306",
-            "work_item_id": "cp-80cd25a3a7e3",
+            "id": "at-9ed384185e",
+            "work_item_id": "cp-c2ccb95ada72",
             "worker_job_id": null,
             "state": null,
             "reason": "dispatch",
-            "created_at": 1793262087.9905303,
+            "created_at": 1793263460.2061079,
             "ended_at": null
           }
         ]
       },
       {
-        "task": "cp-6a3a4c2b9033",
+        "task": "cp-50d06df5368d",
         "attempts": [
           {
-            "id": "at-d09acaef34",
-            "work_item_id": "cp-6a3a4c2b9033",
+            "id": "at-9511afcaec",
+            "work_item_id": "cp-50d06df5368d",
             "worker_job_id": null,
             "state": null,
             "reason": "dispatch",
-            "created_at": 1793262088.5374875,
+            "created_at": 1793263460.195605,
             "ended_at": null
           }
         ]
       },
       {
-        "task": "cp-e8305dad3e61",
+        "task": "cp-9bdafaff644a",
         "attempts": [
           {
-            "id": "at-9b04679282",
-            "work_item_id": "cp-e8305dad3e61",
+            "id": "at-d514e1825f",
+            "work_item_id": "cp-9bdafaff644a",
             "worker_job_id": null,
             "state": null,
             "reason": "dispatch",
-            "created_at": 1793262089.1168866,
+            "created_at": 1793263460.211902,
             "ended_at": null
           }
         ]
       },
       {
-        "task": "cp-0b2625788edc",
+        "task": "cp-1351fb8fa0f1",
         "attempts": [
           {
-            "id": "at-947652db3b",
-            "work_item_id": "cp-0b2625788edc",
+            "id": "at-56836217bb",
+            "work_item_id": "cp-1351fb8fa0f1",
             "worker_job_id": null,
             "state": null,
             "reason": "dispatch",
-            "created_at": 1793262089.5165224,
+            "created_at": 1793263460.206878,
             "ended_at": null
           }
         ]
       },
       {
-        "task": "cp-93e562159443",
+        "task": "cp-971093abc1c9",
         "attempts": [
           {
-            "id": "at-29139061ec",
-            "work_item_id": "cp-93e562159443",
+            "id": "at-ab8e8f1a6c",
+            "work_item_id": "cp-971093abc1c9",
             "worker_job_id": null,
             "state": null,
             "reason": "dispatch",
-            "created_at": 1793262090.0848465,
+            "created_at": 1793263460.216852,
             "ended_at": null
           }
         ]
       },
       {
-        "task": "cp-d53142172e66",
+        "task": "cp-1985d2709b91",
         "attempts": [
           {
-            "id": "at-d803586dc9",
-            "work_item_id": "cp-d53142172e66",
+            "id": "at-1b3073417b",
+            "work_item_id": "cp-1985d2709b91",
             "worker_job_id": null,
             "state": null,
             "reason": "dispatch",
-            "created_at": 1793262090.2253046,
-            "ended_at": null
-          }
-        ]
-      },
-      {
-        "task": "cp-a5052c9869f3",
-        "attempts": [
-          {
-            "id": "at-478c3c870c",
-            "work_item_id": "cp-a5052c9869f3",
-            "worker_job_id": null,
-            "state": null,
-            "reason": "dispatch",
-            "created_at": 1793262092.573285,
+            "created_at": 1793263460.202404,
             "ended_at": null
           }
         ]
@@ -185,16 +185,16 @@
     "pass": true
   },
   "3_digest_mismatch": {
-    "result": "refused: approval #7 is bound to digest 15458dda45b3e742b0e31ca5b6f51",
+    "result": "refused: approval #3 is bound to another content digest",
     "pass": true
   },
   "4_revive_rejected": {
-    "result": "refused: approval #8 is already 'rejected'",
+    "result": "refused: approval #4 is already 'rejected'",
     "pass": true
   },
   "5_uncertain_dispatch": {
     "state": "dispatch_unknown",
-    "reserved_by": "at-7a200f56d7",
+    "reserved_by": "at-808da95af6",
     "consumed": false,
     "second_dispatch": "refused",
     "worker_calls": 1,
@@ -202,8 +202,8 @@
     "pass": true
   },
   "6_crash_after_reservation": {
-    "crashed": "RuntimeError",
-    "reserved_by": "at-2b33894e1c",
+    "crashed": null,
+    "reserved_by": "at-50b2f821f4",
     "consumed": false,
     "after_restart": "refused",
     "worker_calls_after_restart": 0,

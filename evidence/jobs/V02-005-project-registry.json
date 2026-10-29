@@ -1,0 +1,86 @@
+{
+  "test": "V02-005-project-registry",
+  "checks": {
+    "git_roots_registered": true,
+    "unregistered_cwd_rejected": true,
+    "explicit_project_path_traversal_rejected": true,
+    "non_top_level_root_rejected": true,
+    "disabled_project_rejects_new_work": true,
+    "work_items_bound_to_projects": true,
+    "project_default_policy_applied": true,
+    "global_three_project_limits_first_wave": true,
+    "project_a_second_item_waits": true,
+    "project_slot_release_dispatches_a2": true
+  },
+  "projects": [
+    {
+      "id": "prj-595d40bd22",
+      "name": "project-a",
+      "root": "/Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/v02-005-projects/project-a",
+      "default_adapter": "project-stub",
+      "policy": {
+        "mode": "agent",
+        "isolation": "worktree",
+        "permission_mode": "acceptEdits",
+        "allow_unisolated_shell": false,
+        "risk": "low"
+      },
+      "concurrency_limit": 1,
+      "active": true,
+      "created_at": 1793263464.842774,
+      "updated_at": 1793263464.842774
+    },
+    {
+      "id": "prj-b5068091a2",
+      "name": "project-b",
+      "root": "/Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/v02-005-projects/project-b",
+      "default_adapter": "project-stub",
+      "policy": {
+        "mode": "agent",
+        "isolation": "worktree",
+        "permission_mode": "acceptEdits",
+        "allow_unisolated_shell": false,
+        "risk": "low"
+      },
+      "concurrency_limit": 2,
+      "active": true,
+      "created_at": 1793263464.858609,
+      "updated_at": 1793263464.858609
+    }
+  ],
+  "boundary_rejections": {
+    "unregistered": "ValueError: cwd is not inside a registered project: /Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/v02-005-projects/unregistered",
+    "path_traversal": "ValueError: cwd escapes project project-a boundary: /Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/v02-005-projects/project-b not under /Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/v02-005-projects/project-a",
+    "non_top_level": "ValueError: project root must be a Git working tree: /Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/v02-005-projects/project-a/.git (fatal: this operation must be run in a work tree)",
+    "disabled": "ValueError: project is disabled: project-b"
+  },
+  "dispatch_order": [
+    "a1",
+    "b1",
+    "b2",
+    "a2"
+  ],
+  "queue": {
+    "a1": {
+      "project_id": "prj-595d40bd22",
+      "queue_status": "complete",
+      "worker_job_id": "project-job-1"
+    },
+    "a2": {
+      "project_id": "prj-595d40bd22",
+      "queue_status": "running",
+      "worker_job_id": "project-job-4"
+    },
+    "b1": {
+      "project_id": "prj-b5068091a2",
+      "queue_status": "running",
+      "worker_job_id": "project-job-2"
+    },
+    "b2": {
+      "project_id": "prj-b5068091a2",
+      "queue_status": "running",
+      "worker_job_id": "project-job-3"
+    }
+  },
+  "result": "Pass"
+}

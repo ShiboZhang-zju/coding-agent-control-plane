@@ -473,3 +473,82 @@ Draft PR：本机**没有 `gh` CLI**，也没有可用的 GitHub token（不使�
 `https://github.com/ShiboZhang-zju/coding-agent-control-plane/compare/main...poc/codebuddy-adapter?expand=1`
 
 状态：**Blocked（缺工具/凭据）**，不是测试失败。
+
+## 11. v0.2 功能实现起步（2026-10-29）
+
+按“先补功能、后做工程基线”的顺序，已把原来只能手动调用的控制平面推进为可常驻运行的
+功能切片。本节不改变前面 PoC 对 CodeBuddy 的结论。
+
+### 11.1 自动 Runtime 与长期对账
+
+新增 `controlplane/runtime.py` 与 `scripts/run_controlplane.py`：
+
+- 启动时先 `recover_inflight()`；ledger degraded 时拒绝启动自动变更循环；
+- 三条互不阻塞的定时路径：队列派发、已知 job 高频刷新、孤儿 job 低频扫描；
+- 单条路径失败指数退避，不停止另外两条路径；
+- 支持前台常驻、后台线程嵌入、信号停止与紧凑状态查询；
+- 终态任务停止高频查询；孤儿扫描重新看到 job 后清零 miss，避免把非连续缺失累积成 `lost`。
+
+证据 `evidence/recovery/T22-runtime-loop.json`：自动刷新观察到终态、首次孤儿扫描故障后
+自动重试、扫描故障不阻断已知任务刷新、inflight 自动恢复、非连续 miss 正确清零、Runtime
+干净停止，全部 Pass。
+
+### 11.2 持久任务队列与自动派发
+
+`ControlPlane.enqueue()` 只写 intent，不调用 Worker；Runtime 通过 SQLite 原子 claim 按
+`priority DESC, created_at ASC` 派发。新增 `queue_status`、`priority`、`adapter`、
+`task_digest` 和 claim 字段：
+
+- 默认并发上限 4，可配置每轮最多派发数；
+- baseline 在实际派发前捕获，不在排队时提前捕获；
+- Worker job id 在 post-dispatch 状态查询前先落库，查询失败不再丢失已接受的句柄；
+- Adapter 抛异常时按 `dispatch_unknown` 处理，禁止盲目重派；
+- 高风险 enqueue 自动进入 `needs_approval`，批准后才变 `ready`，派发成功后单次消费审批；
+- Runtime 只处理与自身 Adapter 同名的任务，避免一个 Worker 观测/派发另一个 Worker 的记录。
+
+证据 `evidence/jobs/T23-runtime-queue.json`：优先级顺序 `high → mid → low → risky`；
+并发上限 2；槽位释放后继续派发；risky 在审批前没有调用 Worker；审批后仍受并发限制，
+获得槽位后派发并消费一次审批，全部 Pass。
+
+### 11.3 多进程 claim
+
+`TaskStore.claim_next_ready()` 使用 `BEGIN IMMEDIATE` + 条件 UPDATE。所有共享 SQLite 连接的
+读写入口统一使用 store 级 RLock，修复了 Python 3.14 下 8 线程回归出现的
+`sqlite3.InterfaceError`。
+
+- T17 连续 5 次回归：每次 8 线程、worker dispatch=1、errors=0；
+- `evidence/jobs/T24-multiprocess-claim.json`：两个独立 Python 进程同时竞争同一 ready item，
+  只有一个 claim winner、一次 worker dispatch、一个 attempt，全部 Pass。
+
+### 11.4 本地操作 CLI
+
+新增 `scripts/controlplane_cli.py`：`enqueue / list / show / summary / events / approval`。
+CLI 只操作 ledger，常驻 Runtime 独占 Worker 调度职责，因此可以在 Worker 暂时不可达时继续
+录入任务和审批。
+
+证据 `evidence/jobs/T25-cli-queue.json`：安全任务直接 ready；高风险任务自动进入审批箱；
+批准精确 digest 后释放对应队列项；整个 CLI 流程 worker job id 始终为空，证明 CLI 没有
+越过 Runtime 直接调用 Worker。
+
+### 11.5 回归
+
+功能实现后重新执行 T17–T25：全部 Pass。T17 的通过条件已收紧为 8 个调用方都必须返回、
+`errors == []`，不再只检查“最后恰好派发一次”。当前验证使用本机可用的 Homebrew
+Python 3.14；默认 Anaconda Python 的 `_sqlite3` 动态库在导入时失败，属于本机解释器环境
+问题，未计为产品测试失败。
+
+### 11.6 项目注册与调度边界
+
+新增持久化 `projects` 实体与 CLI 的 `project add/list/show/enable/disable`。每个项目
+记录 Git 顶层根目录、默认 Adapter、默认派发策略、并发上限与启用状态；
+work item 持久化 `project_id`。
+
+- CLI 和常驻 Runtime 启用严格注册模式，非注册目录不能进入 Worker；
+- `cwd` 在解析软链接和 `..` 后与项目根做包含校验，显式绑定 A 项目时不能穿越到 B；
+- 禁用项目拒绝新 enqueue/dispatch，已排队任务在重新启用前不会被 claim；
+- `BEGIN IMMEDIATE` 原子 claim 同时应用 Adapter 全局上限与项目上限，繁忙项目不再
+  占用其他项目可使用的槽位。
+
+证据 `evidence/jobs/V02-005-project-registry.json`：两个真实临时 Git 仓库下，未注册路径、
+跨项目路径和禁用项目均被拒绝；全局上限 3 时首批为 `a1 + b1 + b2`，`a2`
+等待 A 的单项目槽位，`a1` 终止后立即派发，全部 Pass。T17–T25 同步回归仍全部 Pass。

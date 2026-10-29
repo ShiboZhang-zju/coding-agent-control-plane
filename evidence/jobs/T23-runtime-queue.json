@@ -1,0 +1,136 @@
+{
+  "test": "T23-runtime-queue",
+  "checks": {
+    "enqueue_does_not_dispatch_synchronously": true,
+    "priority_order": true,
+    "concurrency_limit_holds": true,
+    "approval_gate_holds": true,
+    "slot_release_dispatches_next": true,
+    "approval_releases_exact_queue_item": true,
+    "approved_item_still_capacity_bound": true,
+    "approved_priority_item_dispatches": true,
+    "approval_consumed_once": true,
+    "risky_item_running": true
+  },
+  "dispatch_order": [
+    "high",
+    "mid",
+    "low",
+    "risky"
+  ],
+  "dispatches": [
+    {
+      "job_id": "job-1",
+      "task_id": "cp-6a9ee81b1931",
+      "title": "high",
+      "prompt": "high"
+    },
+    {
+      "job_id": "job-2",
+      "task_id": "cp-01ab01681b12",
+      "title": "mid",
+      "prompt": "mid"
+    },
+    {
+      "job_id": "job-3",
+      "task_id": "cp-5f38a61e8653",
+      "title": "low",
+      "prompt": "low"
+    },
+    {
+      "job_id": "job-4",
+      "task_id": "cp-d7e7d7daf0be",
+      "title": "risky",
+      "prompt": "risky"
+    }
+  ],
+  "queue": {
+    "low": {
+      "state": "running",
+      "queue_status": "running",
+      "priority": 1
+    },
+    "high": {
+      "state": "succeeded",
+      "queue_status": "complete",
+      "priority": 100
+    },
+    "mid": {
+      "state": "succeeded",
+      "queue_status": "complete",
+      "priority": 50
+    },
+    "risky": {
+      "state": "running",
+      "queue_status": "running",
+      "priority": 200
+    }
+  },
+  "approval": {
+    "id": 1,
+    "decision": "approved",
+    "consumed": true,
+    "consumed_by": "job-4"
+  },
+  "runtime": {
+    "running": false,
+    "prepared": true,
+    "started_at": 1793263461.691069,
+    "stopped_at": 1793263463.054268,
+    "cycles": 3,
+    "last_error": null,
+    "recovery": {
+      "recovered": [],
+      "count": 0
+    },
+    "dispatch_queue": {
+      "runs": 3,
+      "consecutive_errors": 0,
+      "last_started_at": 1793263462.6756322,
+      "last_finished_at": 1793263462.86716,
+      "last_duration_ms": 191.5,
+      "last_result": {
+        "ok": true,
+        "dispatched": 1,
+        "active": 2,
+        "items": [
+          {
+            "task_id": "cp-d7e7d7daf0be",
+            "worker_job_id": "job-4",
+            "state": "running",
+            "queue_status": "running"
+          }
+        ]
+      },
+      "last_error": null,
+      "next_in_s": 0.0
+    },
+    "known_jobs": {
+      "runs": 3,
+      "consecutive_errors": 0,
+      "last_started_at": 1793263462.8671732,
+      "last_finished_at": 1793263463.0542479,
+      "last_duration_ms": 187.1,
+      "last_result": {
+        "ok": true,
+        "checked": 2,
+        "updated": 2,
+        "anomalies": 0
+      },
+      "last_error": null,
+      "next_in_s": 0.02
+    },
+    "orphan_scan": {
+      "runs": 0,
+      "consecutive_errors": 0,
+      "last_started_at": null,
+      "last_finished_at": null,
+      "last_duration_ms": null,
+      "last_result": null,
+      "last_error": null,
+      "next_in_s": 3.637
+    },
+    "thread_alive": false
+  },
+  "result": "Pass"
+}

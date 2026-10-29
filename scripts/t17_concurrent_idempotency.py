@@ -92,7 +92,8 @@ def part_a(store: TaskStore) -> dict:
         "attempts": len(store.attempts(task_id)) if task_id else 0,
         "deduplicated_responses": len([r for r in results if r.get("deduplicated")]),
         "errors": errors,
-        "pass": len(adapter.calls) == 1 and len(items) == 1,
+        "pass": (len(adapter.calls) == 1 and len(items) == 1
+                 and len(errors) == 0 and len(results) == 8),
     }
 
 

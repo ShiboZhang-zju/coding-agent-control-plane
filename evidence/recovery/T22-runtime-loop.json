@@ -1,0 +1,98 @@
+{
+  "test": "T22-runtime-loop",
+  "checks": {
+    "background_started": true,
+    "known_job_refreshed_automatically": true,
+    "terminal_state_observed": true,
+    "orphan_scan_retried_after_failure": true,
+    "scan_failure_did_not_stop_known_refresh": true,
+    "scan_backoff_recovered": true,
+    "nonconsecutive_scan_misses_reset": true,
+    "inflight_recovered": true,
+    "stopped_cleanly": true
+  },
+  "adapter": {
+    "get_calls": 2,
+    "scan_calls": 5
+  },
+  "runtime": {
+    "running": false,
+    "prepared": true,
+    "started_at": 1793263461.340222,
+    "stopped_at": 1793263461.5885298,
+    "cycles": 13,
+    "last_error": null,
+    "recovery": {
+      "recovered": [
+        "cp-e1febcb8738a"
+      ],
+      "count": 1
+    },
+    "dispatch_queue": {
+      "runs": 1,
+      "consecutive_errors": 0,
+      "last_started_at": 1793263461.3420138,
+      "last_finished_at": 1793263461.3421052,
+      "last_duration_ms": 0.1,
+      "last_result": {
+        "ok": true,
+        "dispatched": 0,
+        "active": 1,
+        "items": []
+      },
+      "last_error": null,
+      "next_in_s": 0.253
+    },
+    "known_jobs": {
+      "runs": 5,
+      "consecutive_errors": 0,
+      "last_started_at": 1793263461.582933,
+      "last_finished_at": 1793263461.58306,
+      "last_duration_ms": 0.1,
+      "last_result": {
+        "ok": true,
+        "checked": 0,
+        "updated": 0,
+        "anomalies": 0
+      },
+      "last_error": null,
+      "next_in_s": 0.024
+    },
+    "orphan_scan": {
+      "runs": 2,
+      "consecutive_errors": 0,
+      "last_started_at": 1793263461.583065,
+      "last_finished_at": 1793263461.5832791,
+      "last_duration_ms": 0.2,
+      "last_result": {
+        "ok": true,
+        "total": 1,
+        "orphan_count": 0,
+        "vanished": 0,
+        "error": null
+      },
+      "last_error": null,
+      "next_in_s": 0.065
+    },
+    "thread_alive": false
+  },
+  "task": {
+    "task_id": "cp-88ede8667f34",
+    "state": "succeeded",
+    "verdict": "inconclusive"
+  },
+  "inflight": {
+    "task_id": "cp-e1febcb8738a",
+    "state": "dispatch_unknown",
+    "warnings": [
+      "DISPATCH_INFLIGHT_AT_RESTART: intent was persisted but no job id; run resolve_dispatch() before any new attempt"
+    ]
+  },
+  "scan_miss_reset": {
+    "after_first_miss": 1,
+    "after_recovery": 0,
+    "after_second_nonconsecutive_miss": 1,
+    "state": "running"
+  },
+  "result": "Pass"
+}

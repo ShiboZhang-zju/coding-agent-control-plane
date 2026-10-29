@@ -1,0 +1,46 @@
+{
+  "test": "T24-multiprocess-claim",
+  "checks": {
+    "processes_exited_cleanly": true,
+    "exactly_one_worker_dispatch": true,
+    "exactly_one_claim_winner": true,
+    "one_attempt_persisted": true,
+    "queue_is_running": true,
+    "worker_job_bound": true
+  },
+  "process_exitcodes": [
+    0,
+    0
+  ],
+  "claims": [
+    {
+      "owner": "runtime-1",
+      "claimed": false,
+      "task_id": null
+    },
+    {
+      "owner": "runtime-2",
+      "claimed": true,
+      "task_id": "cp-0cc27bc2dc55"
+    }
+  ],
+  "dispatches": [
+    {
+      "task_id": "cp-0cc27bc2dc55",
+      "pid": 14692
+    }
+  ],
+  "work_item": {
+    "task_id": "cp-0cc27bc2dc55",
+    "state": "running",
+    "queue_status": "running",
+    "worker_job_id": "job-shared"
+  },
+  "attempts": [
+    {
+      "id": "at-f913e4ad61",
+      "worker_job_id": "job-shared"
+    }
+  ],
+  "result": "Pass"
+}

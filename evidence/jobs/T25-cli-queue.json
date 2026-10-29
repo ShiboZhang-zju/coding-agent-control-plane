@@ -1,0 +1,102 @@
+{
+  "test": "T25-cli-queue",
+  "checks": {
+    "safe_item_ready": true,
+    "project_registered_and_bound": true,
+    "project_cli_lifecycle": true,
+    "risky_item_waits_for_approval": true,
+    "approval_inbox_created": true,
+    "approval_releases_item": true,
+    "risky_item_now_ready": true,
+    "cli_never_called_worker": true,
+    "show_includes_audit_history": true
+  },
+  "project": {
+    "id": "prj-c904d76a09",
+    "name": "cli-t25",
+    "root": "/Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/cli-t25",
+    "default_adapter": "codebuddy",
+    "policy": {
+      "mode": "agent",
+      "isolation": "worktree",
+      "permission_mode": "acceptEdits",
+      "allow_unisolated_shell": false,
+      "risk": "low"
+    },
+    "concurrency_limit": 2,
+    "active": true,
+    "updated_at": 1793263463.804259
+  },
+  "safe": {
+    "task_id": "cp-71bfac761d92",
+    "title": "safe",
+    "adapter": "codebuddy",
+    "project_id": "prj-c904d76a09",
+    "priority": 10,
+    "queue_status": "ready",
+    "state": "queued",
+    "verdict": "pending",
+    "worker_job_id": null,
+    "cwd": "/Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/cli-t25",
+    "warnings": [],
+    "updated_at": 1793263464.1352818,
+    "task_digest": "b2237de20d0cab07d0d57de939a64ac9",
+    "approval_required": false
+  },
+  "risky_before_approval": {
+    "task_id": "cp-7228b4e90434",
+    "title": "risky",
+    "adapter": "codebuddy",
+    "project_id": "prj-c904d76a09",
+    "priority": 20,
+    "queue_status": "needs_approval",
+    "state": "queued",
+    "verdict": "pending",
+    "worker_job_id": null,
+    "cwd": "/Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/cli-t25",
+    "warnings": [
+      "UNISOLATED_SHELL: shell job has no filesystem isolation"
+    ],
+    "updated_at": 1793263464.2013829,
+    "task_digest": "957ef8b304c964b0da84c5a14bb991b1",
+    "approval_required": true
+  },
+  "approval": {
+    "id": 1,
+    "decision": "approved",
+    "queued_items_released": 1
+  },
+  "items_after_approval": [
+    {
+      "task_id": "cp-71bfac761d92",
+      "title": "safe",
+      "adapter": "codebuddy",
+      "project_id": "prj-c904d76a09",
+      "priority": 10,
+      "queue_status": "ready",
+      "state": "queued",
+      "verdict": "pending",
+      "worker_job_id": null,
+      "cwd": "/Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/cli-t25",
+      "warnings": [],
+      "updated_at": 1793263464.1352818
+    },
+    {
+      "task_id": "cp-7228b4e90434",
+      "title": "risky",
+      "adapter": "codebuddy",
+      "project_id": "prj-c904d76a09",
+      "priority": 20,
+      "queue_status": "ready",
+      "state": "queued",
+      "verdict": "pending",
+      "worker_job_id": null,
+      "cwd": "/Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/cli-t25",
+      "warnings": [
+        "UNISOLATED_SHELL: shell job has no filesystem isolation"
+      ],
+      "updated_at": 1793263464.334508
+    }
+  ],
+  "result": "Pass"
+}
