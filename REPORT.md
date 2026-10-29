@@ -623,3 +623,27 @@ V02-005、T26 全部 Pass。附带环境修复：清理 sandbox 中 36 个历史
 - Ledger 跨重启降级在多 db 文件并存时依赖 per-db 标记文件，
 ecover_degraded
   不校验隔离副本内容是否已被人工真正检查，仅强制留痕。
+
+## 13. Project Context Update Loop（M2，T31）
+
+M2 在 M1 的 Project Context Store 之上补齐“验收后回写”闭环。终态项目任务的
+`verified / rejected / inconclusive` verdict 会触发确定性更新：生成一个叙述性
+`progress` 候选和一个从 attempts、events、assertion_results、warnings 提取的
+`knowledge` 候选。自动内容一律为 `candidate`，不会创建或修改 `constraints`。
+
+`context_update_receipts` 以 `(task_id, attempt_id, entry_kind, entry_title)` 的哈希为
+数据库唯一键，并使用跨进程 claim 防止重复回写。已有条目的更新沿用 CAS；两个独立
+SQLite 连接从同一版本并发提交时，仅一个更新规范条目，另一个被保留为独立
+`needs_merge` 候选，双方内容都不丢失。
+
+每个 attempt 首次回写前生成脱敏的 `evidence/project-updates/...` 快照；候选条目必须
+引用真实存在的 evidence 文件。回写失败不会改变已经持久化的任务 verdict，而是记录
+`project_context_update_failed`，可通过 `update_project_context()` 或 CLI
+`project context-sync-task` 幂等重放。
+
+轮询路径还会调用 `reconcile_project_context_updates()`：只扫描当前 attempt 缺少最终回执的
+终态任务，补齐“verdict 已提交、进程在回执提交前崩溃”的窗口；完成回执不会在每轮重复处理。
+
+证据 `evidence/project/T31-context-update-loop.json`：三类 verdict 映射、重复重放、
+双连接 CAS 冲突保留、自动 verified/constraints 禁止、跨项目拒绝全部 Pass。
+真实 CodeBuddy Worker 与自动回写的组合尚未端到端执行，仍标记为未验证。

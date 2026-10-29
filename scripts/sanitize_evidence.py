@@ -1,20 +1,29 @@
-"""Strip machine-specific absolute paths from committed evidence.
+"""Strip machine paths and credential-like values from committed evidence.
 
-Only path/username substitution: no values, timings, states or verdicts change.
-Run before committing; the manifest of replacements is printed and stored in
-`evidence/SANITIZATION.md`.
+Paths are replaced without changing timings, states or verdicts. New structured
+evidence also redacts password/token/authorization/cookie/secret fields before
+serialization. Run the CLI before committing to sanitize legacy text files; its
+path-replacement manifest is stored in `evidence/SANITIZATION.md`.
 """
 from __future__ import annotations
 
 import io
 import json
 import os
+import re
 import sys
+import tempfile
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 EVID = ROOT / "evidence"
 HOME = os.path.expanduser("~")
+
+SENSITIVE_KEYS = {
+    "password", "passwd", "authorization", "cookie", "api_key", "apikey",
+    "access_token", "refresh_token", "client_secret", "private_key", "secret",
+}
 
 
 def patterns() -> list[tuple[str, str]]:
@@ -41,7 +50,7 @@ def regexes() -> list[tuple[str, str]]:
     user = Path(HOME).name
     return [
         (rf"[A-Za-z]:\\+Users\\+{re.escape(user)}", "<HOME>"),
-        (rf"[A-Za-z]:\\+Users\\+[A-Za-z0-9._-]+", "<HOME>"),
+        (r"[A-Za-z]:\\+Users\\+[A-Za-z0-9._-]+", "<HOME>"),
         (rf"/[A-Za-z]/Users/{re.escape(user)}", "<HOME>"),
         # any POSIX-style home, including JSON-escaped "\/Users\/<name>"
         (r"[/\\]+Users[/\\]+[A-Za-z0-9._-]+", "<HOME>"),
@@ -50,8 +59,6 @@ def regexes() -> list[tuple[str, str]]:
 
 def sanitize_text(text: str) -> tuple[str, int]:
     """Apply every substitution to one text blob. Returns (text, hits)."""
-    import re
-
     hits = 0
     for a, b in patterns():
         if a and a in text:
@@ -60,7 +67,38 @@ def sanitize_text(text: str) -> tuple[str, int]:
     for pattern, repl in regexes():
         text, n = re.subn(pattern, repl, text)
         hits += n
+    # Evidence may contain a diagnostic string rather than a structured mapping.
+    # Redact the two common inline credential shapes before it reaches disk.
+    text, n = re.subn(
+        r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+",
+        "Bearer <redacted>", text)
+    hits += n
+    text, n = re.subn(
+        r"(?i)\b(password|passwd|token|authorization|cookie|api[_-]?key|"
+        r"client[_-]?secret)\s*([:=])\s*(\"[^\"]*\"|'[^']*'|[^\s,;]+)",
+        lambda match: f"{match.group(1)}{match.group(2)}<redacted>", text)
+    hits += n
     return text, hits
+
+
+def redact_sensitive(value: Any) -> Any:
+    """Recursively remove credential-like values while preserving structure."""
+    if isinstance(value, dict):
+        out = {}
+        for key, item in value.items():
+            normalized = re.sub(r"[^a-z0-9]+", "_", str(key).lower()).strip("_")
+            sensitive = (normalized in SENSITIVE_KEYS
+                         or normalized.endswith("_token")
+                         or normalized.startswith("token_"))
+            out[key] = "<redacted>" if sensitive else redact_sensitive(item)
+        return out
+    if isinstance(value, list):
+        return [redact_sensitive(item) for item in value]
+    if isinstance(value, tuple):
+        return [redact_sensitive(item) for item in value]
+    if isinstance(value, str):
+        return sanitize_text(value)[0]
+    return value
 
 
 def write_evidence(path: Path, data) -> None:
@@ -69,10 +107,21 @@ def write_evidence(path: Path, data) -> None:
     Test scripts should use this instead of a raw ``write_text(json.dumps(...))``
     so committed evidence never leaks a local home directory again.
     """
-    text = json.dumps(data, ensure_ascii=False, indent=2)
+    text = json.dumps(redact_sensitive(data), ensure_ascii=False, indent=2)
     text, _ = sanitize_text(text)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    # Atomic replace prevents a crash from leaving a half-written JSON artifact.
+    handle = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=path.parent,
+        prefix=path.name + ".", suffix=".tmp", delete=False)
+    temp_path = Path(handle.name)
+    try:
+        with handle:
+            handle.write(text)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
 
 
 def main() -> int:
@@ -86,12 +135,6 @@ def main() -> int:
             io.open(path, "w", encoding="utf-8", newline="\n").write(text)
             changed_files.append({"file": str(path.relative_to(ROOT)), "replacements": hits})
             total += hits
-    manifest = {
-        "note": "绝对路径替换为占位符；其余内容（状态、时间、判定）未改动",
-        "placeholders": {"<HOME>": "本机用户目录", "<REPO>": "仓库根目录"},
-        "files_changed": len(changed_files), "total_replacements": total,
-        "detail": changed_files,
-    }
     (EVID / "SANITIZATION.md").write_text(
         "# 证据脱敏记录\n\n"
         f"- 替换总数：{total}\n- 涉及文件：{len(changed_files)}\n\n"

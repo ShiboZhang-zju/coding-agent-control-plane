@@ -1,0 +1,59 @@
+{
+  "test": "T31-context-update-loop",
+  "A_terminal_outcomes": {
+    "verdicts": [
+      "verified",
+      "rejected",
+      "inconclusive"
+    ],
+    "auto_entry_count": 6,
+    "all_candidate": true,
+    "kinds": [
+      "knowledge",
+      "progress"
+    ],
+    "evidence_refs_exist": true,
+    "receipts_applied": true,
+    "pass": true
+  },
+  "B_idempotent_replay": {
+    "version_before": 6,
+    "version_after": 6,
+    "progress_entry_count": 1,
+    "all_replayed": true,
+    "pass": true
+  },
+  "C_conflict_preservation": {
+    "first_status": "needs_merge",
+    "second_status": "applied",
+    "canonical_kept": true,
+    "conflict_preserved": true,
+    "conflict_candidate": true,
+    "pass": true
+  },
+  "D_safety_boundaries": {
+    "automatic_constraint": "refused",
+    "cross_project_write": "refused",
+    "verified_auto_entries": 0,
+    "project_b_entries": 0,
+    "pass": true
+  },
+  "E_crash_window_recovery": {
+    "first_sweep_checked": 1,
+    "first_sweep_applied": 1,
+    "second_sweep_checked": 0,
+    "receipt_statuses": [
+      "applied",
+      "applied"
+    ],
+    "pass": true
+  },
+  "pass": {
+    "A": true,
+    "B": true,
+    "C": true,
+    "D": true,
+    "E": true
+  },
+  "result": "Pass"
+}

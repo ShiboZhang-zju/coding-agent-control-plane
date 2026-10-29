@@ -110,7 +110,8 @@ def approval_by_id(store: TaskStore, approval_id: int) -> dict:
 
 _PROJECT_CONTEXT_COMMANDS = (
     "brief", "progress", "tasks", "context", "workspaces", "sessions",
-    "context-add", "context-update", "context-verify", "submit")
+    "context-add", "context-update", "context-verify", "context-sync-task",
+    "context-update-log", "submit")
 
 
 def _run_project_command(args, plane: ControlPlane, store: TaskStore) -> int:
@@ -169,6 +170,18 @@ def _run_project_command(args, plane: ControlPlane, store: TaskStore) -> int:
             project["id"], args.entry_id, args.expected_version,
             evidence_refs=args.evidence, changed_by=args.changed_by),
             compact=args.compact)
+    elif cmd in ("context-sync-task", "context-update-log"):
+        task = store.get(args.task_id)
+        if not task:
+            raise KeyError(f"no task {args.task_id}")
+        if task.get("project_id") != project["id"]:
+            raise ValueError(
+                f"task {args.task_id} belongs to project {task.get('project_id')}, "
+                f"not {project['id']}")
+        result = (service.update_context_from_task(args.task_id)
+                  if cmd == "context-sync-task"
+                  else service.context_update_receipts(args.task_id))
+        emit(result, compact=args.compact)
     elif cmd == "submit":
         build_kwargs = dict(
             tags=args.tag, prerequisites=args.prerequisite,
@@ -301,6 +314,17 @@ def build_parser() -> argparse.ArgumentParser:
     context_verify.add_argument("--evidence", action="append", required=True)
     context_verify.add_argument("--changed-by", default="human")
 
+    context_sync = project_sub.add_parser(
+        "context-sync-task",
+        help="replay the idempotent M2 context update for one terminal task")
+    context_sync.add_argument("project")
+    context_sync.add_argument("task_id")
+
+    context_log = project_sub.add_parser(
+        "context-update-log", help="show M2 idempotency/merge receipts for one task")
+    context_log.add_argument("project")
+    context_log.add_argument("task_id")
+
     submit = project_sub.add_parser(
         "submit", help="build project context, freeze the prompt, then enqueue")
     submit.add_argument("project")
@@ -319,7 +343,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="print the effective prompt without enqueueing")
     submit.add_argument("--assert-file", action="append", default=[])
     submit.add_argument("--assert-contains", action="append", default=[])
-    submit.add_argument("--assert-absent", action="append", default=[]) 
+    submit.add_argument("--assert-absent", action="append", default=[])
 
     provenance = sub.add_parser(
         "provenance", help="original task, effective prompt and context refs")

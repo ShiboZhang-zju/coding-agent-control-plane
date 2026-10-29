@@ -6,9 +6,10 @@
 **Project**，每个 Project 通过 **Coding Agent** 执行具体任务。Control Plane 是这个系统的
 **基础设施层**——它不再是产品本身，而是让上述结构可靠运转的执行治理层。
 
-当前阶段：**M1（Project Context Foundation）已实现并通过测试**。
+当前阶段：**M2（Project Context Update Loop）已实现并通过测试**。
 多 Agent 派发、幂等、审批、验收、恢复、并发限制等既有能力保持完整。
-完整 LD Agent、跨机器远程执行尚未实现，见 [路线图](docs/PROJECT_CENTRIC_ROADMAP.md)。
+下一阶段是 M3（Session Registry / Handoff）；完整 LD Agent、跨机器远程执行尚未实现，
+见 [路线图](docs/PROJECT_CENTRIC_ROADMAP.md)。
 
 ---
 
@@ -29,8 +30,8 @@
 
 因此本项目做两件事：
 1. **Control Plane**（已实现）：把派发、幂等、审批、验收、恢复变成厂商无关的确定性能力。
-2. **Project Context**（本轮已实现）：把项目知识变成独立于 Session 的持久实体，
-   在任务执行前注入，在执行后（M2）回写。
+2. **Project Context**（M1–M2 已实现）：把项目知识变成独立于 Session 的持久实体，
+   在任务执行前注入，并在验收后以确定性规则回写候选进度与知识。
 
 ---
 
@@ -103,7 +104,7 @@ Control Plane（公共执行治理层，与厂商无关）
 | 项目注册与目录边界校验 | 已实现 | `evidence/v02*`、`T14*` |
 | T26 恢复修复（降级跨重启、lost 统一判定、claim 租约、attempt 终态） | 已实现 | `evidence/recovery/T26-p0-fixes.json` |
 
-### 4.2 Project-Centric（M1，本轮新增，已实测）
+### 4.2 Project-Centric（M1–M2，已实测）
 
 | 能力 | 状态 | 证据 |
 |---|---|---|
@@ -117,6 +118,11 @@ Control Plane（公共执行治理层，与厂商无关）
 | PID 三态判断（True / False / None，None 不判 lost） | 已实现并测试 | `T29-reliability-edges.json` |
 | 降级标记 I/O 诚实化（写失败不再宣称跨重启保护） | 已实现并测试 | `T29-reliability-edges.json` |
 | 旧流程兼容（无上下文的 enqueue/dispatch 行为与 digest 不变） | 已验证 | `T28` case E |
+| 终态验收后自动生成 `progress` / `knowledge` 候选条目 | 已实现并测试 | `evidence/project/T31-context-update-loop.json` |
+| 回写幂等回执（task + attempt + kind + title） | 已实现并测试 | `T31` case B |
+| CAS 冲突保留双方并标记 `needs_merge` | 已实现并测试 | `T31` case C |
+| 自动写入安全边界（仅 candidate、禁止 constraints、禁止跨项目） | 已实现并测试 | `T31` case D |
+| verdict/回执间崩溃窗口恢复 | 已实现并测试 | `T31` case E |
 
 ---
 
@@ -126,8 +132,8 @@ Control Plane（公共执行治理层，与厂商无关）
 
 - **完整 LD Agent。** 本轮只准备好了 LD 将来调用的确定性工具（`ProjectService`），
   没有接入任何 LLM，没有自动规划循环。
-- **自动知识回写。** 任务验收后自动生成进度更新/候选知识属于 M2，本轮所有上下文写入
-  都是显式调用。
+- **Session 自动交接。** SessionReference 已有持久化骨架，但“关闭 Session A 后由
+  Session B 在不读取旧 transcript 的情况下继续并通过验收”属于 M3，尚未实现。
 - **可靠跨机器远程执行。** `workspaces.node_id` 字段已存在，但非 `local` 节点会被
   `ContextBuilder` 判为阻塞缺口并拒绝派发。不存在"看起来能远程、实际本地跑"的假实现。
 - **跨机器原生 Session 迁移。** 未实现，也不承诺。
@@ -202,6 +208,10 @@ python scripts/controlplane_cli.py --ledger $L provenance <task-id>
 # 6) LD 视角：项目摘要与派生进度
 python scripts/controlplane_cli.py --ledger $L project brief <project-id>
 python scripts/controlplane_cli.py --ledger $L project progress <project-id>
+
+# 7) M2 自动回写通常由 Runtime 在终态验收后触发；也可安全重放并查看回执
+python scripts/controlplane_cli.py --ledger $L project context-sync-task <project-id> <task-id>
+python scripts/controlplane_cli.py --ledger $L project context-update-log <project-id> <task-id>
 ```
 
 `--preview` 的输出形如（节选，真实输出来自 T30）：
@@ -241,11 +251,12 @@ python scripts/controlplane_cli.py approval approve <approval-id>
 ### 6.4 测试
 
 ```powershell
-# M1 新增
+# M1–M2 新增
 python scripts/t27_project_context.py      # 隔离 / 版本 CAS / 来源 / 安全域
 python scripts/t28_project_dispatch.py     # 注入 / 冻结 / 审批绑定 / 阻塞 / 兼容
 python scripts/t29_reliability_edges.py    # PID 三态 / 降级标记 I/O
 python scripts/t30_project_cli.py          # CLI 端到端（README 示例来源）
+python scripts/t31_context_update_loop.py  # 自动回写 / 幂等 / needs_merge / 安全边界
 
 # 既有回归
 python scripts/t26_p0_fixes.py
@@ -276,8 +287,9 @@ controlplane/verify.py          产物断言验收（不看 worker 终态）
 controlplane/runtime.py         常驻循环：队列派发 / 刷新 / 孤儿扫描 / 退避
 controlplane/project_context.py 【M1】版本化项目知识存储（CAS + 来源 + 验证状态 + 安全域）
 controlplane/context_builder.py 【M1】Effective Prompt 构建（预算 / 筛选 / 阻塞缺口）
-controlplane/project_service.py 【M1】LD 将来调用的确定性 Facade
-docs/PROJECT_CENTRIC_ROADMAP.md 【M1】M1–M5 路线图与退出条件
+controlplane/context_update.py  【M2】验收后确定性候选回写（幂等 + 冲突保留）
+controlplane/project_service.py 【M1–M2】LD 将来调用的确定性 Facade
+docs/PROJECT_CENTRIC_ROADMAP.md 【M1–M2】M1–M5 路线图与退出条件
 docs/V0.2_PLAN.md               历史计划（v0.2 阶段，已完成其范围）
 scripts/                        服务管控、测试脚本、CLI、detached 运行器
 evidence/                       每次测试的证据（已脱敏；原始日志不入库）
@@ -292,8 +304,8 @@ sandbox/                        两个一次性 Git 仓库（不入库）
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| M1 | Project Context Foundation | **本轮完成** |
-| M2 | Project Context Update Loop（验收后回写、候选知识、幂等） | 未开始 |
+| M1 | Project Context Foundation | **已完成** |
+| M2 | Project Context Update Loop（验收后回写、候选知识、幂等） | **已完成** |
 | M3 | Session Registry / Handoff（单机多 Session） | 未开始 |
 | M4 | LD MVP（唯一全局 LD 接上确定性工具） | 未开始 |
 | M5 | Distributed Workspace（多节点、远程派工、受控同步） | 未开始 |

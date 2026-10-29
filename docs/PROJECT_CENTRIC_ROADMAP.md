@@ -20,8 +20,8 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 
 | 阶段 | 目标 | 依赖 | 状态 |
 |---|---|---|---|
-| **M1** | Project Context Foundation | v0.2 已完成 | **已完成（本轮）** |
-| M2 | Project Context Update Loop | M1 | 未开始 |
+| M1 | Project Context Foundation | v0.2 已完成 | **已完成** |
+| **M2** | Project Context Update Loop | M1 | **已完成（本轮）** |
 | M3 | Session Registry / Handoff | M1（M2 有益但非必需） | 未开始 |
 | M4 | LD MVP | M1 + M2 + M3 | 未开始 |
 | M5 | Distributed Workspace | M1–M4 | 未开始 |
@@ -98,11 +98,24 @@ M5 之前不得宣称支持跨机器协同。
 
 ---
 
-## M2 — Project Context Update Loop
+## M2 — Project Context Update Loop ✅ 本轮完成
 
 ### 目标
 
 让项目知识在执行后**自动**长出来，同时不让 Agent 的猜测污染事实。
+
+### 交付
+
+| 交付物 | 实现位置 |
+|---|---|
+| 三类终态 verdict → 叙述性 `progress` 候选 | `controlplane/context_update.py` |
+| 从 attempts / events / assertions / warnings 提取 `knowledge` 候选 | 同上 `_knowledge_body()` |
+| 每个 task/attempt 的脱敏证据快照 | `evidence/project-updates/` + `sanitize_evidence.write_evidence()` |
+| 数据库级幂等回执与跨进程 claim | `context_update_receipts` + `TaskStore.claim_context_update()` |
+| CAS 冲突保留为独立 `needs_merge` 候选 | `ProjectContextUpdateLoop._preserve_conflict()` |
+| Runtime 终态验收自动触发 + 显式安全重放 | `ControlPlane._sync_project_context()` / `update_project_context()` |
+| verdict 已提交、回执未提交的崩溃窗口恢复 | `reconcile_project_context_updates()` |
+| CLI 重放与回执查询 | `project context-sync-task` / `context-update-log` |
 
 ### 最小交付
 
@@ -117,18 +130,34 @@ M5 之前不得宣称支持跨机器协同。
 5. **同一事件幂等回写**：以 `(task_id, attempt_id, entry_kind, entry_title)` 为幂等键，
    重放同一次验收不会产生重复条目。
 
-### 退出条件
+### 退出条件（全部已实际执行）
 
-- 同一任务重复验收 N 次，`progress` 条目数量恒为 1 且版本连续。
-- 自动生成的条目 100% 为 `candidate`；断言"不存在自动产生的 `verified` 条目"。
-- 并发回写同一条目只有一个成功，其余进入 `needs_merge`，无丢数据。
-- 从证据提取的条目全部带非空 `evidence_refs`，且路径在 `evidence/` 下。
+| # | 退出条件 | 测试 | 结果 |
+|---|---|---|---|
+| 1 | verified / rejected / inconclusive 均生成 progress + knowledge | T31-A | Pass |
+| 2 | 自动条目全部为 candidate，且只有 progress / knowledge | T31-A、T31-D | Pass |
+| 3 | evidence_refs 非空、位于 evidence/ 且文件真实存在 | T31-A | Pass |
+| 4 | 同一验收重复重放不新增条目、不增加上下文版本 | T31-B | Pass |
+| 5 | 两个独立 SQLite 连接并发提交同一 CAS 版本：一胜一 needs_merge | T31-C | Pass |
+| 6 | 冲突双方 body 均保留，无静默覆盖 | T31-C | Pass |
+| 7 | 自动 constraints、自动 verified、跨项目写入全部拒绝 | T31-D | Pass |
+| 8 | verdict 已提交但无回执的任务可恢复，完成后不再重复扫描 | T31-E | Pass |
+
+证据：`evidence/project/T31-context-update-loop.json`。
 
 ### 明确不做
 
 - 不做 LLM 总结式回写（第一版用确定性规则）。
 - 不允许自动修改 `constraints`。
 - 不做跨项目知识提升（A 的结论不会自动变成 B 的结论）。
+
+### 已验证 vs 未验证
+
+**已验证（stub Worker）**：上表 7 项；真实运行了终态验收钩子、SQLite 幂等回执与
+双连接并发冲突路径。
+
+**未验证**：Project Context 自动回写与真实 CodeBuddy Worker 的组合尚未端到端执行；
+当前知识提取只使用确定性结构化字段与警告代码，不评估自然语言总结质量。
 
 ---
 

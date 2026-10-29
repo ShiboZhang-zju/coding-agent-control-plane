@@ -24,6 +24,9 @@ project_context_entries(id, project_id, kind, title, body, tags_json,
 project_context_revisions(id, entry_id, project_id, version, snapshot_json,
                           changed_at, changed_by, note)
 project_context_state(project_id PRIMARY KEY, version, updated_at)
+context_update_receipts(idempotency_key PRIMARY KEY, project_id, work_item_id,
+                        attempt_id, entry_kind, entry_title, entry_id, status,
+                        owner, payload_json, created_at, updated_at)
 work_items(id, title, prompt, cwd, mode, isolation, idempotency_key UNIQUE,
            state, verdict, policy_json, assertions_json, baseline_json,
            warnings_json, metadata_json, current_attempt_id, adapter,
@@ -50,7 +53,6 @@ from __future__ import annotations
 
 import functools
 import json
-import os
 import shutil
 import sqlite3
 import sys
@@ -222,6 +224,22 @@ CREATE TABLE IF NOT EXISTS project_context_state (
     version INTEGER NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS context_update_receipts (
+    idempotency_key TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    work_item_id TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    entry_kind TEXT NOT NULL,
+    entry_title TEXT NOT NULL,
+    entry_id TEXT,
+    status TEXT NOT NULL,
+    owner TEXT,
+    payload TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_context_updates_work_item
+    ON context_update_receipts(work_item_id, created_at ASC);
 CREATE TABLE IF NOT EXISTS attempts (
     id TEXT PRIMARY KEY,
     work_item_id TEXT NOT NULL,
@@ -1073,6 +1091,7 @@ class TaskStore:
     def clear(self) -> None:
         for table in ("approvals", "evidence", "events", "attempts",
                       "session_references", "workspaces",
+                      "context_update_receipts",
                       "project_context_revisions", "project_context_entries",
                       "project_context_state", "work_items", "projects"):
             self._conn.execute(f"DELETE FROM {table}")
@@ -1442,6 +1461,115 @@ class TaskStore:
             d["snapshot"] = _load(d.get("snapshot"), {})
             out.append(d)
         return out
+
+    # ------------------------------------------------------------------ #
+    # project context update loop (M2)
+    # ------------------------------------------------------------------ #
+    @_synchronized
+    def claim_context_update(self, idempotency_key: str, *, project_id: str,
+                             work_item_id: str, attempt_id: str,
+                             entry_kind: str, entry_title: str, owner: str,
+                             lease_s: float = 60.0) -> dict:
+        """Claim one deterministic M2 write across threads and processes.
+
+        Completed receipts are immutable replay guards. A crashed ``processing``
+        claim may be taken over after ``lease_s``; the update loop also embeds a
+        marker in the target entry, so recovery after "entry committed, receipt
+        not committed" does not apply the same candidate twice.
+        """
+        self.assert_writable("claim_context_update")
+        now = time.time()
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            row = self._conn.execute(
+                "SELECT * FROM context_update_receipts WHERE idempotency_key=?",
+                (idempotency_key,)).fetchone()
+            if row:
+                current = self._row_to_context_update_receipt(row)
+                if current["status"] in ("applied", "needs_merge", "skipped"):
+                    self._conn.commit()
+                    return {**current, "claimed": False, "replayed": True}
+                age = now - float(current.get("updated_at") or 0)
+                if (current["status"] == "processing"
+                        and current.get("owner") != owner and age < lease_s):
+                    self._conn.commit()
+                    return {**current, "claimed": False, "replayed": False,
+                            "busy": True, "claim_age_s": round(age, 3)}
+                self._conn.execute(
+                    "UPDATE context_update_receipts SET status='processing', owner=?, "
+                    "updated_at=? WHERE idempotency_key=?",
+                    (owner, now, idempotency_key))
+            else:
+                self._conn.execute(
+                    "INSERT INTO context_update_receipts "
+                    "(idempotency_key, project_id, work_item_id, attempt_id, "
+                    "entry_kind, entry_title, entry_id, status, owner, payload, "
+                    "created_at, updated_at) VALUES (?,?,?,?,?,?,NULL,'processing',?,NULL,?,?)",
+                    (idempotency_key, project_id, work_item_id, attempt_id,
+                     entry_kind, entry_title, owner, now, now))
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        claimed = self._conn.execute(
+            "SELECT * FROM context_update_receipts WHERE idempotency_key=?",
+            (idempotency_key,)).fetchone()
+        return {**self._row_to_context_update_receipt(claimed),
+                "claimed": True, "replayed": False}
+
+    @_synchronized
+    def complete_context_update(self, idempotency_key: str, *, owner: str,
+                                status: str, entry_id: str | None,
+                                payload: dict | None = None) -> dict:
+        if status not in ("applied", "needs_merge", "skipped"):
+            raise ValueError(f"invalid context update status: {status}")
+        now = time.time()
+        cur = self._conn.execute(
+            "UPDATE context_update_receipts SET status=?, entry_id=?, payload=?, "
+            "owner=NULL, updated_at=? WHERE idempotency_key=? AND owner=? "
+            "AND status='processing'",
+            (status, entry_id, _dump(payload or {}), now, idempotency_key, owner))
+        self._conn.commit()
+        if cur.rowcount != 1:
+            row = self._conn.execute(
+                "SELECT * FROM context_update_receipts WHERE idempotency_key=?",
+                (idempotency_key,)).fetchone()
+            if not row:
+                raise KeyError(f"no context update receipt {idempotency_key}")
+            current = self._row_to_context_update_receipt(row)
+            if current["status"] not in ("applied", "needs_merge", "skipped"):
+                raise RuntimeError(
+                    f"context update claim {idempotency_key} is no longer owned by {owner}")
+            return current
+        row = self._conn.execute(
+            "SELECT * FROM context_update_receipts WHERE idempotency_key=?",
+            (idempotency_key,)).fetchone()
+        return self._row_to_context_update_receipt(row)
+
+    @_synchronized
+    def fail_context_update(self, idempotency_key: str, *, owner: str,
+                            error: str) -> None:
+        self._conn.execute(
+            "UPDATE context_update_receipts SET status='failed', owner=NULL, "
+            "payload=?, updated_at=? WHERE idempotency_key=? AND owner=?",
+            (_dump({"error": error}), time.time(), idempotency_key, owner))
+        self._conn.commit()
+
+    @_synchronized
+    def context_update_receipts(self, work_item_id: str) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT * FROM context_update_receipts WHERE work_item_id=? "
+            "ORDER BY created_at ASC, entry_kind ASC",
+            (work_item_id,)).fetchall()
+        return [self._row_to_context_update_receipt(row) for row in rows]
+
+    @staticmethod
+    def _row_to_context_update_receipt(row: sqlite3.Row | None) -> dict:
+        if row is None:
+            return {}
+        receipt = dict(row)
+        receipt["payload"] = _load(receipt.get("payload"), {})
+        return receipt
 
     @staticmethod
     def _row_to_context_entry(row: sqlite3.Row) -> dict:

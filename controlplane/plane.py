@@ -26,7 +26,8 @@ from adapters.base import (
     UnsupportedOperation,
     Verdict,
 )
-from controlplane.store import LedgerDegraded, TaskStore
+from controlplane.context_update import ProjectContextUpdateLoop
+from controlplane.store import TaskStore
 from controlplane.verify import capture_baseline, check_all, side_effects, verdict_for
 
 
@@ -68,11 +69,13 @@ def task_digest(prompt: str, policy: DispatchPolicy,
 class ControlPlane:
     def __init__(self, adapter, store: TaskStore | None = None,
                  policy: DispatchPolicy | None = None, *,
-                 require_registered_projects: bool = False):
+                 require_registered_projects: bool = False,
+                 context_updates: ProjectContextUpdateLoop | None = None):
         self.adapter = adapter
         self.store = store or TaskStore()
         self.policy = policy or DispatchPolicy()
         self.require_registered_projects = require_registered_projects
+        self.context_updates = context_updates or ProjectContextUpdateLoop(self.store)
 
     # ------------------------------------------------------------------ #
     # projects / path boundary
@@ -511,7 +514,9 @@ class ControlPlane:
             self.store.append_event(task_id, "dispatch_failed", {
                 **result.raw, "approval_released": released,
                 "attempt_id": attempt_id, "attempt_state": "aborted_before_dispatch"})
-            return self.store.update(task_id, **patch)
+            saved = self.store.update(task_id, **patch)
+            self._sync_project_context(saved)
+            return saved
 
         self.store.mark_attempt(attempt_id, "dispatched")
         self.store.append_event(task_id, "dispatch_accepted", {
@@ -682,7 +687,9 @@ class ControlPlane:
                 return self.store.update(
                     task_id, warnings=list(bound.get("warnings") or []) + [
                         f"POST_RESOLUTION_OBSERVATION_FAILED:{type(exc).__name__}"])
-            return self.store.update(task_id, **self._snapshot_patch(task_id, snap))
+            saved = self.store.update(task_id, **self._snapshot_patch(task_id, snap))
+            self._sync_project_context(saved)
+            return saved
 
         if not confirm_absent:
             self.store.append_event(task_id, "dispatch_unresolved",
@@ -700,11 +707,13 @@ class ControlPlane:
         self.store.append_event(task_id, "dispatch_absent_confirmed", {
             "by": "operator", "note": "human confirmed no job exists",
             "approval_released": released})
-        return self.store.update(
+        saved = self.store.update(
             task_id, state=TaskState.UNKNOWN.value, verdict=Verdict.INCONCLUSIVE.value,
             queue_status="needs_human",
             warnings=list(rec.get("warnings") or []) +
             ["DISPATCH_ABSENT_CONFIRMED_BY_OPERATOR: 人工确认未创建，允许新 attempt"])
+        self._sync_project_context(saved)
+        return saved
 
     def _reserved_approval_for(self, record: dict) -> tuple[int | None, str | None]:
         """Find reservation metadata, including ledgers written before metadata binding."""
@@ -717,6 +726,49 @@ class ControlPlane:
                 None)
             approval_id = (reserved or {}).get("id")
         return approval_id, attempt_id
+
+    # ------------------------------------------------------------------ #
+    # M2 project context update loop
+    # ------------------------------------------------------------------ #
+    def update_project_context(self, task_id: str) -> dict:
+        """Explicitly replay the deterministic M2 update for one task."""
+        task = self.store.get(task_id)
+        if not task:
+            raise KeyError(f"no work item {task_id}")
+        return self._sync_project_context(task)
+
+    def reconcile_project_context_updates(self, *, limit: int = 100) -> dict:
+        """Retry terminal tasks left between verdict commit and M2 receipt commit."""
+        return self.context_updates.reconcile_pending(limit=limit)
+
+    def _sync_project_context(self, task: dict) -> dict:
+        if not task.get("project_id"):
+            return {"task_id": task.get("task_id"), "status": "skipped",
+                    "reason": "task is not bound to a project"}
+        if task.get("verdict") not in {
+                Verdict.VERIFIED.value, Verdict.REJECTED.value,
+                Verdict.INCONCLUSIVE.value}:
+            return {"task_id": task.get("task_id"), "status": "skipped",
+                    "reason": "acceptance verdict is not terminal"}
+        try:
+            result = self.context_updates.process_task(task["task_id"])
+        except Exception as exc:  # noqa: BLE001 - acceptance must remain durable
+            self.store.append_event(task["task_id"], "project_context_update_failed", {
+                "error": f"{type(exc).__name__}: {exc}",
+                "note": "task verdict kept; replay update_project_context(task_id)"})
+            return {"task_id": task["task_id"], "status": "failed",
+                    "error": type(exc).__name__}
+        self.store.append_event(task["task_id"], "project_context_updated", {
+            "status": result.get("status"),
+            "attempt_id": result.get("attempt_id"),
+            "evidence_ref": result.get("evidence_ref"),
+            "updates": [
+                {"status": update.get("status"),
+                 "entry_id": update.get("entry_id"),
+                 "idempotency_key": update.get("idempotency_key")}
+                for update in result.get("updates") or []],
+        })
+        return result
 
     # ------------------------------------------------------------------ #
     # refresh: two independent paths
@@ -752,11 +804,17 @@ class ControlPlane:
             patch = self._snapshot_patch(task["task_id"], snap)
             if patch["state"] == TaskState.LOST.value:
                 patch = self._confirm_lost(task, snap, patch)
-            self.store.update(task["task_id"], **patch)
-            updated.append({"task_id": task["task_id"], "worker_job_id": jid,
-                            "state": patch["state"], "verdict": patch["verdict"]})
+            saved = self.store.update(task["task_id"], **patch)
+            context_update = self._sync_project_context(saved)
+            item = {"task_id": task["task_id"], "worker_job_id": jid,
+                    "state": patch["state"], "verdict": patch["verdict"]}
+            if context_update.get("status") != "skipped":
+                item["context_update"] = context_update
+            updated.append(item)
+        context_updates = self.reconcile_project_context_updates()
         return {"updated": updated, "anomalies": anomalies,
-                "ok": len(anomalies) == 0, "checked": len(updated) + len(anomalies)}
+                "ok": len(anomalies) == 0, "checked": len(updated) + len(anomalies),
+                "context_updates": context_updates}
 
     def discover_orphan_jobs(self) -> dict:
         """Low-frequency full scan. Failure here must not disturb known tasks."""
@@ -903,8 +961,9 @@ class ControlPlane:
         patch = {"state": TaskState.LOST.value, "verdict": Verdict.REJECTED.value,
                  "queue_status": "complete",
                  "warnings": list(task.get("warnings") or []) + [f"LOST: {reason}"]}
-        self.store.update(task["task_id"], **patch)
+        saved = self.store.update(task["task_id"], **patch)
         self.store.append_event(task["task_id"], "lost", {"worker_job_id": jid, "reason": reason})
+        self._sync_project_context(saved)
         return patch
 
     def recover_inflight(self, *, lease_ttl_s: float = DISPATCH_CLAIM_LEASE_S) -> dict:
@@ -1023,7 +1082,9 @@ class ControlPlane:
             raise KeyError(f"no worker job for {task_id}")
         snap = self.adapter.cancel(jid)
         self.store.append_event(task_id, "cancel_requested", {"worker_job_id": jid})
-        return self.store.update(task_id, **self._snapshot_patch(task_id, snap))
+        saved = self.store.update(task_id, **self._snapshot_patch(task_id, snap))
+        self._sync_project_context(saved)
+        return saved
 
     def resume(self, task_id: str) -> dict:
         """Re-attach by conversation. A new worker job becomes a new attempt."""

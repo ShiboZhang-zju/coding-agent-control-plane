@@ -1,5 +1,5 @@
 """Vendor-neutral project operations facade — the deterministic tool surface an LD
-will call (M1).
+will call (M1–M2).
 
 Why a facade and not an agent
 -----------------------------
@@ -23,6 +23,8 @@ Not implemented here (on purpose)
 * No HTTP surface. The LD is not wired up yet (M4).
 * No remote dispatch. A non-local workspace is reported as unsupported rather
   than silently executed locally (M5).
+* M2 context updates are deterministic candidate writes; they do not plan the
+  next task or promote knowledge to verified.
 """
 from __future__ import annotations
 
@@ -76,7 +78,6 @@ class ProjectService:
                                 if t.get("verdict") == Verdict.VERIFIED.value),
                 "rejected": sum(1 for t in tasks
                                 if t.get("verdict") == Verdict.REJECTED.value),
-                "active": project["active"],
             })
         return out
 
@@ -227,6 +228,16 @@ class ProjectService:
                              expected_version: int, changes: dict, **kwargs) -> dict:
         return self.context.update_context_entry(
             project_id, entry_id, expected_version, changes, **kwargs)
+
+    def update_context_from_task(self, task_id: str) -> dict:
+        """Replay M2's deterministic terminal-task update (idempotent)."""
+        return self.plane.update_project_context(task_id)
+
+    def context_update_receipts(self, task_id: str) -> list[dict]:
+        task = self.store.get(task_id)
+        if not task:
+            raise KeyError(f"no task {task_id}")
+        return self.store.context_update_receipts(task_id)
 
     # ------------------------------------------------------------------ #
     # task submission

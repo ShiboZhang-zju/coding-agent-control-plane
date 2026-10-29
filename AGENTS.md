@@ -68,13 +68,24 @@
   `knowledge` / `decisions`）与 `verification`（`unverified` / `candidate` / `verified`）。
 - **Agent 自动产生的内容一律 `candidate`**，不得直接写 `verified`。
 - **提升为 `verified` 必须有 `evidence_refs`**，且每条都能指到实际存在的证据文件。
-- **`constraints` 的 `verified` 状态只能由人确认**（或 M2 的确定性规则 + 人工复核）。
-  未验证的约束可以被展示，但不得当作硬性安全策略执行。
+- **`constraints` 的 `verified` 状态只能由人确认。** M2 自动回写不得创建或修改
+  `constraints`。未验证的约束可以被展示，但不得当作硬性安全策略执行。
 - 更新条目必须带 `expected_version`（CAS）；冲突时抛 `ContextVersionConflict`，
   不得回退成静默覆盖。
 - 跨项目读写一律拒绝：`get_entry()` 发现 `project_id` 不匹配必须抛
   `ContextError`，不得返回空结果。
 - `security_domain='local'` 的内容不得写入任何外部服务/外部模型调用。
+
+### 5.1 自动回写规则（M2 引入）
+
+- 自动回写只允许 `progress` 与 `knowledge`，且 `verification` 必须为 `candidate`。
+- 每个自动条目必须有真实存在、位于 `evidence/` 下的 `evidence_refs`，写盘前统一脱敏。
+- 幂等键固定为 `(task_id, attempt_id, entry_kind, entry_title)`；重放同一验收不得增加
+  条目或上下文版本。
+- CAS 冲突不得自动重试覆盖。保留输家为独立 `needs_merge` 候选，等待人工合并。
+- `progress` 只写阻塞与下一步等叙述，不复制 Ledger 的 state/verdict；权威进度仍由
+  `ProjectService.get_project_progress()` 从 Ledger 派生。
+- 自动回写失败不得回滚或改写已持久化的验收 verdict；记录失败事件，允许显式重放。
 
 ## 6. 派发与审批规则（M1 补充）
 
