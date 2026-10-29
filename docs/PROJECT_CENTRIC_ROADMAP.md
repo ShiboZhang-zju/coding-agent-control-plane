@@ -23,11 +23,13 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 | M1 | Project Context Foundation | v0.2 已完成 | **已完成** |
 | M2 | Project Context Update Loop | M1 | **已完成** |
 | **M3** | Session Registry / Handoff | M1（M2 有益但非必需） | **功能已实现，未验证** |
-| M4 | LD MVP | M1 + M2 + M3 | 未开始 |
-| M5 | Distributed Workspace | M1–M4 | 未开始 |
+| **M4-A** | Minimal LD（受限工具、结构化决策、单轮协调） | M1 + M2；不开放 M3 Handoff | **功能开发完成，未验证** |
+| M4-B | LD 多轮推进与验收后 Handoff | M3 验收 + M4-A | 未实现 |
+| M5 | Distributed Workspace | M1–M4 | 未实现 |
 
-依赖是**功能依赖**而非排期依赖：M3 可以在 M2 之前做，但 M4 必须等三者都有。
-M5 之前不得宣称支持跨机器协同。
+依赖是**功能依赖**而非排期依赖：M4-A 只调用 M1/M2 的确定性查询与
+普通任务提交，因此可在 M3 验收前做功能开发；Handoff 不向 LD 开放。
+M4-B 启用 Handoff 前必须先完成 M3 验收。M5 之前不得宣称支持跨机器协同。
 
 ---
 
@@ -216,6 +218,8 @@ stub/SQLite 验证，因此不存在新的 evidence 或 Pass 结论。尤其以�
 - Session A 关闭后，Session B 不读旧 transcript 完成并通过 verdict 验收；
 - 新 schema 迁移、并发 Session 冲突、Handoff 幂等的实际回归。
 
+完整待验证问题、影响与复现方法见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)。
+
 ### 明确不做
 
 - 不承诺原生 Session 可跨机器直接迁移。
@@ -223,33 +227,79 @@ stub/SQLite 验证，因此不存在新的 evidence 或 Pass 结论。尤其以�
 
 ---
 
-## M4 — LD MVP
+## M4-A — Minimal LD ⚠️ 功能开发完成，未验证
 
 ### 目标
 
-唯一的全局 LD 接上 M1 的确定性工具，真正开始"管理项目"。
+唯一的全局 LD 接上 M1/M2 的确定性工具，完成一次可审计、可 dry-run、
+默认转人工的最小协调，不扩展为自主循环。
 
-### 最小交付
+### 已实现功能切片
 
-1. 唯一全局 LD（单实例，无多主竞争）。
-2. 查询各项目进度：`ProjectService.list_projects / get_project_brief / get_project_progress`。
-3. 按目标提交项目任务：`submit_project_task()`。
-4. 按验收结果推进下一步：只依据 `verdict`，不依据 Worker 自述。
-5. 异常/审批/阻塞 → 转人工决策，不自行绕过（不得自动 `approve`）。
+| 交付物 | 实现位置 | 安全/语义边界 | 当前状态 |
+|---|---|---|---|
+| LD Tool Facade | `ld/tools.py` | 仅 7 个工具；不开放 context 写、approve/deny、Handoff、Policy、直接 Worker 派发 | 功能已实现，未测试 |
+| 任务状态确定性投影 | `ProjectService.get_task_status()` | Worker state 与 control-plane verdict 分离，不暴露/修改 Effective Prompt | 功能已实现，未测试 |
+| 结构化决策 | `ld/decision.py` | `inspect / submit_task / wait / request_human / finish`；严格拒绝未知字段与命令参数 | 功能已实现，未测试 |
+| 单轮协调器 | `ld/coordinator.py::LDCoordinator.run_once()` | 可注入最小模型接口；无模型明确返回 `model_not_configured` | 功能已实现，未测试 |
+| 确定性人工门控 | `ld/coordinator.py` | approval/dispatch unknown/lost/session conflict/执行位置不明确默认 `request_human` | 功能已实现，未测试 |
+| 可核验 `finish` | `ld/decision.py` + `ld/coordinator.py::_finish()` | 只接受 Ledger `verified` task 或受限的项目计数条件，不接受 Worker 自述 | 功能已实现，未测试 |
+| 最小 CLI | `scripts/ld_cli.py` | 同一 Ledger；`--decision-json` 仅读结构化数据；不调 Worker | 功能已实现，未测试 |
 
-### 退出条件
+### 决策 Schema（`m4-a.v1`）
 
-- 给定 3 个项目的目标，LD 能在无人干预下完成"查询 → 派发 → 依据验收推进"至少一轮。
-- LD 的每个决策都能追溯到具体 Ledger 行或 Context 条目（无"模型说这样"的决策）。
-- LD 遇到 `needs_approval` / `dispatch_unknown` / `suspected_lost` 时**停止并请求人工**，
-  测试需验证它不会绕过。
-- LD 不写入 `verified` 条目、不修改 `constraints`。
+所有决策都必须有且只有：
+
+```json
+{
+  "action": "inspect | submit_task | wait | request_human | finish",
+  "project_id": "prj-... or null",
+  "reason": "non-empty string",
+  "evidence_refs": ["ledger/context/task references"],
+  "parameters": {}
+}
+```
+
+- `inspect`：只能选 `list_projects / get_project_brief / get_project_progress /
+  get_project_tasks / get_task_status / get_task_provenance`。
+- `submit_task`：必须含 `task + idempotency_key`；可选产物断言、优先级、标签、
+  前置条件、本地 Workspace 与 timeout；不允许 `allow_blocked / policy / metadata`。
+- `wait`：必须含 `task_id`。
+- `request_human`：必须含 `question`，可带 `blocking_reasons`。
+- `finish`：必须有非空 `evidence_refs`，并带 `verified_task_ids` 或受限
+  `completion_conditions`；仅使用计数条件时至少需要 `verified >= 1`，执行时会
+  重新查 Ledger。
+
+`python / shell / command / code / approve / deny / handoff / effective_prompt`
+等不在 Schema 内的控制字段一律拒绝。
+
+### 安全域与模型输入
+
+- 协调器默认不向模型开放任何 Project Context 安全域。
+- 注入模型时必须显式设置 `model_authorized_security_domains`；只有获准的
+  `shareable`/`local` 条目标题与进度才进入有限决策输入。
+- Human Owner 目标默认标为 `local`；模型未获该域授权时不调用模型。
+- 项目 root、Effective Prompt、未获准域的内容始终不进入决策输入。
+
+### 退出条件（尚未执行）
+
+1. 7 个 LD 工具的白名单与禁止路径测试通过。
+2. 五种动作、未知字段、命令注入、跨项目与 `finish` 证据校验通过。
+3. `dry_run=True` 不新增 WorkItem；非 dry-run 最多提交一个普通任务。
+4. 所有指定异常状态均转 `request_human`，且没有 approve/deny/Handoff 路径。
+5. 未授权模型输入不含 `local` body/root/Effective Prompt。
+6. 绝不仅凭 Worker state 返回 `finish`。
+
+**当前退出判定：未满足。** 本轮按要求没有运行上述测试，不存在 M4-A
+evidence 或 Pass 结论。
 
 ### 明确不做
 
 - 不做多 LD 协同。
 - 不做自动审批。
 - 不做跨项目资源抢占策略（先 FCFS + 优先级）。
+- 不做无限自主循环、复杂 Goal DAG 或引入 Agent Framework。
+- M3 验收前不向 LD 开放 Handoff。
 
 ---
 

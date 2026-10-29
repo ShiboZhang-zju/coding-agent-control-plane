@@ -1,5 +1,5 @@
-"""Vendor-neutral project operations facade — the deterministic tool surface an LD
-will call (M1–M3).
+"""Vendor-neutral project operations facade — deterministic project operations
+used by the restricted M4-A LD tool surface (M1–M4-A).
 
 Why a facade and not an agent
 -----------------------------
@@ -20,7 +20,7 @@ separated.
 
 Not implemented here (on purpose)
 ---------------------------------
-* No HTTP surface. The LD is not wired up yet (M4).
+* No HTTP surface. M4-A has only a local single-turn coordinator and CLI.
 * No remote dispatch. A non-local workspace is reported as unsupported rather
   than silently executed locally (M5).
 * M2 context updates are deterministic candidate writes; they do not plan the
@@ -52,6 +52,29 @@ from controlplane.store import TaskStore
 _ACTIVE_STATES = (TaskState.QUEUED.value, TaskState.STARTING.value,
                   TaskState.RUNNING.value, TaskState.WAITING_FOR_APPROVAL.value)
 _NEEDS_HUMAN_STATES = (TaskState.DISPATCH_UNKNOWN.value, TaskState.UNKNOWN.value)
+
+
+def _has_warning(task: dict, prefix: str) -> bool:
+    return any(str(item).startswith(prefix)
+               for item in (task.get("warnings") or []))
+
+
+def _task_attention_flags(task: dict) -> list[str]:
+    """Deterministic human-attention reasons for one ledger work item."""
+    flags: list[str] = []
+    state = task.get("state")
+    if task.get("queue_status") == "needs_approval":
+        flags.append("needs_approval")
+    if state == TaskState.DISPATCH_UNKNOWN.value:
+        flags.append("dispatch_unknown")
+    if (task.get("metadata") or {}).get("suspected_lost"):
+        flags.append("suspected_lost")
+    if _has_warning(task, "SESSION_BINDING_CONFLICT:"):
+        flags.append("session_binding_conflict")
+    if (task.get("queue_status") == "needs_human"
+            and not flags and state == TaskState.UNKNOWN.value):
+        flags.append("unknown")
+    return flags
 
 
 class ProjectService:
@@ -89,19 +112,59 @@ class ProjectService:
             })
         return out
 
-    def get_project_brief(self, project_id: str) -> dict:
-        """Compact deterministic summary: identity + context + derived counts."""
+    def get_project_brief(self, project_id: str, *,
+                          allowed_security_domains: Iterable[str] | None = None
+                          ) -> dict:
+        """Compact deterministic summary: identity + context + derived counts.
+
+        ``allowed_security_domains`` is used by M4-A before constructing model
+        input.  ``None`` preserves the original local/operator view; an explicit
+        iterable exposes titles only from those domains.  Entry bodies are never
+        part of this brief.
+        """
         brief = self.context.get_project_brief(project_id)
+        if allowed_security_domains is not None:
+            allowed = {str(item) for item in allowed_security_domains}
+            entries = [
+                entry for entry in self.context.list_entries(project_id)
+                if entry.get("security_domain") in allowed
+            ]
+
+            def titles(kind: str, limit: int) -> list[str]:
+                return [entry["title"] for entry in entries
+                        if entry.get("kind") == kind][:limit]
+
+            brief.update({
+                "entry_count": len(entries),
+                "verified_count": sum(
+                    1 for entry in entries
+                    if entry.get("verification") == "verified"),
+                "background": titles("background", 3),
+                "constraints": titles("constraints", 10),
+                "progress": titles("progress", 5),
+                "open_questions": [
+                    entry["title"] for entry in entries
+                    if entry.get("verification") != "verified"
+                ][:5],
+                "context_visibility": {
+                    "security_domains": sorted(allowed),
+                    "omitted_entry_count": (
+                        len(self.context.list_entries(project_id)) - len(entries)),
+                },
+            })
         progress = self.get_project_progress(project_id)
         brief["tasks"] = progress["counts"]
         brief["workspaces"] = [
             {"id": ws["id"], "node_id": ws["node_id"],
              "local_root": ws["local_root"], "is_default": ws["is_default"],
+             "active": ws["active"],
              "executable": ws["node_id"] == "local"}
             for ws in self.store.workspaces(project_id)]
         return brief
 
-    def get_project_progress(self, project_id: str) -> dict:
+    def get_project_progress(self, project_id: str, *,
+                             allowed_security_domains: Iterable[str] | None = None
+                             ) -> dict:
         """Progress derived from the ledger — never from an LLM summary.
 
         Returns derived ``counts`` plus the *narrative* progress entries, kept in
@@ -116,7 +179,8 @@ class ProjectService:
             "total": len(tasks),
             "active": 0, "verified": 0, "rejected": 0, "inconclusive": 0,
             "pending": 0, "needs_human": 0, "needs_approval": 0,
-            "suspected_lost": 0,
+            "dispatch_unknown": 0, "suspected_lost": 0,
+            "session_binding_conflict": 0,
         }
         for task in tasks:
             state = task.get("state")
@@ -127,8 +191,12 @@ class ProjectService:
                 counts["needs_human"] += 1
             if task.get("queue_status") == "needs_approval":
                 counts["needs_approval"] += 1
+            if state == TaskState.DISPATCH_UNKNOWN.value:
+                counts["dispatch_unknown"] += 1
             if (task.get("metadata") or {}).get("suspected_lost"):
                 counts["suspected_lost"] += 1
+            if _has_warning(task, "SESSION_BINDING_CONFLICT:"):
+                counts["session_binding_conflict"] += 1
             if verdict == Verdict.VERIFIED.value:
                 counts["verified"] += 1
             elif verdict == Verdict.REJECTED.value:
@@ -138,16 +206,31 @@ class ProjectService:
             elif verdict == Verdict.PENDING.value:
                 counts["pending"] += 1
 
+        allowed = (None if allowed_security_domains is None
+                   else {str(item) for item in allowed_security_domains})
+        progress_entries = self.store.context_entries(project_id, kind="progress")
         narrative = [
             {"title": e["title"], "body": e["body"],
              "verification": e["verification"], "version": e["version"],
+             "security_domain": e["security_domain"],
              "updated_at": e["updated_at"]}
-            for e in self.store.context_entries(project_id, kind="progress")
+            for e in progress_entries
+            if allowed is None or e.get("security_domain") in allowed
+        ]
+        needs_merge = [
+            {"entry_id": entry["id"], "kind": entry["kind"],
+             "title": entry["title"], "tags": entry.get("tags") or [],
+             "verification": entry["verification"],
+             "security_domain": entry["security_domain"]}
+            for entry in self.store.context_entries(project_id)
+            if "needs_merge" in (entry.get("tags") or [])
+            and (allowed is None or entry.get("security_domain") in allowed)
         ]
         blockers = [t for t in tasks
                     if t.get("state") in _NEEDS_HUMAN_STATES
                     or t.get("queue_status") == "needs_approval"
-                    or (t.get("metadata") or {}).get("suspected_lost")]
+                    or (t.get("metadata") or {}).get("suspected_lost")
+                    or _has_warning(t, "SESSION_BINDING_CONFLICT:")]
         return {
             "project_id": project_id,
             "name": project["name"],
@@ -158,9 +241,11 @@ class ProjectService:
                 {"task_id": t["task_id"], "state": t.get("state"),
                  "verdict": t.get("verdict"),
                  "queue_status": t.get("queue_status"),
+                 "attention_flags": _task_attention_flags(t),
                  "warnings": t.get("warnings") or []}
                 for t in blockers],
             "narrative_progress": narrative,
+            "needs_merge_context": needs_merge,
             "recent_tasks": [
                 {"task_id": t["task_id"], "title": t.get("title"),
                  "state": t.get("state"), "verdict": t.get("verdict"),
@@ -189,6 +274,39 @@ class ProjectService:
                 "created_at": task.get("created_at"),
             })
         return out
+
+    def get_task_status(self, task_id: str) -> dict:
+        """Read-only task state suitable for LD decisions.
+
+        The projection deliberately keeps Worker state and control-plane verdict
+        separate.  It does not expose or mutate the frozen Effective Prompt.
+        """
+        task = self.store.get(task_id)
+        if not task:
+            raise KeyError(f"no task {task_id}")
+        attempts = self.store.attempts(task_id)
+        current_attempt = next(
+            (attempt for attempt in reversed(attempts)
+             if attempt.get("id") == task.get("current_attempt_id")), None)
+        return {
+            "task_id": task_id,
+            "project_id": task.get("project_id"),
+            "title": task.get("title"),
+            "state": task.get("state"),
+            "verdict": task.get("verdict"),
+            "queue_status": task.get("queue_status"),
+            "attention_flags": _task_attention_flags(task),
+            "workspace_id": task.get("workspace_id"),
+            "context_version": task.get("context_version"),
+            "current_attempt_id": task.get("current_attempt_id"),
+            "current_attempt": current_attempt,
+            "worker_job_id": task.get("worker_job_id"),
+            "assertions": task.get("assertions") or [],
+            "assertion_results": task.get("assertion_results") or [],
+            "warnings": task.get("warnings") or [],
+            "created_at": task.get("created_at"),
+            "updated_at": task.get("updated_at"),
+        }
 
     def get_task_provenance(self, task_id: str) -> dict:
         """Exactly what a task was dispatched with, and which knowledge it saw.

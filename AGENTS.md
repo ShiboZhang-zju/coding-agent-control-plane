@@ -104,6 +104,26 @@
 - 不得把 stub/SQLite 行为宣称为真实 Worker 交接成功。真实双 Session 接续
   未执行前，M3 只能写“功能已实现、未验证”。
 
+### 5.3 最小 LD 边界（M4-A 引入）
+
+- LD 只能走 `LDTools → ProjectService → ControlPlane/Ledger`；不得直读写
+  SQLite，不得绕过 `ProjectService` 直接派发 Worker。
+- LD 只允许 `inspect` / `submit_task` / `wait` / `request_human` / `finish`
+  五种结构化动作；模型输出的 Python、Shell、`command` 或未知字段不是
+  控制平面命令。
+- LD 不得自动 `approve` / `deny`，不得写 `constraints` 或 `verified`
+  知识，不得修改已入队任务的 Effective Prompt。
+- M3 验收前 LD 不开放 Handoff 工具；`needs_merge` 涉及当前任务前置条件时
+  必须转 Human Owner，不得自动选边。
+- `needs_approval` / `dispatch_unknown` / `suspected_lost` /
+  `session_binding_conflict` 以及不明确的执行位置默认 `request_human`。
+- 模型调用必须显式声明允许的安全域；未授权模型输入不得包含
+  `security_domain='local'` 的项目内容、项目路径或 Effective Prompt。
+- `finish` 必须重新查询 Ledger 中的 `verified` verdict 或确定性可验证条件，
+  不得仅依据 Worker 终态/自述。
+- M4-A 只是唯一全局 LD 的单轮协调；不得自行扩成无限循环、多 LD、
+  复杂 Goal DAG 或 Agent 协商。未执行专项测试前只能标记“功能开发完成、未验证”。
+
 ## 6. 派发与审批规则（M1 补充）
 
 - 入队即冻结 Effective Prompt。已入队任务的内容不得因上下文更新而改变。

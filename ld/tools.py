@@ -1,0 +1,202 @@
+"""Restricted deterministic tools available to the global LD (M4-A).
+
+This is intentionally narrower than :class:`controlplane.project_service.ProjectService`.
+In particular it exposes no context writes, approvals, Handoff operations, prompt
+mutation, runtime dispatch, or direct SQLite access.  Submissions are ordinary
+``ProjectService.submit_project_task`` calls and therefore retain the existing
+context-freeze, idempotency, policy, approval and queue semantics.
+"""
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable, Mapping
+from pathlib import PurePosixPath, PureWindowsPath
+from typing import Any
+
+from controlplane.project_service import ProjectService
+
+_ASSERTION_FIELDS = {"kind", "target", "value", "description"}
+_ASSERTION_KINDS = {
+    "file_exists", "file_contains", "git_commit", "git_clean", "path_absent",
+}
+
+
+def _string_list(value: Iterable[str], field: str) -> list[str]:
+    if isinstance(value, (str, bytes)):
+        raise ValueError(f"{field} must be a list of strings")
+    out: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"{field} entries must be non-empty strings")
+        out.append(item.strip())
+    return out
+
+
+def _assertions(value: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    if isinstance(value, (str, bytes, Mapping)):
+        raise ValueError("assertions must be a list of objects")
+    out: list[dict[str, Any]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, Mapping):
+            raise ValueError(f"assertions[{index}] must be an object")
+        unknown = set(item) - _ASSERTION_FIELDS
+        if unknown:
+            raise ValueError(
+                f"assertions[{index}] has unsupported fields: "
+                + ", ".join(sorted(unknown)))
+        kind = item.get("kind")
+        target = item.get("target")
+        if kind not in _ASSERTION_KINDS:
+            raise ValueError(
+                f"assertions[{index}].kind must be one of "
+                + ", ".join(sorted(_ASSERTION_KINDS)))
+        if not isinstance(target, str) or not target.strip():
+            raise ValueError(f"assertions[{index}].target must be a non-empty string")
+        if kind in {"file_exists", "file_contains", "path_absent"}:
+            posix_target = PurePosixPath(target.strip().replace("\\", "/"))
+            if (posix_target.is_absolute() or PureWindowsPath(target).is_absolute()
+                    or ".." in posix_target.parts):
+                raise ValueError(
+                    f"assertions[{index}].target must stay inside the workspace")
+        normalized = {"kind": kind, "target": target.strip()}
+        if item.get("value") is not None:
+            if not isinstance(item["value"], str):
+                raise ValueError(f"assertions[{index}].value must be a string")
+            normalized["value"] = item["value"]
+        if item.get("description") is not None:
+            if not isinstance(item["description"], str):
+                raise ValueError(f"assertions[{index}].description must be a string")
+            normalized["description"] = item["description"]
+        out.append(normalized)
+    return out
+
+
+class LDTools:
+    """The complete M4-A tool capability granted to the LD.
+
+    ``submission_service_factory`` exists for ledger-only CLIs: it selects a
+    ``ProjectService`` whose name-only Adapter reference matches the project's
+    configured Adapter.  The factory still returns a ProjectService; the facade
+    never dispatches a Worker itself.
+    """
+
+    def __init__(
+        self,
+        service: ProjectService,
+        *,
+        submission_service_factory: Callable[[str], ProjectService] | None = None,
+    ):
+        self._service = service
+        self._submission_service_factory = submission_service_factory
+
+    def list_projects(self) -> list[dict]:
+        return self._service.list_projects()
+
+    def get_project_brief(
+        self,
+        project_id: str,
+        *,
+        allowed_security_domains: Iterable[str] | None = None,
+    ) -> dict:
+        return self._service.get_project_brief(
+            project_id, allowed_security_domains=allowed_security_domains)
+
+    def get_project_progress(
+        self,
+        project_id: str,
+        *,
+        allowed_security_domains: Iterable[str] | None = None,
+    ) -> dict:
+        return self._service.get_project_progress(
+            project_id, allowed_security_domains=allowed_security_domains)
+
+    def get_project_tasks(self, project_id: str, limit: int = 200) -> list[dict]:
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 200:
+            raise ValueError("limit must be an integer from 1 to 200")
+        return self._service.get_project_tasks(project_id, limit=limit)
+
+    def get_task_status(self, task_id: str) -> dict:
+        return self._service.get_task_status(task_id)
+
+    def get_task_provenance(self, task_id: str) -> dict:
+        return self._service.get_task_provenance(task_id)
+
+    def submit_project_task(
+        self,
+        project_id: str,
+        task: str,
+        *,
+        assertions: Iterable[Mapping[str, Any]] = (),
+        priority: int = 0,
+        idempotency_key: str,
+        title: str = "",
+        tags: Iterable[str] = (),
+        prerequisites: Iterable[str] = (),
+        require_verified_constraints: bool = False,
+        workspace_id: str | None = None,
+        timeout_s: int = 900,
+    ) -> dict:
+        """Submit one ordinary project task through ProjectService.
+
+        The restricted signature is a security boundary: callers cannot supply
+        ``allow_blocked``, execution policy, arbitrary metadata, extra prompt
+        references, Handoff source fields, or any direct Worker instruction.
+        """
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise ValueError("project_id must be a non-empty string")
+        if not isinstance(task, str) or not task.strip():
+            raise ValueError("task must be a non-empty string")
+        if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+            raise ValueError("LD submissions require a non-empty idempotency_key")
+        if not isinstance(title, str):
+            raise ValueError("title must be a string")
+        if not isinstance(priority, int) or isinstance(priority, bool):
+            raise ValueError("priority must be an integer")
+        if not isinstance(require_verified_constraints, bool):
+            raise ValueError("require_verified_constraints must be a boolean")
+        if not isinstance(timeout_s, int) or isinstance(timeout_s, bool) \
+                or not 1 <= timeout_s <= 86_400:
+            raise ValueError("timeout_s must be an integer from 1 to 86400")
+        if workspace_id is not None and (
+                not isinstance(workspace_id, str) or not workspace_id.strip()):
+            raise ValueError("workspace_id must be a non-empty string when supplied")
+
+        service = (self._submission_service_factory(project_id)
+                   if self._submission_service_factory else self._service)
+        projects = {item["project_id"]: item for item in service.list_projects()}
+        project = projects.get(project_id)
+        if not project:
+            raise KeyError(f"no project {project_id}")
+        configured_adapter = project.get("default_adapter")
+        actual_adapter = getattr(service.plane.adapter, "name", None)
+        if configured_adapter and actual_adapter != configured_adapter:
+            raise RuntimeError(
+                f"submission service adapter {actual_adapter!r} does not match "
+                f"project adapter {configured_adapter!r}")
+
+        record = service.submit_project_task(
+            project_id,
+            task.strip(),
+            assertions=_assertions(assertions),
+            priority=priority,
+            idempotency_key=idempotency_key.strip(),
+            title=title.strip(),
+            tags=_string_list(tags, "tags"),
+            prerequisites=_string_list(prerequisites, "prerequisites"),
+            require_verified_constraints=require_verified_constraints,
+            workspace_id=workspace_id,
+            timeout_s=timeout_s,
+            metadata={"submitted_by": "ld", "ld_stage": "m4-a"},
+            allow_blocked=False,
+        )
+        if record.get("project_id") != project_id:
+            raise ValueError(
+                f"idempotency key {idempotency_key!r} belongs to project "
+                f"{record.get('project_id')}, not {project_id}")
+        if (record.get("deduplicated") and record.get("original_task") is not None
+                and record.get("original_task") != task.strip()):
+            raise ValueError(
+                f"idempotency key {idempotency_key!r} belongs to different task content")
+        return record
+
+
+__all__ = ["LDTools"]
