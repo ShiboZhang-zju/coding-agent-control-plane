@@ -31,6 +31,7 @@
 | T18 | refresh 拆分：慢查询/消失任务/全量扫描失败 | `t18_refresh_split.py` | `evidence/recovery/T18-refresh-split.json` | Pass |
 | T19 | Ledger 降级 fail-closed + inflight 恢复 | `t19_ledger_failclosed.py` | `evidence/recovery/T19-ledger-fail-closed.json` | Pass |
 | T20 | 审批门控：内容绑定、一次性、篡改/拒绝 | `t20_approval_gate.py` | `evidence/permissions/T20-approval-gate.json` | Pass |
+| T21 | 审批安全：风险不可降级、原子预留、崩溃/并发/篡改 | `t21_approval_security.py` | `evidence/permissions/T21-approval-security.json` | Pass（7/7） |
 
 ## 环境级缺陷（影响所有测试解释）
 

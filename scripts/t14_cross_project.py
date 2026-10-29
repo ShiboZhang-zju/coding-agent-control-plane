@@ -46,9 +46,9 @@ def main() -> int:
     plane = ControlPlane(adapter, store, policy=poc_shell())
     log = {"test": "T14-cross-project", "sandbox": sb, "cmd": cmd}
 
-    rec = plane.dispatch(cmd, str(repo_b),
-                         assertions=[ArtifactAssertion("file_exists", "b_own.txt")],
-                         title="T14-cross-project", idempotency_key="t14")
+    rec = plane.dispatch_approved(cmd, str(repo_b),
+                                  assertions=[ArtifactAssertion("file_exists", "b_own.txt")],
+                                  title="T14-cross-project", idempotency_key="t14")
     job_id = rec["worker_job_id"]
     t0 = time.time()
     while time.time() - t0 < 120:

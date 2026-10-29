@@ -1,0 +1,238 @@
+{
+  "test": "T21-approval-security",
+  "policy": {
+    "mode": "shell",
+    "isolation": "none",
+    "permission_mode": "acceptEdits",
+    "allow_unisolated_shell": true,
+    "risk": "high"
+  },
+  "1_risk_downgrade": {
+    "declared_risk": "low",
+    "intrinsic": "high",
+    "effective": "high",
+    "requires_approval": true,
+    "dispatch": "refused",
+    "worker_calls": 0,
+    "pass": true
+  },
+  "2_one_approval_eight_keys": {
+    "worker_dispatches": 1,
+    "successful_attempts": 1,
+    "refused": 7,
+    "approvals": [
+      {
+        "id": 4,
+        "consumed": true,
+        "reserved_by": "at-9ef5dddf89"
+      }
+    ],
+    "outcomes": [
+      {
+        "i": 3,
+        "ok": false,
+        "refused": "approval_taken"
+      },
+      {
+        "i": 4,
+        "ok": false,
+        "refused": "approval_taken"
+      },
+      {
+        "i": 5,
+        "ok": false,
+        "refused": "approval_taken"
+      },
+      {
+        "i": 1,
+        "ok": false,
+        "refused": "approval_taken"
+      },
+      {
+        "i": 7,
+        "ok": false,
+        "refused": "approval_taken"
+      },
+      {
+        "i": 6,
+        "ok": false,
+        "refused": "approval_taken"
+      },
+      {
+        "i": 0,
+        "ok": false,
+        "refused": "approval_taken"
+      },
+      {
+        "i": 2,
+        "ok": true
+      }
+    ],
+    "attempts": [
+      {
+        "task": "cp-b2e779f76271",
+        "attempts": [
+          {
+            "id": "at-9ef5dddf89",
+            "work_item_id": "cp-b2e779f76271",
+            "worker_job_id": "job-1",
+            "state": null,
+            "reason": "dispatch",
+            "created_at": 1793262087.4482963,
+            "ended_at": null
+          }
+        ]
+      },
+      {
+        "task": "cp-80cd25a3a7e3",
+        "attempts": [
+          {
+            "id": "at-18454a1306",
+            "work_item_id": "cp-80cd25a3a7e3",
+            "worker_job_id": null,
+            "state": null,
+            "reason": "dispatch",
+            "created_at": 1793262087.9905303,
+            "ended_at": null
+          }
+        ]
+      },
+      {
+        "task": "cp-6a3a4c2b9033",
+        "attempts": [
+          {
+            "id": "at-d09acaef34",
+            "work_item_id": "cp-6a3a4c2b9033",
+            "worker_job_id": null,
+            "state": null,
+            "reason": "dispatch",
+            "created_at": 1793262088.5374875,
+            "ended_at": null
+          }
+        ]
+      },
+      {
+        "task": "cp-e8305dad3e61",
+        "attempts": [
+          {
+            "id": "at-9b04679282",
+            "work_item_id": "cp-e8305dad3e61",
+            "worker_job_id": null,
+            "state": null,
+            "reason": "dispatch",
+            "created_at": 1793262089.1168866,
+            "ended_at": null
+          }
+        ]
+      },
+      {
+        "task": "cp-0b2625788edc",
+        "attempts": [
+          {
+            "id": "at-947652db3b",
+            "work_item_id": "cp-0b2625788edc",
+            "worker_job_id": null,
+            "state": null,
+            "reason": "dispatch",
+            "created_at": 1793262089.5165224,
+            "ended_at": null
+          }
+        ]
+      },
+      {
+        "task": "cp-93e562159443",
+        "attempts": [
+          {
+            "id": "at-29139061ec",
+            "work_item_id": "cp-93e562159443",
+            "worker_job_id": null,
+            "state": null,
+            "reason": "dispatch",
+            "created_at": 1793262090.0848465,
+            "ended_at": null
+          }
+        ]
+      },
+      {
+        "task": "cp-d53142172e66",
+        "attempts": [
+          {
+            "id": "at-d803586dc9",
+            "work_item_id": "cp-d53142172e66",
+            "worker_job_id": null,
+            "state": null,
+            "reason": "dispatch",
+            "created_at": 1793262090.2253046,
+            "ended_at": null
+          }
+        ]
+      },
+      {
+        "task": "cp-a5052c9869f3",
+        "attempts": [
+          {
+            "id": "at-478c3c870c",
+            "work_item_id": "cp-a5052c9869f3",
+            "worker_job_id": null,
+            "state": null,
+            "reason": "dispatch",
+            "created_at": 1793262092.573285,
+            "ended_at": null
+          }
+        ]
+      }
+    ],
+    "pass": true
+  },
+  "3_digest_mismatch": {
+    "result": "refused: approval #7 is bound to digest 15458dda45b3e742b0e31ca5b6f51",
+    "pass": true
+  },
+  "4_revive_rejected": {
+    "result": "refused: approval #8 is already 'rejected'",
+    "pass": true
+  },
+  "5_uncertain_dispatch": {
+    "state": "dispatch_unknown",
+    "reserved_by": "at-7a200f56d7",
+    "consumed": false,
+    "second_dispatch": "refused",
+    "worker_calls": 1,
+    "frozen_warning": true,
+    "pass": true
+  },
+  "6_crash_after_reservation": {
+    "crashed": "RuntimeError",
+    "reserved_by": "at-2b33894e1c",
+    "consumed": false,
+    "after_restart": "refused",
+    "worker_calls_after_restart": 0,
+    "pass": true
+  },
+  "7_content_drift": {
+    "digest_differs": {
+      "prompt": true,
+      "repo": true,
+      "policy": true,
+      "assertions": true
+    },
+    "dispatch": {
+      "prompt": "refused",
+      "repo": "refused",
+      "policy": "refused",
+      "assertions": "refused"
+    },
+    "worker_calls": 0,
+    "pass": true
+  },
+  "pass": {
+    "1_risk_downgrade": true,
+    "2_one_approval_eight_keys": true,
+    "3_digest_mismatch": true,
+    "4_revive_rejected": true,
+    "5_uncertain_dispatch": true,
+    "6_crash_after_reservation": true,
+    "7_content_drift": true
+  },
+  "result": "Pass"
+}

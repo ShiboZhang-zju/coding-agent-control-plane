@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 from adapters.base import (ArtifactAssertion, DispatchResult, TaskSnapshot,  # noqa: E402
                            TaskState)
 from controlplane.plane import ControlPlane  # noqa: E402
-from controlplane.policies import poc_shell  # noqa: E402
+from controlplane.policies import AGENT_WORKTREE  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 
 
@@ -64,7 +64,7 @@ def main() -> int:
     store = TaskStore(db)
     store.clear()
     adapter = ForgetfulAdapter(cwd)
-    plane = ControlPlane(adapter, store, policy=poc_shell())
+    plane = ControlPlane(adapter, store, policy=AGENT_WORKTREE)
 
     log = {"test": "T16-restart-mapping", "cwd": str(cwd)}
 
@@ -87,7 +87,7 @@ def main() -> int:
     store2 = TaskStore(db)
     adapter2 = ForgetfulAdapter(cwd)
     adapter2.job_id = job_id          # same worker job, but no job->task map
-    plane2 = ControlPlane(adapter2, store2, policy=poc_shell())
+    plane2 = ControlPlane(adapter2, store2, policy=AGENT_WORKTREE)
     plane2.refresh()
     after = store2.get(task_id)
     log["after_restart"] = {"state": after["state"], "verdict": after["verdict"],

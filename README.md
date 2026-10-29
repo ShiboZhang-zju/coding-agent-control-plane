@@ -15,6 +15,8 @@
 | 只有"对话恢复"的 | `resume` / `respawn` / `--resume`：只恢复会话上下文，不恢复被打断的命令执行 |
 | 必须自建 | 任务状态持久化、幂等键、事件不可重放的对账、产物断言验收、审批队列 |
 | 是否需要自建进程监管器 | 不需要完整监管器，但需要"失联判定"（`lost`）与对账循环 |
+| 四路真实 Agent 并行 | **Pass**：4/4 succeeded、4 个独立 worktree、全部 `verified`（需跳过用户级 hook） |
+| 审批门控 | **已实现**：风险只升不降 + 派发前原子预留 + 一次性（T20 / T21） |
 
 完整论证见 [REPORT.md](REPORT.md)，能力矩阵见 [capability-matrix.md](capability-matrix.md)，状态机见 [lifecycle.md](lifecycle.md)。
 

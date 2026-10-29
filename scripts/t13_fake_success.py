@@ -31,7 +31,7 @@ from controlplane.verify import capture_baseline  # noqa: E402
 __import__("sys").path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))  # repo root on path
 import winproc  # noqa: E402  (hidden console children)
 
-CWD = ROOT / "sandbox" / "repo-a"
+CWD = ROOT / "sandbox" / "repo-a"          # replaced at runtime by the fresh sandbox
 
 
 class StubAdapter:
@@ -84,7 +84,13 @@ def git(*args: str) -> str:
 
 
 def main() -> int:
-    winproc.run([sys.executable, str(ROOT / "scripts" / "make_sandbox.py")], check=True)
+    # make_sandbox creates a *fresh* pair per run; reuse it so a previous run's
+    # artifacts cannot masquerade as "pre-existing" state for this one.
+    suffix = "t13-" + time.strftime("%H%M%S")
+    winproc.run([sys.executable, str(ROOT / "scripts" / "make_sandbox.py"), suffix], check=True)
+    global CWD
+    sb = json.loads((ROOT / ".poc-state" / "sandbox.json").read_text(encoding="utf-8"))
+    CWD = Path(sb["repo_a"])
     store = TaskStore(ROOT / ".poc-state" / "t13.db")
     store.clear()
     plane = ControlPlane(StubAdapter(), store)

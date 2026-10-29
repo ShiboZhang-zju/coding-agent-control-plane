@@ -2,8 +2,8 @@
   "test": "T16-restart-mapping",
   "cwd": "<REPO>\\sandbox\\repo-a-t11",
   "before_restart": {
-    "task_id": "cp-cf432cd9f53c",
-    "worker_job_id": "job-202353",
+    "task_id": "cp-e53cc8928473",
+    "worker_job_id": "job-662991",
     "state": "succeeded",
     "verdict": "verified",
     "assertions": 1,
@@ -26,7 +26,7 @@
     ],
     "has_baseline": true,
     "attempts": 1,
-    "current_job": "job-202353"
+    "current_job": "job-662991"
   },
   "pass": {
     "verdict_kept": true,

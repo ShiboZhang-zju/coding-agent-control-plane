@@ -125,12 +125,27 @@ discover_orphan_jobs()          低频  全量扫描；失败=返回 ok=False，
 启动时 `recover_inflight()` 收口另一个撞车窗口：**意图已落库但 job id 未写入**
 （POST 成功后进程崩溃）→ 置 `dispatch_unknown`，禁止盲目重派。
 
-## 9. 审批：绑定内容，一次一用
+## 9. 审批：绑定内容，派发前原子预留，一次一用
 
 ```
-digest = sha256(prompt.strip() + resolved(cwd) + policy.to_dict() + assertions)
-risk = policy.effective_risk()      # high → requires_approval()
+digest  = sha256(prompt.strip() + resolved(cwd) + policy.to_dict() + assertions)
+intrinsic = intrinsic_risk()                       # 未隔离 shell / dontAsk / bypass → high
+effective = max(intrinsic, declared_risk)          # 声明只能抬高，不能降低
 ```
+
+派发顺序（T21 之后）：
+
+```
+create_work_item(idem key, UNIQUE) → add_attempt → reserve_approval(digest, attempt_id)
+  → adapter.dispatch() 一次
+      成功        → consume_reserved(attempt_id, job_id)
+      不确定(500) → 保持 reserved（frozen），绝不复用
+      确定失败     → release_reservation（人工批准仍可给后续修正后的 attempt）
+```
+
+`reserve_approval()` 用 `BEGIN IMMEDIATE` + 条件 UPDATE，所以**一个审批最多授权一次派发**；
+`reserved_by` 记的是 attempt id，不是 job id。`approve/deny` 传入 approval id 时会校验
+digest 一致、状态为 `pending`、未消费——已拒绝或已消费的记录不可能被重新批准。
 
 | 状态 | 含义 | 允许的动作 |
 |---|---|---|

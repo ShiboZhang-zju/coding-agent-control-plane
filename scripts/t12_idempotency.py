@@ -42,8 +42,9 @@ def main() -> int:
 
     # ---- 2) same idempotency key twice --------------------------------
     before = len([j for j in adapter.api.jobs() if (j.get("intent") or "") == CMD])
-    a = plane.dispatch(CMD, CWD, assertions=[ArtifactAssertion("file_exists", "idem.txt")],
-                       title="T12-idem", idempotency_key="t12-same-key")
+    a = plane.dispatch_approved(CMD, CWD,
+                                assertions=[ArtifactAssertion("file_exists", "idem.txt")],
+                                title="T12-idem", idempotency_key="t12-same-key")
     b = plane.dispatch(CMD, CWD, assertions=[ArtifactAssertion("file_exists", "idem.txt")],
                        title="T12-idem", idempotency_key="t12-same-key")
     log["first"] = {"task_id": a["task_id"], "worker_job_id": a.get("worker_job_id"),

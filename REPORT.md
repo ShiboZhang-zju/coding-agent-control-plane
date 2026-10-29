@@ -215,14 +215,18 @@ T11 专门测 agent 并发，结果是：
   `UserPromptSubmit operation blocked by hook: ["longmemory.exe" recall]: Hook timed out after 5000ms`；
 - 串行提交 + 并行执行时曾拿到 3/4 `verified`、3 个独立 worktree（控制台原始输出见证据）。
 
-所以当前**可用 agent 并发度 ≈1–2，瓶颈是本机 5 秒记忆 hook，不是 CodeBuddy Jobs**，
+所以当时的**可用 agent 并发度 ≈1–2，瓶颈是本机 5 秒记忆 hook，不是 CodeBuddy Jobs**，
 也不是模型配额。完整记录：`evidence/isolation/T11-parallel-blocked.md`。
+
+> **已被 §8.5 取代**：后来用 `--setting-sources project,local` 跳过用户级 hook，
+> T11 四路并发一次跑通（4/4 succeeded、4 个 worktree、全部 verified）。
+> 本节保留为问题定位的原始记录。
 
 ### 7.4 下一阶段验收对照
 
 | 评审验收项 | 当前状态 |
 |---|---|
-| 4 个 Agent 并行（独立 Job/worktree/产物归属） | **Blocked**：Job 层已证并发，hook 修好即可复跑（`POC_T11_TASKS=4 python scripts/t11_four_agents.py`） |
+| 4 个 Agent 并行（独立 Job/worktree/产物归属） | **Pass（§8.5）**：`evidence/isolation/T11-4way-success.json` |
 | 项目隔离（越界被 OS 拒绝） | **未实现**：当前靠"检测并否决"（T14），不是 OS 级隔离 |
 | 重复派发（同一幂等键最多一次） | **Pass**（T12） |
 | 进程崩溃（无静默丢失/重复） | 部分：`lost` 判定 + 对账已验证（T02/T08c），崩溃后的自动重派未实现 |
@@ -320,7 +324,7 @@ deduplicated_responses=7`（T12 只证明了顺序重复）。
 
 | 项 | 状态 |
 |---|---|
-| 审批门控（approval → dispatch_allowed/blocked 的强制约束） | 未实现（只有记录） |
+| 审批门控（approval → dispatch_allowed/blocked 的强制约束） | **已完成（§10）**：风险只升不降、派发前原子预留、一次性 |
 | 跨项目 **OS 级**隔离 | 未实现（当前是检测+否决） |
 | 环境版本锁定 | 未做；本轮记录到 CLI 已自动升级至 **2.178.1**（PoC 基线 2.169.0），
 T11 证据里带 `cli_version` 字段 |
@@ -390,7 +394,63 @@ approve(digest) → dispatch 成功后才 consume_approval(id, job_id)  ← 只�
 - `refresh_known_jobs` 的定时循环（目前是手动调用，scheduler 未做）；
 - 多进程写 ledger 的并发验证（当前只验证了单进程多线程）。
 
-## 10. 复现 / 推送
+## 10. v0.2 / T21：审批安全（风险不可降级 + 原子预留）
+
+### 10.1 修掉的绕过
+
+`DispatchPolicy.effective_risk()` 原来直接返回调用方声明的 `risk`，因此
+`DispatchPolicy(mode="shell", isolation="none", allow_unisolated_shell=True, risk="low")`
+可以跳过审批。现在改为 **只升不降**：
+
+```python
+intrinsic = intrinsic_risk()            # 未隔离 shell / dontAsk / bypass → high
+declared  = intrinsic if risk == "auto" else risk
+effective = max(intrinsic, declared)     # 声明只能抬高
+```
+
+`poc_shell()` 也随之不能再声明 `risk="low"`；PoC 里需要高风险任务的用例改用
+`plane.dispatch_approved()`，审批记录里写明 `approved_by=harness`，与人工批准可区分。
+
+### 10.2 审批从"派发后消费"改为"派发前原子预留"
+
+```
+计算 digest → 校验策略
+  → create_work_item（幂等键唯一索引）
+  → add_attempt（预建 attempt，供审批绑定）
+  → reserve_approval(digest, attempt_id)   ← BEGIN IMMEDIATE + 条件 UPDATE
+  → 调用一次 adapter.dispatch()
+      成功 → consume_reserved(id, attempt_id, job_id)
+      500/不确定 → 保持 frozen（不可再用）
+      确定未创建 → release_reservation（人工批准仍可留给后续修正后的 attempt）
+```
+
+`reserved_by` 绑定 **attempt id**（不是 job id），另存 `reserved_at / consumed_at / consumed_by`。
+
+### 10.3 `approve/deny` 的加固
+
+显式传 `approval_id` 时逐项校验：digest 必须一致、状态必须是 `pending`、不得已消费；
+`decide_approval` 的 UPDATE 带 `WHERE decision='pending' AND consumed_at IS NULL`，
+所以**已拒绝/已消费的审批不可能被"重新批准"**。
+
+### 10.4 T21 回归（`evidence/permissions/T21-approval-security.json`）
+
+| 用例 | 结果 |
+|---|---|
+| 1. `risk="low"` 降低高风险 | effective=high，派发被拒，worker 调用 0 |
+| 2. 8 线程 / 8 个幂等键争一个审批 | `worker_dispatches=1`、成功 1、被拒 7、审批已消费 |
+| 3. approval id 与 digest 不匹配 | 拒绝（`bound to digest …, not …`） |
+| 4. 已拒绝审批再次批准 | 拒绝（`already 'rejected'`） |
+| 5. worker 500（可能已创建） | `dispatch_unknown` + 审批 frozen，二次派发被拒 |
+| 6. 预留后控制平面崩溃 | 重启后 `reserved_by` 仍在、未消费，新派发被拒 |
+| 7. 改 prompt / 仓库 / 策略 / 断言 | 四个 digest 全部变化，四次派发全部被拒，worker 调用 0 |
+
+### 10.5 工程事实（如实记录）
+
+SQLite 事务与 Worker HTTP 调用无法组成分布式事务，因此这里保证的是
+**"同一审批绝不会启动两个 Worker"** 与 **"结果不确定时绝不自动二次执行"**，
+而不是跨系统的 exactly-once。要更强保证需要 Worker 侧提供幂等键或可查询的去重记录。
+
+## 11. 复现 / 推送
 
 ```powershell
 python scripts/serve_ctl.py start

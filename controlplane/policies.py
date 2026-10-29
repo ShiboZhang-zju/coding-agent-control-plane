@@ -18,21 +18,17 @@ AGENT_IN_PLACE = DispatchPolicy(mode="agent", isolation="none",
                                 permission_mode="acceptEdits")
 
 
-def poc_shell(permission_mode: str = "default",
-              approval_free: bool = True) -> DispatchPolicy:
+def poc_shell(permission_mode: str = "default") -> DispatchPolicy:
     """Test-only: raw shell job with **no filesystem isolation**.
 
     Only valid for throw-away sandbox repos. The ledger records
-    `UNISOLATED_SHELL` for every work item dispatched this way.
-
-    `approval_free=True` explicitly declares the sandbox as risk=low so the PoC
-    tests do not each need a human approval; production callers must leave the
-    default (risk=auto -> high -> approval required, see T20).
+    `UNISOLATED_SHELL` for every work item dispatched this way, and the risk stays
+    `high`: this policy can never skip approval, no matter what a caller declares
+    (see T21: risk may only be raised, never lowered).
     """
     return DispatchPolicy(mode="shell", isolation="none",
                           permission_mode=permission_mode,
-                          allow_unisolated_shell=True,
-                          risk="low" if approval_free else "auto")
+                          allow_unisolated_shell=True)
 
 
 def agent_worktree(permission_mode: str = "acceptEdits") -> DispatchPolicy:

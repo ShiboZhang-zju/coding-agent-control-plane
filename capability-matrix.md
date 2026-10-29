@@ -28,7 +28,9 @@
 | 权限请求（前台/TUI） | 需要配置 | `evidence/environment/codebuddy-help.txt` | `--permission-mode` 六种模式 |
 | 权限请求（background job） | 不支持 | `evidence/permissions/T09-permission-denied.json` | 不进入 `waiting_for_approval`，工具调用直接 auto-deny |
 | 人工拒绝 | 未验证（无路径） | `evidence/permissions/T09-permission-denied.json` | background job 上不存在人工点击拒绝的入口；拒绝后无副作用已验证 |
-| 审批门控（控制平面侧） | 需要控制平面开发 | `evidence/permissions/T20-approval-gate.json` | 高风险策略必须持有 digest 匹配且未消费的审批；内容被改即失效；一次性 |
+| 审批门控（控制平面侧） | 需要控制平面开发 | `evidence/permissions/T20-approval-gate.json`、`T21-approval-security.json` | 高风险策略必须持有 digest 匹配且未消费的审批；内容被改即失效；一次性 |
+| 风险不可降级 | 需要控制平面开发 | `evidence/permissions/T21-approval-security.json` | 声明 risk 只能抬高：`risk="low"` 的未隔离 shell 仍判 high、仍需审批 |
+| 审批原子预留 | 需要控制平面开发 | `evidence/permissions/T21-approval-security.json` | `reserve_approval()` 用 `BEGIN IMMEDIATE`+条件 UPDATE；8 线程争一审批只起 1 个 job；崩溃后仍占用 |
 | 审批投递 API | 不支持 | `docs/adapter-contract.md` | `/jobs/{id}/reply` 只能注入用户消息；`/permission-bridge/request` 面向 teammate→leader |
 | 产物收集 | 需要 Adapter 开发 | `evidence/isolation/T03b-worktree-agent.json` | git status/log + `state.json.logPath` |
 | 失败识别 | 需要控制平面开发 | `evidence/jobs/T00b-state-semantics.json` | `exit 3` 仍报 `done`，无退出码字段 |

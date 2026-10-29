@@ -1,6 +1,6 @@
 {
   "test": "T13-fake-success",
-  "cwd": "<REPO>\\sandbox\\repo-a",
+  "cwd": "<REPO>\\sandbox\\repo-a-t13-163509",
   "cases": [
     {
       "case": "old_artifact",
@@ -37,7 +37,7 @@
           "target": "HEAD",
           "passed": false,
           "owned": false,
-          "observed": "no new commit (head log: ['e5fa295 init repo-a'])"
+          "observed": "no new commit (head log: ['ce69459 init repo-a-t13-163509'])"
         }
       ]
     },
@@ -63,7 +63,7 @@
           "target": "HEAD",
           "passed": true,
           "owned": true,
-          "observed": "commits since baseline: ['6b9b190 T13_real_commit']"
+          "observed": "commits since baseline: ['5c31483 T13_real_commit']"
         }
       ]
     }

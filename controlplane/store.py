@@ -234,7 +234,8 @@ class TaskStore:
     def _migrate_columns(self) -> None:
         """Add approval-gating columns to ledgers created before this change."""
         wanted = {"digest": "TEXT", "scope": "TEXT",
-                  "consumed_at": "REAL", "consumed_by": "TEXT"}
+                  "consumed_at": "REAL", "consumed_by": "TEXT",
+                  "reserved_by": "TEXT", "reserved_at": "REAL"}
         have = {r["name"] for r in self._conn.execute("PRAGMA table_info(approvals)").fetchall()}
         for col, sql_type in wanted.items():
             if col not in have:
@@ -394,7 +395,10 @@ class TaskStore:
         if job_id != "__keep__" and job_id:
             current = self.get(task_id)
             if not current or current.get("worker_job_id") != job_id:
-                self.add_attempt(task_id, job_id, reason="state-change")
+                # a pre-created attempt (e.g. the one that reserved an approval) gets
+                # bound to the job instead of spawning a duplicate attempt
+                if not self.bind_attempt_job(task_id, job_id):
+                    self.add_attempt(task_id, job_id, reason="state-change")
         return self.get(task_id) or {}
 
     def get(self, task_id: str) -> dict | None:
@@ -447,6 +451,19 @@ class TaskStore:
             (attempt["id"], time.time(), task_id))
         self._conn.commit()
         return attempt
+
+    @_synchronized
+    def bind_attempt_job(self, task_id: str, worker_job_id: str) -> bool:
+        """Attach a job id to the head attempt that has none (created pre-dispatch)."""
+        rec = self.get(task_id) or {}
+        attempt_id = rec.get("current_attempt_id")
+        if not attempt_id:
+            return False
+        cur = self._conn.execute(
+            "UPDATE attempts SET worker_job_id=? WHERE id=? AND worker_job_id IS NULL",
+            (worker_job_id, attempt_id))
+        self._conn.commit()
+        return cur.rowcount == 1
 
     def attempts(self, task_id: str) -> list[dict]:
         rows = self._conn.execute(
@@ -536,11 +553,23 @@ class TaskStore:
         return rec
 
     @_synchronized
-    def decide_approval(self, approval_id: int, decision: str, note: str = "") -> dict | None:
-        self._conn.execute(
-            "UPDATE approvals SET decision=?, decided_at=?, note=? WHERE id=?",
-            (decision, time.time(), note, approval_id))
+    def decide_approval(self, approval_id: int, decision: str, note: str = "",
+                        expect_digest: str | None = None) -> dict | None:
+        """Only a pending, unconsumed record can be decided.
+
+        A rejected or already-consumed approval must never come back to life, and
+        an explicit approval id must still match the digest the caller intends.
+        """
+        sql = ("UPDATE approvals SET decision=?, decided_at=?, note=? "
+               "WHERE id=? AND decision='pending' AND consumed_at IS NULL")
+        args: list[Any] = [decision, time.time(), note, approval_id]
+        if expect_digest:
+            sql += " AND digest=?"
+            args.append(expect_digest)
+        cur = self._conn.execute(sql, args)
         self._conn.commit()
+        if cur.rowcount != 1:
+            return None
         row = self._conn.execute("SELECT * FROM approvals WHERE id=?", (approval_id,)).fetchone()
         return dict(row) if row else None
 
@@ -548,19 +577,75 @@ class TaskStore:
         """Approval is bound to content, not to a work item that does not exist yet."""
         row = self._conn.execute(
             "SELECT * FROM approvals WHERE digest=? AND decision='approved'"
-            " AND consumed_at IS NULL ORDER BY id DESC LIMIT 1", (digest,)).fetchone()
+            " AND consumed_at IS NULL AND reserved_at IS NULL ORDER BY id DESC LIMIT 1",
+            (digest,)).fetchone()
         return dict(row) if row else None
 
     def valid_approval(self, task_id: str, digest: str) -> dict | None:
-        """An unconsumed, approved record that matches this exact content digest."""
+        """An unconsumed, unreserved record that matches this exact content digest."""
         row = self._conn.execute(
             "SELECT * FROM approvals WHERE work_item_id=? AND digest=? AND decision='approved'"
-            " AND consumed_at IS NULL ORDER BY id DESC LIMIT 1", (task_id, digest)).fetchone()
+            " AND consumed_at IS NULL AND reserved_at IS NULL ORDER BY id DESC LIMIT 1",
+            (task_id, digest)).fetchone()
+        return dict(row) if row else None
+
+    def approval_by_id(self, approval_id: int) -> dict | None:
+        row = self._conn.execute("SELECT * FROM approvals WHERE id=?", (approval_id,)).fetchone()
         return dict(row) if row else None
 
     @_synchronized
+    def reserve_approval(self, digest: str, attempt_id: str) -> dict | None:
+        """Atomically claim an approval for one attempt (BEGIN IMMEDIATE).
+
+        This is what makes "one approval -> at most one worker dispatch" true under
+        concurrency: the check and the claim happen inside one write transaction, so
+        two attempts racing on the same digest cannot both win.
+        """
+        conn = self._conn
+        row = conn.execute(
+            "SELECT * FROM approvals WHERE digest=? AND decision='approved'"
+            " AND consumed_at IS NULL AND reserved_at IS NULL ORDER BY id DESC LIMIT 1",
+            (digest,)).fetchone()
+        if not row:
+            return None
+        now = time.time()
+        # The conditional UPDATE is the actual guard: it is atomic inside SQLite, so
+        # even a second process cannot reserve the same row.
+        cur = conn.execute(
+            "UPDATE approvals SET reserved_by=?, reserved_at=?"
+            " WHERE id=? AND reserved_at IS NULL AND consumed_at IS NULL",
+            (attempt_id, now, row["id"]))
+        conn.commit()
+        if cur.rowcount != 1:
+            return None
+        out = dict(row)
+        out.update(reserved_by=attempt_id, reserved_at=now)
+        return out
+
+    @_synchronized
+    def consume_reserved(self, approval_id: int, attempt_id: str,
+                         worker_job_id: str | None) -> bool:
+        """Turn a reservation into a consumption; only the reserver may do this."""
+        cur = self._conn.execute(
+            "UPDATE approvals SET consumed_at=?, consumed_by=?"
+            " WHERE id=? AND reserved_by=? AND consumed_at IS NULL",
+            (time.time(), worker_job_id or attempt_id, approval_id, attempt_id))
+        self._conn.commit()
+        return cur.rowcount == 1
+
+    @_synchronized
+    def release_reservation(self, approval_id: int, attempt_id: str) -> bool:
+        """Give the reservation back (only when we PROVED nothing was dispatched)."""
+        cur = self._conn.execute(
+            "UPDATE approvals SET reserved_by=NULL, reserved_at=NULL"
+            " WHERE id=? AND reserved_by=? AND consumed_at IS NULL",
+            (approval_id, attempt_id))
+        self._conn.commit()
+        return cur.rowcount == 1
+
+    @_synchronized
     def consume_approval(self, approval_id: int, attempt_id: str | None) -> bool:
-        """Single-use: returns False if it was already consumed (race-safe)."""
+        """Legacy single-use consumer (no reservation required)."""
         cur = self._conn.execute(
             "UPDATE approvals SET consumed_at=?, consumed_by=? WHERE id=? AND consumed_at IS NULL",
             (time.time(), attempt_id, approval_id))

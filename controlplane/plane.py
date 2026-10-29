@@ -131,8 +131,31 @@ class ControlPlane:
                                     {"key": idempotency_key})
             return out
 
+        # Pre-create the attempt so the approval reservation can bind to it, not to
+        # a worker job id that does not exist yet.
+        attempt = self.store.add_attempt(task_id, None, reason="dispatch")
+        attempt_id = attempt["id"]
+
+        approval = None
+        if policy.requires_approval():
+            approval = self.store.reserve_approval(digest, attempt_id)
+            if not approval:
+                # lost the race (or the human never approved this exact content)
+                self.store.update(
+                    task_id, state=TaskState.UNKNOWN.value,
+                    verdict=Verdict.INCONCLUSIVE.value,
+                    warnings=risks + ["APPROVAL_RACE_LOST: another attempt reserved this "
+                                      "approval first, or no approval matches this digest"])
+                self.store.append_event(task_id, "approval_reservation_failed",
+                                        {"digest": digest})
+                raise ApprovalRequired(
+                    "another attempt already reserved the approval for this digest; "
+                    "no worker call was made")
+
         self.store.append_event(task_id, "dispatch_requested",
-                                {"policy": policy.to_dict(), "cwd": cwd})
+                                {"policy": policy.to_dict(), "cwd": cwd,
+                                 "attempt_id": attempt_id,
+                                 "approval_id": (approval or {}).get("id")})
 
         result = self.adapter.dispatch(req)
         patch: dict[str, Any] = {
@@ -141,19 +164,28 @@ class ControlPlane:
         }
 
         if result.uncertain:
-            # P0: the worker may or may not have created a job. Do not retry.
+            # P0: the worker may or may not have created a job. Do not retry, and
+            # keep the approval FROZEN (reserved, never reusable) until a human
+            # resolves it - releasing it could authorise a second execution.
             patch["state"] = TaskState.DISPATCH_UNKNOWN.value
             patch["verdict"] = Verdict.PENDING.value
             patch["warnings"] = patch["warnings"] + [
                 "DISPATCH_UNKNOWN: no blind retry. Call resolve_dispatch(task_id) first; "
-                "it either binds the existing job or proves none was created."]
-            self.store.append_event(task_id, "dispatch_unknown", result.raw)
+                "it either binds the existing job or proves none was created.",
+                "APPROVAL_FROZEN: reservation kept, it cannot authorise another attempt"]
+            self.store.append_event(task_id, "dispatch_unknown",
+                                    {**result.raw, "approval_frozen": bool(approval)})
             return self.store.update(task_id, **patch)
 
         if not result.accepted or not result.worker_job_id:
+            if approval:
+                # we know for certain no job was created, so the human's approval is
+                # still good for a later, corrected attempt
+                self.store.release_reservation(approval["id"], attempt_id)
             patch["state"] = TaskState.UNKNOWN.value
             patch["verdict"] = Verdict.INCONCLUSIVE.value
-            self.store.append_event(task_id, "dispatch_failed", result.raw)
+            self.store.append_event(task_id, "dispatch_failed",
+                                    {**result.raw, "approval_released": bool(approval)})
             return self.store.update(task_id, **patch)
 
         snap = self.adapter.get_task(result.worker_job_id)
@@ -168,9 +200,17 @@ class ControlPlane:
         if approval:
             # single use, bound to this attempt; a second dispatch with the same
             # digest must ask a human again.
-            consumed = self.store.consume_approval(approval["id"], result.worker_job_id)
+            consumed = self.store.consume_reserved(approval["id"], attempt_id,
+                                                   result.worker_job_id)
             self.store.append_event(task_id, "approval_consumed",
-                                    {"approval_id": approval["id"], "ok": consumed})
+                                    {"approval_id": approval["id"], "ok": consumed,
+                                     "attempt_id": attempt_id})
+            if not consumed:
+                # reservation vanished mid-flight: the job exists but the approval
+                # bookkeeping is inconsistent - surface it instead of hiding it
+                self.store.update(task_id, warnings=list(out.get("warnings") or []) +
+                                  ["APPROVAL_CONSUMPTION_MISMATCH: reservation was lost "
+                                   "before consumption; audit this attempt"])
         return out
 
     # ------------------------------------------------------------------ #
@@ -192,32 +232,70 @@ class ControlPlane:
         return {"approval_id": rec["id"], "digest": digest, "scope": scope,
                 "status": "pending"}
 
+    def _decide(self, digest: str, decision: str, note: str,
+                approval_id: int | None) -> dict:
+        """Shared validation for approve/deny.
+
+        An explicit approval id must still match the digest, must be `pending`, and
+        must not be consumed - otherwise a rejected or spent approval could be
+        revived by passing its id.
+        """
+        self.store.assert_writable(decision)
+        if approval_id is not None:
+            row = self.store.approval_by_id(approval_id)
+            if not row:
+                raise KeyError(f"no approval #{approval_id}")
+            if row.get("digest") != digest:
+                raise ValueError(
+                    f"approval #{approval_id} is bound to digest {row.get('digest')}, "
+                    f"not {digest}: content changed, the approval no longer applies")
+            if row.get("consumed_at"):
+                raise ValueError(f"approval #{approval_id} is already consumed")
+            if row.get("decision") != "pending":
+                raise ValueError(
+                    f"approval #{approval_id} is already '{row.get('decision')}'")
+            out = self.store.decide_approval(approval_id, decision, note, expect_digest=digest)
+            if not out:
+                raise ValueError(f"approval #{approval_id} is no longer pending (race)")
+        else:
+            pending = [a for a in self.store.all_approvals()
+                       if a.get("digest") == digest and a.get("decision") == "pending"
+                       and not a.get("consumed_at")]
+            if not pending:
+                raise KeyError(f"no pending approval for digest {digest}")
+            out = self.store.decide_approval(pending[-1]["id"], decision, note,
+                                             expect_digest=digest)
+            if not out:
+                raise ValueError(f"approval for digest {digest} is no longer pending")
+        self.store.append_event("", f"approval_{'granted' if decision == 'approved' else 'denied'}",
+                                {"digest": digest, "id": (out or {}).get("id")})
+        return out or {}
+
     def approve(self, digest: str, note: str = "", approval_id: int | None = None) -> dict:
         """Human decision: approve the content digest (not "the agent in general")."""
-        self.store.assert_writable("approve")
-        if approval_id is not None:
-            row = self.store.decide_approval(approval_id, "approved", note)
-        else:
-            pending = [a for a in self.store.all_approvals()
-                       if a.get("digest") == digest and a.get("decision") == "pending"]
-            if not pending:
-                raise KeyError(f"no pending approval for digest {digest}")
-            row = self.store.decide_approval(pending[-1]["id"], "approved", note)
-        self.store.append_event("", "approval_granted", {"digest": digest, "id": (row or {}).get("id")})
-        return row or {}
+        return self._decide(digest, "approved", note, approval_id)
 
     def deny(self, digest: str, note: str = "", approval_id: int | None = None) -> dict:
-        self.store.assert_writable("deny")
-        if approval_id is not None:
-            row = self.store.decide_approval(approval_id, "rejected", note)
-        else:
-            pending = [a for a in self.store.all_approvals()
-                       if a.get("digest") == digest and a.get("decision") == "pending"]
-            if not pending:
-                raise KeyError(f"no pending approval for digest {digest}")
-            row = self.store.decide_approval(pending[-1]["id"], "rejected", note)
-        self.store.append_event("", "approval_denied", {"digest": digest, "id": (row or {}).get("id")})
-        return row or {}
+        return self._decide(digest, "rejected", note, approval_id)
+
+    # ------------------------------------------------------------------ #
+    def dispatch_approved(self, prompt: str, cwd: str, *, assertions=None,
+                          policy: DispatchPolicy | None = None, title: str = "",
+                          idempotency_key: str = "", metadata: dict | None = None,
+                          approved_by: str = "harness") -> dict:
+        """PoC/test convenience: request + approve + dispatch in one call.
+
+        The approval note records who approved it, so an automated approval is
+        auditable in the ledger and never looks like a human decision. Production
+        callers must use request_approval_for() + a trusted human approve().
+        """
+        assertions = assertions or []
+        policy = policy or self.policy
+        req = self.request_approval_for(prompt, cwd, assertions=assertions, policy=policy,
+                                        note=f"approved_by={approved_by}")
+        self.approve(req["digest"], note=f"approved_by={approved_by}", approval_id=req["approval_id"])
+        return self.dispatch(prompt, cwd, assertions=assertions, policy=policy, title=title,
+                             idempotency_key=idempotency_key, metadata=metadata)
 
     # ------------------------------------------------------------------ #
     def resolve_dispatch(self, task_id: str, confirm_absent: bool = False) -> dict:

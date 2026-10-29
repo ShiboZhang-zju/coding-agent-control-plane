@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 from adapters.base import DispatchResult, TaskSnapshot, TaskState  # noqa: E402
 from controlplane.plane import ControlPlane  # noqa: E402
-from controlplane.policies import poc_shell  # noqa: E402
+from controlplane.policies import AGENT_WORKTREE  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 
 
@@ -63,7 +63,7 @@ def main() -> int:
     store = TaskStore(ROOT / ".poc-state" / "t18.db")
     store.clear()
     adapter = FlakyAdapter(cwd)
-    plane = ControlPlane(adapter, store, policy=poc_shell())
+    plane = ControlPlane(adapter, store, policy=AGENT_WORKTREE)
     log = {"test": "T18-refresh-split"}
 
     a = plane.dispatch("echo a", cwd, title="a", idempotency_key="t18-a")

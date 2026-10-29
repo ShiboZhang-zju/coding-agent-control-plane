@@ -161,6 +161,9 @@ class DispatchResult:
     raw: dict[str, Any] = field(default_factory=dict)
 
 
+RISK_ORDER = {"low": 0, "medium": 1, "high": 2}
+
+
 @dataclass
 class DispatchPolicy:
     """Explicit dispatch policy. There is no implicit "just run it" default.
@@ -188,21 +191,39 @@ class DispatchPolicy:
             risks.append("UNISOLATED_SHELL: shell job has no filesystem isolation")
         if self.permission_mode in ("bypassPermissions",):
             raise ValueError("refusing dispatch: bypassPermissions is forbidden by policy")
+        if self.downgrade_attempted():
+            risks.append(
+                f"RISK_DOWNGRADE_IGNORED: declared risk={self.risk} ignored, "
+                f"effective={self.effective_risk()} (intrinsic={self.intrinsic_risk()}); "
+                "approval is still required")
         return risks
 
-    def effective_risk(self) -> str:
-        """Derive a risk class when the caller did not declare one.
+    def intrinsic_risk(self) -> str:
+        """What the system derives from the policy, regardless of what was declared.
 
         High risk = the task can touch things outside a disposable worktree
         (un-isolated shell) or bypass the approval prompt.
         """
-        if self.risk != "auto":
-            return self.risk
         if self.mode == "shell" and self.isolation != "worktree":
             return "high"
         if self.permission_mode in ("bypassPermissions", "dontAsk"):
             return "high"
         return "low"
+
+    def effective_risk(self) -> str:
+        """Declared risk can only *raise* the intrinsic one, never lower it.
+
+        Otherwise a caller could launder an un-isolated shell job with
+        `risk="low"` and skip approval entirely (review T21).
+        """
+        intrinsic = self.intrinsic_risk()
+        declared = intrinsic if self.risk == "auto" else self.risk
+        return max((intrinsic, declared), key=RISK_ORDER.__getitem__)
+
+    def downgrade_attempted(self) -> bool:
+        if self.risk == "auto":
+            return False
+        return RISK_ORDER.get(self.risk, 0) < RISK_ORDER[self.intrinsic_risk()]
 
     def requires_approval(self) -> bool:
         return self.effective_risk() == "high"

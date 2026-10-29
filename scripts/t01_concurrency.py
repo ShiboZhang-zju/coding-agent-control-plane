@@ -58,15 +58,16 @@ def main() -> int:
     adapter = CodeBuddyAdapter()
     store = TaskStore(ROOT / ".poc-state" / "t01.json")
     store.clear()
-    store.save()
     plane = ControlPlane(adapter, store)
     log = {"test": "T01-concurrency", "started_at": time.time(), "dispatches": [], "timeline": []}
 
     for spec in TASKS:
         t0 = time.time()
-        rec = plane.dispatch(spec["prompt"], spec["cwd"], assertions=spec["assertions"],
-                             policy=poc_shell(), title=spec["title"],
-                             idempotency_key=f"t01-{spec['key']}")
+        # un-isolated shell = risk high: harness performs the approval flow explicitly
+        rec = plane.dispatch_approved(spec["prompt"], spec["cwd"],
+                                      assertions=spec["assertions"],
+                                      policy=poc_shell(), title=spec["title"],
+                                      idempotency_key=f"t01-{spec['key']}")
         jid = rec.get("worker_job_id")
         snap = adapter.get_task(jid) if jid else None
         log["dispatches"].append({

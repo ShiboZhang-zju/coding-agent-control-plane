@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 
 from adapters.base import DispatchResult, TaskSnapshot, TaskState  # noqa: E402
 from controlplane.plane import ControlPlane  # noqa: E402
-from controlplane.policies import poc_shell  # noqa: E402
+from controlplane.policies import AGENT_WORKTREE  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 
 
@@ -64,7 +64,7 @@ class CountingAdapter:
 def part_a(store: TaskStore) -> dict:
     adapter = CountingAdapter()
     adapter.cwd = str(ROOT / "sandbox" / "repo-a-t11")
-    plane = ControlPlane(adapter, store, policy=poc_shell())
+    plane = ControlPlane(adapter, store, policy=AGENT_WORKTREE)
 
     results, errors = [], []
     barrier = threading.Barrier(8)
@@ -99,7 +99,7 @@ def part_a(store: TaskStore) -> dict:
 def part_b(store: TaskStore) -> dict:
     adapter = CountingAdapter(uncertain=True, find_result=None)
     adapter.cwd = str(ROOT / "sandbox" / "repo-a-t11")
-    plane = ControlPlane(adapter, store, policy=poc_shell())
+    plane = ControlPlane(adapter, store, policy=AGENT_WORKTREE)
     rec = plane.dispatch("echo unknown", adapter.cwd, title="uncertain",
                          idempotency_key="unknown-key")
     task_id = rec["task_id"]
