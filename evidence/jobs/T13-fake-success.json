@@ -37,7 +37,7 @@
           "target": "HEAD",
           "passed": false,
           "owned": false,
-          "observed": "no new commit (head log: ['d0ed3df init repo-a'])"
+          "observed": "no new commit (head log: ['e5fa295 init repo-a'])"
         }
       ]
     },
@@ -63,7 +63,7 @@
           "target": "HEAD",
           "passed": true,
           "owned": true,
-          "observed": "commits since baseline: ['2b6020a T13_real_commit']"
+          "observed": "commits since baseline: ['6b9b190 T13_real_commit']"
         }
       ]
     }

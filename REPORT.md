@@ -326,7 +326,71 @@ deduplicated_responses=7`（T12 只证明了顺序重复）。
 T11 证据里带 `cli_version` 字段 |
 | job store 30s 级读 | 产品侧问题，未绕过（只降低调用频率） |
 
-## 9. 复现 / 推送
+## 9. 第三轮：控制平面可靠性（2026-10-29 深夜）
+
+按评审优先级只做两件 P0 + 审批门控。
+
+### 9.1 P0 `refresh()` 拆成两条路径
+
+| 路径 | 频率 | 行为 |
+|---|---|---|
+| `refresh_known_jobs(timeout_s=20)` | 高频 | 按 ledger 里的 job id **逐个**查询，单次超时；单个失败只记 `observation_failed` 事件 + `observe_failures` 计数，**状态不变** |
+| `discover_orphan_jobs()` | 低频 | 全量扫描；失败直接返回 `ok=False`，**不碰任何已知任务**；连续两次扫不到才 `lost` |
+
+`lost` 还要求独立证据：adapter 报 `working+alive=false` 时，plane 再用 `pid_alive()` 校验，
+无法证明进程已死就保持原状态并记 `LOST_UNCONFIRMED`。
+
+证据 `T18-refresh-split.json`：慢查询 → `state_unchanged=true` 且 `observe_failures=1`；
+任务消失 → 第 1 次扫描仍 `running`、第 2 次才 `lost`；全量扫描抛错 → 已知任务状态不变。
+
+### 9.2 P0 Ledger 降级改为 fail-closed
+
+`TaskStore.assert_writable(op)` 在 `degraded=True` 时抛 `LedgerDegraded`，
+`dispatch / resume / respawn / approve / deny / request_approval` 全部前置调用；
+查询、`summary()`、诊断仍可用。
+
+顺带修掉两个真实缺陷（测试时暴露，都属于"这条路径从来没被真正跑过"）：
+
+1. `_open()` 在 `except` 分支里 `self._quarantine(exc)` **没有 return** → 降级路径返回
+   `None`，随后 `executescript` 崩在 `AttributeError`；
+2. `_quarantine()` 用 `os.replace` 移动损坏文件，Windows 上会失败（句柄/残留 -wal），
+   失败后又把同一个损坏路径重新打开 → 再次抛错。改成"先复制副本，再原地截断"。
+
+崩溃窗口补齐：`recover_inflight()` 把"已持久化意图但没有 job id"的 work item
+在启动时置为 `dispatch_unknown`，禁止盲目重派。
+
+证据 `T19-ledger-fail-closed.json`：三个变更操作全部 `refused`、`stub_dispatches=0`、
+查询仍可用；inflight 恢复为 `dispatch_unknown` 并带 `DISPATCH_INFLIGHT_AT_RESTART` 警告。
+
+### 9.3 审批门控（内容绑定 + 一次性）
+
+```
+policy.effective_risk() == high  →  必须存在 digest 匹配且未消费的 approval
+digest = sha256(prompt + cwd + policy + assertions)   ← 内容变了就失效
+approve(digest) → dispatch 成功后才 consume_approval(id, job_id)  ← 只能用一次
+```
+
+证据 `T20-approval-gate.json`（高风险策略：shell + 无隔离）：
+
+| 场景 | 结果 |
+|---|---|
+| 无审批直接派发 | `ApprovalRequired`，worker 调用 0 次 |
+| 请求 → 批准 → 派发 | 成功，`approval_consumed=true`（`consumed_by=job-1`） |
+| 同一审批再用一次 | `ApprovalRequired`（一次性） |
+| 批准后篡改 prompt | digest 不同 → `ApprovalRequired`，worker 未被调用 |
+| 审批被拒绝 | `ApprovalRequired` |
+
+注意一个符合预期的细节：批准了 A 之后，A 的那条审批**仍然有效**（未消费），
+所以同内容再派发仍可执行一次；测试用的第六个用例因此换了内容。
+
+### 9.4 仍未做
+
+- 跨项目 **OS 级**隔离（评审指出 Job Object 只是进程/资源边界，不是文件权限边界；
+  需要低权限账户/受限令牌 + NTFS ACL 实测）；
+- `refresh_known_jobs` 的定时循环（目前是手动调用，scheduler 未做）；
+- 多进程写 ledger 的并发验证（当前只验证了单进程多线程）。
+
+## 10. 复现 / 推送
 
 ```powershell
 python scripts/serve_ctl.py start

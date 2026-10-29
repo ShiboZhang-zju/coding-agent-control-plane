@@ -1,0 +1,47 @@
+{
+  "test": "T18-refresh-split",
+  "A_slow_query": {
+    "updated": 1,
+    "anomalies": [
+      {
+        "task_id": "cp-55cb376bd2e1",
+        "error": "TimeoutError",
+        "count": 1,
+        "state_unchanged": true
+      }
+    ],
+    "state_of_slow_task": "running",
+    "observe_failures": 1,
+    "pass": true
+  },
+  "B_vanished_job": {
+    "first_scan": [
+      {
+        "task_id": "cp-55cb376bd2e1",
+        "job": "job-1",
+        "misses": 1,
+        "action": "pending second scan"
+      }
+    ],
+    "state_after_one_scan": "running",
+    "second_scan": [
+      {
+        "task_id": "cp-55cb376bd2e1",
+        "job": "job-1",
+        "misses": 2,
+        "action": "lost"
+      }
+    ],
+    "state_after_two_scans": "lost",
+    "pass": true
+  },
+  "C_scan_failure": {
+    "ok": false,
+    "error": "TimeoutError: simulated full-scan timeout (job store stall)",
+    "state_before": "running",
+    "state_after": "running",
+    "pass": true
+  },
+  "pass": true,
+  "result": "Pass"
+}

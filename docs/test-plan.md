@@ -28,6 +28,9 @@
 | T15/T15b/T15d | 控制台闪窗根因与修复 | `t15_console_flash.py`、`t15b_process_flash.py`、`t15d_selfflash.py` | `evidence/environment/T15*.json`、`CONSOLE-FLASH.md` | Pass（裸 subprocess 6/6 闪；`winproc` 0/6） |
 | T16 | 重启后验收上下文不丢 | `t16_restart_mapping.py` | `evidence/recovery/T16-restart-mapping.json` | Pass |
 | T17 | 并发幂等 + dispatch_unknown 诚实性 | `t17_concurrent_idempotency.py` | `evidence/jobs/T17-concurrent-idempotency.json` | Pass |
+| T18 | refresh 拆分：慢查询/消失任务/全量扫描失败 | `t18_refresh_split.py` | `evidence/recovery/T18-refresh-split.json` | Pass |
+| T19 | Ledger 降级 fail-closed + inflight 恢复 | `t19_ledger_failclosed.py` | `evidence/recovery/T19-ledger-fail-closed.json` | Pass |
+| T20 | 审批门控：内容绑定、一次性、篡改/拒绝 | `t20_approval_gate.py` | `evidence/permissions/T20-approval-gate.json` | Pass |
 
 ## 环境级缺陷（影响所有测试解释）
 

@@ -265,12 +265,19 @@ class CodeBuddyAdapter:
             snap.artifacts = [a.target for a in req.assertions]
         return snap
 
-    def get_task(self, task_id_or_job: str) -> TaskSnapshot:
-        job = self.api.job(task_id_or_job)
+    def get_task(self, task_id_or_job: str, timeout_s: float = 30.0) -> TaskSnapshot:
+        job = self.api.job(task_id_or_job, timeout=timeout_s)
         if not job:
             raise KeyError(f"job not found: {task_id_or_job}")
         self._jobs[job["id"]] = job
         return self._to_snapshot(job, task_id=self._task_id_for(job["id"]))
+
+    def pid_alive(self, pid: int | None) -> bool | None:
+        """Independent liveness evidence for `lost` (never from a failed query)."""
+        if not pid:
+            return None
+        p = winproc.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], timeout=20)
+        return str(pid) in (p.stdout or "")
 
     def _task_id_for(self, job_id: str) -> str:
         meta = self._meta.get(job_id, {})

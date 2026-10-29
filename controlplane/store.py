@@ -26,6 +26,7 @@ from __future__ import annotations
 import functools
 import json
 import os
+import shutil
 import sqlite3
 import sys
 import threading
@@ -37,6 +38,16 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PATH = ROOT / ".poc-state" / "ledger.db"
 LEGACY_JSON = ROOT / ".poc-state" / "tasks.json"
+
+class LedgerDegraded(RuntimeError):
+    """Raised when a mutating operation is attempted on a degraded ledger.
+
+    Fail-closed rule (review P0): if the integrity check failed we started from an
+    empty database, so we no longer know which tasks are already running. Dispatching
+    in that state can duplicate real work, therefore everything that changes state is
+    refused; only reads, diagnostics and export stay available.
+    """
+
 
 JSON_FIELDS = ("policy", "assertions", "baseline", "warnings", "metadata",
                "artifacts", "assertion_results", "worker_metadata")
@@ -131,7 +142,11 @@ CREATE TABLE IF NOT EXISTS approvals (
     requested_at REAL,
     decision TEXT,
     decided_at REAL,
-    note TEXT
+    note TEXT,
+    digest TEXT,
+    scope TEXT,
+    consumed_at REAL,
+    consumed_by TEXT
 );
 """
 
@@ -167,6 +182,7 @@ class TaskStore:
         self._conn = self._open()
         self._conn.executescript(SCHEMA)
         self._conn.commit()
+        self._migrate_columns()
         if migrate_legacy and self._is_empty():
             self._migrate_legacy_json()
 
@@ -184,15 +200,22 @@ class TaskStore:
                 raise sqlite3.DatabaseError(f"integrity_check: {ok}")
             return conn
         except sqlite3.DatabaseError as exc:
-            self._quarantine(exc)
+            return self._quarantine(exc)
 
     def _quarantine(self, exc: Exception) -> sqlite3.Connection:
-        """Never silently start empty: move the broken file aside and shout."""
+        """Never silently start empty: keep a copy, truncate in place, and shout.
+
+        Renaming a broken sqlite file can fail on Windows (an open handle or a
+        leftover -wal), and a failed rename used to leave the path pointing at the
+        same broken bytes, so the "recover into an empty ledger" path exploded.
+        Copy-then-truncate works in both cases.
+        """
         stamp = time.strftime("%Y%m%d-%H%M%S")
         broken = self.path.with_name(f"{self.path.name}.corrupt-{stamp}")
         try:
             if self.path.exists():
-                os.replace(self.path, broken)
+                shutil.copy2(self.path, broken)
+                self.path.write_bytes(b"")
         except Exception:
             broken = None
         self.degraded = True
@@ -207,6 +230,27 @@ class TaskStore:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=15000")
         return conn
+
+    def _migrate_columns(self) -> None:
+        """Add approval-gating columns to ledgers created before this change."""
+        wanted = {"digest": "TEXT", "scope": "TEXT",
+                  "consumed_at": "REAL", "consumed_by": "TEXT"}
+        have = {r["name"] for r in self._conn.execute("PRAGMA table_info(approvals)").fetchall()}
+        for col, sql_type in wanted.items():
+            if col not in have:
+                try:
+                    self._conn.execute(f"ALTER TABLE approvals ADD COLUMN {col} {sql_type}")
+                except sqlite3.Error:
+                    pass
+        self._conn.commit()
+
+    def assert_writable(self, operation: str) -> None:
+        """Fail closed: a degraded ledger may not mutate task state."""
+        if self.degraded:
+            raise LedgerDegraded(
+                f"refusing {operation}: ledger is degraded ({self.degraded_reason}). "
+                "Queries, diagnostics and export are still available; recover the ledger "
+                "(or start a new one) before dispatching again.")
 
     def _is_empty(self) -> bool:
         row = self._conn.execute("SELECT COUNT(*) FROM work_items").fetchone()
@@ -465,10 +509,63 @@ class TaskStore:
         self._conn.commit()
         return rec
 
+    def all_approvals(self) -> list[dict]:
+        rows = self._conn.execute("SELECT * FROM approvals ORDER BY id ASC").fetchall()
+        return [dict(r) for r in rows]
+
     def approvals(self, task_id: str) -> list[dict]:
         rows = self._conn.execute(
             "SELECT * FROM approvals WHERE work_item_id=? ORDER BY id ASC", (task_id,)).fetchall()
         return [dict(r) for r in rows]
+
+    # -- approval gating -------------------------------------------------
+    @_synchronized
+    def request_approval(self, task_id: str, digest: str, scope: dict,
+                         note: str = "") -> dict:
+        """Record a pending approval bound to the exact task content."""
+        rec = {"work_item_id": task_id, "attempt_id": None, "requested_at": time.time(),
+               "decision": "pending", "decided_at": None, "note": note,
+               "digest": digest, "scope": _dump(scope),
+               "consumed_at": None, "consumed_by": None}
+        cur = self._conn.execute(
+            "INSERT INTO approvals (work_item_id, attempt_id, requested_at, decision,"
+            " decided_at, note, digest, scope) VALUES (:work_item_id, :attempt_id,"
+            " :requested_at, :decision, :decided_at, :note, :digest, :scope)", rec)
+        self._conn.commit()
+        rec["id"] = cur.lastrowid
+        return rec
+
+    @_synchronized
+    def decide_approval(self, approval_id: int, decision: str, note: str = "") -> dict | None:
+        self._conn.execute(
+            "UPDATE approvals SET decision=?, decided_at=?, note=? WHERE id=?",
+            (decision, time.time(), note, approval_id))
+        self._conn.commit()
+        row = self._conn.execute("SELECT * FROM approvals WHERE id=?", (approval_id,)).fetchone()
+        return dict(row) if row else None
+
+    def valid_approval_by_digest(self, digest: str) -> dict | None:
+        """Approval is bound to content, not to a work item that does not exist yet."""
+        row = self._conn.execute(
+            "SELECT * FROM approvals WHERE digest=? AND decision='approved'"
+            " AND consumed_at IS NULL ORDER BY id DESC LIMIT 1", (digest,)).fetchone()
+        return dict(row) if row else None
+
+    def valid_approval(self, task_id: str, digest: str) -> dict | None:
+        """An unconsumed, approved record that matches this exact content digest."""
+        row = self._conn.execute(
+            "SELECT * FROM approvals WHERE work_item_id=? AND digest=? AND decision='approved'"
+            " AND consumed_at IS NULL ORDER BY id DESC LIMIT 1", (task_id, digest)).fetchone()
+        return dict(row) if row else None
+
+    @_synchronized
+    def consume_approval(self, approval_id: int, attempt_id: str | None) -> bool:
+        """Single-use: returns False if it was already consumed (race-safe)."""
+        cur = self._conn.execute(
+            "UPDATE approvals SET consumed_at=?, consumed_by=? WHERE id=? AND consumed_at IS NULL",
+            (time.time(), attempt_id, approval_id))
+        self._conn.commit()
+        return cur.rowcount == 1
 
     def close(self) -> None:
         try:

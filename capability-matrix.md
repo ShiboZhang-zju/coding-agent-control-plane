@@ -17,7 +17,8 @@
 | SSE | 原生支持 | `evidence/sse/T00c-sse-format.json` | `event: snapshot/added/changed/keepalive`；`text/event-stream` |
 | SSE 断线重连 | 原生支持 | `evidence/sse/T05-sse-reconnect.json` | 可重新订阅，但只得到当前状态 |
 | 事件 replay | 不支持 | `evidence/sse/T05c-sse-isolated.json` | 无 `id:` 字段、无 Last-Event-ID 游标，断线期间事件不可补发 |
-| 状态对账 | 需要控制平面开发 | `evidence/sse/T05-sse-reconnect.json`、`evidence/recovery/T08-service-restart.json` | `adapter.reconcile()` 重新查 `?all=1` 并修复本地视图 |
+| 状态对账 | 需要控制平面开发 | `evidence/recovery/T18-refresh-split.json` | 两条路径：`refresh_known_jobs()`（逐 job、有超时、局部成功）+ `discover_orphan_jobs()`（低频全量、失败不影响已知任务） |
+| Ledger 降级 fail-closed | 需要控制平面开发 | `evidence/recovery/T19-ledger-fail-closed.json` | 完整性校验失败即拒绝 dispatch/resume/respawn，仅允许查询与诊断 |
 | cancel / stop | 原生支持 | `evidence/recovery/T06-cancel-stop.json` | `POST /jobs/{id}/stop`，1.9s 内变 `stopped` |
 | resume | 需要 Adapter 开发 | `evidence/recovery/T06-cancel-stop.json`、`T07` | 仅对归档会话（`/jobs/resumable`）；运行中 job 会 500（锁超时） |
 | respawn | 原生支持（受限） | `evidence/recovery/T07-resume-respawn.json` | `POST /jobs/{id}/respawn`，重开对话；不重启被中断的命令 |
@@ -27,6 +28,7 @@
 | 权限请求（前台/TUI） | 需要配置 | `evidence/environment/codebuddy-help.txt` | `--permission-mode` 六种模式 |
 | 权限请求（background job） | 不支持 | `evidence/permissions/T09-permission-denied.json` | 不进入 `waiting_for_approval`，工具调用直接 auto-deny |
 | 人工拒绝 | 未验证（无路径） | `evidence/permissions/T09-permission-denied.json` | background job 上不存在人工点击拒绝的入口；拒绝后无副作用已验证 |
+| 审批门控（控制平面侧） | 需要控制平面开发 | `evidence/permissions/T20-approval-gate.json` | 高风险策略必须持有 digest 匹配且未消费的审批；内容被改即失效；一次性 |
 | 审批投递 API | 不支持 | `docs/adapter-contract.md` | `/jobs/{id}/reply` 只能注入用户消息；`/permission-bridge/request` 面向 teammate→leader |
 | 产物收集 | 需要 Adapter 开发 | `evidence/isolation/T03b-worktree-agent.json` | git status/log + `state.json.logPath` |
 | 失败识别 | 需要控制平面开发 | `evidence/jobs/T00b-state-semantics.json` | `exit 3` 仍报 `done`，无退出码字段 |

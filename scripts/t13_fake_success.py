@@ -71,7 +71,7 @@ def run_case(plane: ControlPlane, store: TaskStore, name: str,
     })
     if prepare_during:
         prepare_during()
-    store.update(task_id, **plane._snapshot_patch(snapshot(task_id)))
+    store.update(task_id, **plane._snapshot_patch(task_id, snapshot(task_id)))
     rec = store.get(task_id)
     return {"case": name, "verdict": rec["verdict"],
             "assertions": [{k: r[k] for k in ("kind", "target", "passed", "owned", "observed")}

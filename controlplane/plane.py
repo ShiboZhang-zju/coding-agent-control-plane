@@ -10,6 +10,8 @@ Everything the worker does not guarantee lives here:
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 from pathlib import Path
 from typing import Any
@@ -23,8 +25,28 @@ from adapters.base import (
     UnsupportedOperation,
     Verdict,
 )
-from controlplane.store import TaskStore
+from controlplane.store import LedgerDegraded, TaskStore
 from controlplane.verify import capture_baseline, check_all, side_effects, verdict_for
+
+
+class ApprovalRequired(RuntimeError):
+    """High-risk dispatch without a matching, unconsumed human approval."""
+
+
+def task_digest(prompt: str, policy: DispatchPolicy,
+                assertions: list[ArtifactAssertion], cwd: str) -> str:
+    """Content digest of *exactly* what will run.
+
+    An approval binds to this digest, so editing the prompt/assertions/target after
+    the human said "yes" invalidates the approval instead of silently reusing it.
+    """
+    payload = json.dumps({
+        "prompt": prompt.strip(),
+        "cwd": str(Path(cwd).resolve()),
+        "policy": policy.to_dict(),
+        "assertions": [a.to_dict() for a in assertions],
+    }, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
 
 class ControlPlane:
@@ -41,10 +63,30 @@ class ControlPlane:
                  policy: DispatchPolicy | None = None, title: str = "",
                  idempotency_key: str = "", timeout_s: int = 900,
                  metadata: dict | None = None) -> dict:
-        """Dispatch with an explicit policy. Raises ValueError on unsafe policy."""
+        """Dispatch with an explicit policy.
+
+        Refuses on: unsafe policy (ValueError), degraded ledger (LedgerDegraded),
+        high-risk task without a matching approval (ApprovalRequired).
+        """
         assertions = assertions or []
         policy = policy or self.policy
         risks = policy.validate()
+
+        # fail closed: a degraded ledger no longer knows what is already running
+        self.store.assert_writable("dispatch")
+
+        digest = task_digest(prompt, policy, assertions, cwd)
+        approval = None
+        if policy.requires_approval():
+            approval = self.store.valid_approval_by_digest(digest)
+            if not approval:
+                self.store.append_event(
+                    "", "approval_required",
+                    {"digest": digest, "risk": policy.effective_risk(), "cwd": str(cwd)})
+                raise ApprovalRequired(
+                    f"risk={policy.effective_risk()}: dispatch requires a human approval whose "
+                    f"digest matches this exact task ({digest}). Call approve(digest=...) first; "
+                    "changing the prompt/policy/assertions invalidates the approval.")
 
         if idempotency_key:
             existing = self.store.by_idempotency_key(idempotency_key)
@@ -116,10 +158,66 @@ class ControlPlane:
 
         snap = self.adapter.get_task(result.worker_job_id)
         patch.update(self._snapshot_patch(task_id, snap))
+        patch["metadata"] = {**patch["metadata"], "task_digest": digest,
+                             "approval_id": (approval or {}).get("id")}
         self.store.append_event(task_id, "dispatch_accepted",
                                 {"worker_job_id": result.worker_job_id,
                                  "http": result.raw.get("dispatch_http")})
-        return self.store.update(task_id, worker_job_id=result.worker_job_id, **patch)
+        out = self.store.update(task_id, worker_job_id=result.worker_job_id, **patch)
+
+        if approval:
+            # single use, bound to this attempt; a second dispatch with the same
+            # digest must ask a human again.
+            consumed = self.store.consume_approval(approval["id"], result.worker_job_id)
+            self.store.append_event(task_id, "approval_consumed",
+                                    {"approval_id": approval["id"], "ok": consumed})
+        return out
+
+    # ------------------------------------------------------------------ #
+    # approval gating
+    # ------------------------------------------------------------------ #
+    def request_approval_for(self, prompt: str, cwd: str, *,
+                             assertions: list[ArtifactAssertion] | None = None,
+                             policy: DispatchPolicy | None = None,
+                             note: str = "") -> dict:
+        """Create a pending approval for the exact content that would be dispatched."""
+        assertions = assertions or []
+        policy = policy or self.policy
+        self.store.assert_writable("request_approval")
+        digest = task_digest(prompt, policy, assertions, cwd)
+        scope = {"risk": policy.effective_risk(), "cwd": str(Path(cwd).resolve()),
+                 "policy": policy.to_dict(),
+                 "assertions": [a.to_dict() for a in assertions]}
+        rec = self.store.request_approval("", digest, scope, note=note)
+        return {"approval_id": rec["id"], "digest": digest, "scope": scope,
+                "status": "pending"}
+
+    def approve(self, digest: str, note: str = "", approval_id: int | None = None) -> dict:
+        """Human decision: approve the content digest (not "the agent in general")."""
+        self.store.assert_writable("approve")
+        if approval_id is not None:
+            row = self.store.decide_approval(approval_id, "approved", note)
+        else:
+            pending = [a for a in self.store.all_approvals()
+                       if a.get("digest") == digest and a.get("decision") == "pending"]
+            if not pending:
+                raise KeyError(f"no pending approval for digest {digest}")
+            row = self.store.decide_approval(pending[-1]["id"], "approved", note)
+        self.store.append_event("", "approval_granted", {"digest": digest, "id": (row or {}).get("id")})
+        return row or {}
+
+    def deny(self, digest: str, note: str = "", approval_id: int | None = None) -> dict:
+        self.store.assert_writable("deny")
+        if approval_id is not None:
+            row = self.store.decide_approval(approval_id, "rejected", note)
+        else:
+            pending = [a for a in self.store.all_approvals()
+                       if a.get("digest") == digest and a.get("decision") == "pending"]
+            if not pending:
+                raise KeyError(f"no pending approval for digest {digest}")
+            row = self.store.decide_approval(pending[-1]["id"], "rejected", note)
+        self.store.append_event("", "approval_denied", {"digest": digest, "id": (row or {}).get("id")})
+        return row or {}
 
     # ------------------------------------------------------------------ #
     def resolve_dispatch(self, task_id: str, confirm_absent: bool = False) -> dict:
@@ -167,25 +265,124 @@ class ControlPlane:
             ["DISPATCH_ABSENT_CONFIRMED_BY_OPERATOR: 人工确认未创建，允许新 attempt"])
 
     # ------------------------------------------------------------------ #
-    def refresh(self) -> dict:
-        """Reconcile worker truth into the ledger, then re-verify every task."""
-        rec = self.adapter.reconcile()
-        worker_ids = {j.get("id") for j in rec["jobs"]}
+    # refresh: two independent paths
+    # ------------------------------------------------------------------ #
+    def refresh_known_jobs(self, timeout_s: float = 20.0) -> dict:
+        """High-frequency path: one query per ledger job, partial success allowed.
+
+        A failed/timeout query is an *observation anomaly*, never evidence that the
+        task died (`lost` needs independent process/state evidence).
+        """
+        updated, anomalies = [], []
         for task in self.store.all():
             jid = task.get("worker_job_id")
             if not jid:
                 continue
-            if jid not in worker_ids:
-                self.store.update(task["task_id"], state=TaskState.LOST.value,
-                                  verdict=Verdict.REJECTED.value,
-                                  warnings=list(task.get("warnings") or []) +
-                                  ["worker no longer reports this job (lost)"])
-                self.store.append_event(task["task_id"], "lost", {"worker_job_id": jid})
+            try:
+                try:
+                    snap = self.adapter.get_task(jid, timeout_s=timeout_s)
+                except TypeError:            # adapter without a timeout parameter
+                    snap = self.adapter.get_task(jid)
+            except Exception as exc:  # noqa: BLE001
+                anomalies.append(self._note_observation_failure(task, exc))
                 continue
-            snap = self.adapter.get_task(jid)
-            self.store.update(task["task_id"], **self._snapshot_patch(task["task_id"], snap))
-        return {"reconcile": {k: rec[k] for k in ("source", "total", "new", "changed", "lost")},
-                "tasks": self.summary()}
+            patch = self._snapshot_patch(task["task_id"], snap)
+            if patch["state"] == TaskState.LOST.value:
+                patch = self._confirm_lost(task, snap, patch)
+            self.store.update(task["task_id"], **patch)
+            updated.append({"task_id": task["task_id"], "worker_job_id": jid,
+                            "state": patch["state"], "verdict": patch["verdict"]})
+        return {"updated": updated, "anomalies": anomalies,
+                "ok": len(anomalies) == 0, "checked": len(updated) + len(anomalies)}
+
+    def discover_orphan_jobs(self) -> dict:
+        """Low-frequency full scan. Failure here must not disturb known tasks."""
+        try:
+            rec = self.adapter.reconcile()
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
+                    "note": "full scan failed; known-task state left untouched"}
+        worker_ids = {j.get("id") for j in rec["jobs"]}
+        known = {t.get("worker_job_id") for t in self.store.all() if t.get("worker_job_id")}
+        orphans = sorted(worker_ids - known)
+        vanished = []
+        for task in self.store.all():
+            jid = task.get("worker_job_id")
+            if not jid or jid in worker_ids:
+                continue
+            misses = int((task.get("metadata") or {}).get("scan_misses", 0)) + 1
+            self.store.update(task["task_id"],
+                              metadata={**(task.get("metadata") or {}), "scan_misses": misses})
+            if misses < 2:
+                vanished.append({"task_id": task["task_id"], "job": jid, "misses": misses,
+                                 "action": "pending second scan"})
+                continue
+            patch = self._mark_lost(task, jid, "job id absent from two consecutive full scans")
+            vanished.append({"task_id": task["task_id"], "job": jid, "misses": misses,
+                             "action": patch["state"]})
+        return {"ok": True, "total": len(rec["jobs"]), "orphans": orphans[:20],
+                "orphan_count": len(orphans), "vanished": vanished}
+
+    def refresh(self, timeout_s: float = 20.0) -> dict:
+        """Known jobs first (cheap, partial), then a best-effort orphan scan."""
+        known = self.refresh_known_jobs(timeout_s=timeout_s)
+        scan = self.discover_orphan_jobs()
+        return {"known_jobs": known, "orphan_scan": scan, "tasks": self.summary()}
+
+    def _note_observation_failure(self, task: dict, exc: Exception) -> dict:
+        count = int((task.get("metadata") or {}).get("observe_failures", 0)) + 1
+        self.store.update(task["task_id"],
+                          metadata={**(task.get("metadata") or {}),
+                                    "observe_failures": count,
+                                    "last_observe_error": f"{type(exc).__name__}"})
+        self.store.append_event(task["task_id"], "observation_failed",
+                                {"error": f"{type(exc).__name__}: {exc}", "count": count})
+        return {"task_id": task["task_id"], "error": f"{type(exc).__name__}",
+                "count": count, "state_unchanged": True}
+
+    def _confirm_lost(self, task: dict, snap: TaskSnapshot, patch: dict) -> dict:
+        """Adapter says lost: demand independent evidence before accepting it."""
+        alive = None
+        probe = getattr(self.adapter, "pid_alive", None)
+        if callable(probe):
+            try:
+                alive = probe(snap.pid)
+            except Exception:  # noqa: BLE001
+                alive = None
+        if alive is False or (snap.pid is None and alive is None):
+            return patch
+        # cannot prove death: keep the previous state, record the doubt
+        prev = task.get("state") or TaskState.UNKNOWN.value
+        return {**patch, "state": prev,
+                "warnings": list(patch.get("warnings") or []) +
+                [f"LOST_UNCONFIRMED: adapter reports working/lost but pid={snap.pid} alive={alive}"]}
+
+    def _mark_lost(self, task: dict, jid: str, reason: str) -> dict:
+        patch = {"state": TaskState.LOST.value, "verdict": Verdict.REJECTED.value,
+                 "warnings": list(task.get("warnings") or []) + [f"LOST: {reason}"]}
+        self.store.update(task["task_id"], **patch)
+        self.store.append_event(task["task_id"], "lost", {"worker_job_id": jid, "reason": reason})
+        return patch
+
+    def recover_inflight(self) -> dict:
+        """Close the crash window between "intent persisted" and "job id stored".
+
+        Any work item still `queued` with no worker job id means we died after
+        writing intent (possibly after the POST). Treat it exactly like
+        dispatch_unknown: reject blind re-dispatch, require resolve_dispatch().
+        """
+        recovered = []
+        for task in self.store.all():
+            if task.get("worker_job_id") or task.get("state") != TaskState.QUEUED.value:
+                continue
+            self.store.update(
+                task["task_id"], state=TaskState.DISPATCH_UNKNOWN.value,
+                warnings=list(task.get("warnings") or []) +
+                ["DISPATCH_INFLIGHT_AT_RESTART: intent was persisted but no job id; "
+                 "run resolve_dispatch() before any new attempt"])
+            self.store.append_event(task["task_id"], "recovered_inflight", {})
+            recovered.append(task["task_id"])
+        return {"recovered": recovered, "count": len(recovered)}
 
     def _snapshot_patch(self, task_id: str, snap: TaskSnapshot) -> dict:
         # task_id is passed explicitly: after an adapter/plane restart the adapter
@@ -248,6 +445,7 @@ class ControlPlane:
 
     def resume(self, task_id: str) -> dict:
         """Re-attach by conversation. A new worker job becomes a new attempt."""
+        self.store.assert_writable("resume")
         rec = self.store.get(task_id) or {}
         old_job = rec.get("worker_job_id")
         snap = self.adapter.resume(old_job or task_id)
@@ -258,6 +456,7 @@ class ControlPlane:
                                  **self._snapshot_patch(task_id, snap))
 
     def respawn(self, task_id: str) -> dict:
+        self.store.assert_writable("respawn")
         rec = self.store.get(task_id) or {}
         old_job = rec.get("worker_job_id")
         snap = self.adapter.respawn(old_job or task_id)
@@ -275,6 +474,7 @@ class ControlPlane:
         evidence/permissions/T09-permission-denied.json), so approval is modelled
         as "stop this attempt, record the decision, run a new attempt later".
         """
+        self.store.assert_writable("request_approval")
         rec = self.store.get(task_id) or {}
         self.store.record_approval(task_id, decision, note,
                                    attempt_id=rec.get("current_attempt_id"))

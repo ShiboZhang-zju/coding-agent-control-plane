@@ -174,6 +174,7 @@ class DispatchPolicy:
     isolation: str = "worktree"  # "worktree" | "none"
     permission_mode: str = "acceptEdits"
     allow_unisolated_shell: bool = False
+    risk: str = "auto"           # "auto" | "low" | "medium" | "high"
 
     def validate(self) -> list[str]:
         """Return policy risks; raise-free so callers decide."""
@@ -189,10 +190,28 @@ class DispatchPolicy:
             raise ValueError("refusing dispatch: bypassPermissions is forbidden by policy")
         return risks
 
+    def effective_risk(self) -> str:
+        """Derive a risk class when the caller did not declare one.
+
+        High risk = the task can touch things outside a disposable worktree
+        (un-isolated shell) or bypass the approval prompt.
+        """
+        if self.risk != "auto":
+            return self.risk
+        if self.mode == "shell" and self.isolation != "worktree":
+            return "high"
+        if self.permission_mode in ("bypassPermissions", "dontAsk"):
+            return "high"
+        return "low"
+
+    def requires_approval(self) -> bool:
+        return self.effective_risk() == "high"
+
     def to_dict(self) -> dict:
         return {"mode": self.mode, "isolation": self.isolation,
                 "permission_mode": self.permission_mode,
-                "allow_unisolated_shell": self.allow_unisolated_shell}
+                "allow_unisolated_shell": self.allow_unisolated_shell,
+                "risk": self.effective_risk()}
 
 
 # --------------------------------------------------------------------------- #

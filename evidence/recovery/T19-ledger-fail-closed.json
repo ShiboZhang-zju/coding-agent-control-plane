@@ -1,0 +1,31 @@
+{
+  "test": "T19-ledger-fail-closed",
+  "A_degraded": {
+    "degraded": true,
+    "reason": "DatabaseError: file is not a database; quarantined to <REPO>\\.poc-state\\t19-degraded.db.corrupt-2",
+    "mutations": {
+      "dispatch": "refused",
+      "resume": "refused",
+      "respawn": "refused"
+    },
+    "queries_still_work": true,
+    "stub_dispatches": 0,
+    "pass": true
+  },
+  "B_inflight": {
+    "recovered": {
+      "recovered": [
+        "cp-ab90e002bd9f"
+      ],
+      "count": 1
+    },
+    "state": "dispatch_unknown",
+    "warnings": [
+      "DISPATCH_INFLIGHT_AT_RESTART: intent was persisted but no job id; run resolve_dispatch() before any new attempt"
+    ],
+    "requires_resolution": true,
+    "pass": true
+  },
+  "pass": true,
+  "result": "Pass"
+}

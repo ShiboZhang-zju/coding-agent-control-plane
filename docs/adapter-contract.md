@@ -103,7 +103,46 @@ worker_state ≠ succeeded                          → pending
 对应证据：`evidence/jobs/T13-fake-success.json`（旧产物/他人产物/未发生的提交全部 rejected，
 两个正向对照 verified）、`evidence/isolation/T14-cross-project-rejected.json`。
 
-## 7. 接入下一个 Worker 的最小工作量
+## 7. 轮询与对账：两条路径，绝不互相拖累
+
+```
+refresh_known_jobs(timeout_s)   高频  逐 job 查询；单次超时；失败=观测异常，状态不变
+discover_orphan_jobs()          低频  全量扫描；失败=返回 ok=False，已知任务不受影响
+```
+
+- **失败 ≠ 死亡**：查询超时只记 `observation_failed` 与 `observe_failures` 计数；
+  `lost` 需要独立证据（pid 不存活，或连续两次全量扫描都看不到该 job）。
+- adapter 报 `working+alive=false` 时，plane 会用 `adapter.pid_alive()` 复核；
+  复核不确定则保持原状态并记 `LOST_UNCONFIRMED`。
+
+## 8. Ledger 降级 = 只读
+
+`TaskStore.assert_writable(op)`：`degraded=True`（完整性校验失败、已从空库启动）时
+`dispatch / resume / respawn / approve / deny / request_approval` 全部抛 `LedgerDegraded`。
+理由：空库不知道哪些任务正在跑，继续派工会造成重复执行。
+查询、`summary()`、事件与证据导出仍然可用。
+
+启动时 `recover_inflight()` 收口另一个撞车窗口：**意图已落库但 job id 未写入**
+（POST 成功后进程崩溃）→ 置 `dispatch_unknown`，禁止盲目重派。
+
+## 9. 审批：绑定内容，一次一用
+
+```
+digest = sha256(prompt.strip() + resolved(cwd) + policy.to_dict() + assertions)
+risk = policy.effective_risk()      # high → requires_approval()
+```
+
+| 状态 | 含义 | 允许的动作 |
+|---|---|---|
+| `pending` | 等待人工决定 | `approve()` / `deny()` |
+| `approved` + 未消费 | 内容与 digest 一致，可执行一次 | `dispatch()` 时原子消费 |
+| `consumed` | 已绑定某个 worker job | 再派发需重新审批 |
+| `rejected` | 人工拒绝 | `dispatch()` 抛 `ApprovalRequired` |
+
+关键约束：**批准某个操作 ≠ 批准 Agent 之后改过的 prompt**。
+改了 prompt/policy/断言/cwd 中任何一项，digest 就变，旧审批自动失效。
+
+## 10. 接入下一个 Worker 的最小工作量
 
 一个 Worker 只要满足下面 4 条，就不需要改控制平面：
 

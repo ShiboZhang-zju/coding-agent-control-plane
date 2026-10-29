@@ -119,11 +119,11 @@ class Api:
     def dispatch(self, **body) -> dict:
         return self.call("POST", "/api/v1/jobs", body, timeout=60)
 
-    def get_job(self, job_id: str) -> dict:
-        return self.call("GET", f"/api/v1/jobs/{job_id}")
+    def get_job(self, job_id: str, timeout: float = 30.0) -> dict:
+        return self.call("GET", f"/api/v1/jobs/{job_id}", timeout=timeout)
 
-    def job(self, job_id: str) -> dict:
-        r = self.get_job(job_id)
+    def job(self, job_id: str, timeout: float = 30.0) -> dict:
+        r = self.get_job(job_id, timeout=timeout)
         data = r["body"].get("data", {}) if isinstance(r["body"], dict) else {}
         return data.get("job", data) or {}
 

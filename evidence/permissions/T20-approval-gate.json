@@ -1,0 +1,43 @@
+{
+  "test": "T20-approval-gate",
+  "policy": {
+    "mode": "shell",
+    "isolation": "none",
+    "permission_mode": "acceptEdits",
+    "allow_unisolated_shell": true,
+    "risk": "high"
+  },
+  "requires_approval": true,
+  "A_without_approval": {
+    "result": "refused",
+    "worker_calls": 0
+  },
+  "B_after_approval": {
+    "dispatched": true,
+    "worker_calls": 1,
+    "approval_consumed": true,
+    "consumed_by": "job-1"
+  },
+  "C_reuse_approval": {
+    "result": "refused",
+    "worker_calls": 1
+  },
+  "D_tampered_prompt": {
+    "digest_differs": true,
+    "result": "refused",
+    "worker_calls": 1
+  },
+  "E_denied": {
+    "result": "refused",
+    "worker_calls": 1
+  },
+  "pass": {
+    "blocked_without_approval": true,
+    "allowed_once_with_approval": true,
+    "approval_consumed": true,
+    "single_use_enforced": true,
+    "tampered_prompt_blocked": true,
+    "denied_blocked": true
+  },
+  "result": "Pass"
+}
