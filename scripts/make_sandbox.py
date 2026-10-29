@@ -19,6 +19,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+__import__("sys").path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))  # repo root on path
+import winproc  # noqa: E402  (hidden console children)
 
 ROOT = Path(__file__).resolve().parent.parent
 SANDBOX = ROOT / "sandbox"
@@ -26,7 +28,7 @@ STATE = ROOT / ".poc-state" / "sandbox.json"
 
 
 def git(cwd: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True)
+    winproc.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True)
 
 
 def _force_rmtree(target: Path) -> None:
@@ -51,7 +53,7 @@ def make_repo(target: Path) -> dict:
     git(target, "config", "user.email", "poc@local")
     git(target, "add", ".")
     git(target, "commit", "-q", "-m", f"init {target.name}")
-    head = subprocess.run(["git", "-C", str(target), "rev-parse", "--short", "HEAD"],
+    head = winproc.run(["git", "-C", str(target), "rev-parse", "--short", "HEAD"],
                           capture_output=True, text=True).stdout.strip()
     return {"path": str(target), "head": head}
 

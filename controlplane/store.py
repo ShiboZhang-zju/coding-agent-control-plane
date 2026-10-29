@@ -23,6 +23,7 @@ approvals(id, work_item_id, attempt_id, requested_at, decision, decided_at, note
 """
 from __future__ import annotations
 
+import functools
 import json
 import os
 import sqlite3
@@ -40,6 +41,21 @@ LEGACY_JSON = ROOT / ".poc-state" / "tasks.json"
 JSON_FIELDS = ("policy", "assertions", "baseline", "warnings", "metadata",
                "artifacts", "assertion_results", "worker_metadata")
 LIST_FIELDS = ("assertions", "warnings", "artifacts", "assertion_results")
+def _synchronized(fn):
+    """Serialize a mutating ledger method on the store-level RLock.
+
+    sqlite3 gives durability, not mutual exclusion: two threads sharing one
+    connection can interleave SELECT/INSERT/COMMIT. Every mutator goes through
+    this decorator (review P1-3).
+    """
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return fn(self, *args, **kwargs)
+
+    return wrapper
+
+
 COLUMNS = ("id", "title", "prompt", "cwd", "mode", "isolation", "idempotency_key",
            "state", "verdict", "policy", "assertions", "baseline", "warnings",
            "metadata", "current_attempt_id", "created_at", "updated_at",
@@ -89,6 +105,9 @@ CREATE TABLE IF NOT EXISTS attempts (
 );
 CREATE INDEX IF NOT EXISTS idx_attempts_work_item ON attempts(work_item_id);
 CREATE INDEX IF NOT EXISTS idx_attempts_job ON attempts(worker_job_id);
+-- idempotency must be enforced by the database, not by a check-then-insert
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_idem
+    ON work_items(idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     work_item_id TEXT,
@@ -159,6 +178,7 @@ class TaskStore:
             conn = sqlite3.connect(str(self.path), timeout=15, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=15000")
             ok = conn.execute("PRAGMA integrity_check").fetchone()
             if not ok or ok[0] != "ok":
                 raise sqlite3.DatabaseError(f"integrity_check: {ok}")
@@ -185,6 +205,7 @@ class TaskStore:
         conn = sqlite3.connect(str(self.path), timeout=15, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=15000")
         return conn
 
     def _is_empty(self) -> bool:
@@ -237,6 +258,30 @@ class TaskStore:
     # ------------------------------------------------------------------ #
     # work items
     # ------------------------------------------------------------------ #
+    def create_work_item(self, record: dict) -> tuple[dict, bool]:
+        """Atomically insert a work item unless its idempotency key already exists.
+
+        Returns (record, created). The uniqueness is enforced by a DB index, so two
+        threads (or two processes) racing on the same key cannot both create a task
+        even if the pre-check races as well.
+        """
+        key = record.get("idempotency_key") or None
+        with self._lock:
+            if key:
+                existing = self.by_idempotency_key(key)
+                if existing:
+                    return existing, False
+            try:
+                created = self.create(record)
+                return created, True
+            except sqlite3.IntegrityError:
+                if key:
+                    existing = self.by_idempotency_key(key)
+                    if existing:
+                        return existing, False
+                raise
+
+    @_synchronized
     def create(self, record: dict) -> dict:
         task_id = record["task_id"]
         now = time.time()
@@ -279,6 +324,7 @@ class TaskStore:
             self.add_attempt(task_id, job_id, reason="dispatch")
         return self.get(task_id) or record
 
+    @_synchronized
     def update(self, task_id: str, **patch: Any) -> dict:
         job_id = patch.pop("worker_job_id", "__keep__")
         row = self._conn.execute("SELECT * FROM work_items WHERE id=?", (task_id,)).fetchone()
@@ -329,6 +375,7 @@ class TaskStore:
             "SELECT * FROM work_items WHERE idempotency_key=?", (key,)).fetchone()
         return self._row_to_record(row) if row else None
 
+    @_synchronized
     def clear(self) -> None:
         for table in ("approvals", "evidence", "events", "attempts", "work_items"):
             self._conn.execute(f"DELETE FROM {table}")
@@ -337,6 +384,7 @@ class TaskStore:
     # ------------------------------------------------------------------ #
     # attempts / events / evidence / approvals
     # ------------------------------------------------------------------ #
+    @_synchronized
     def add_attempt(self, task_id: str, worker_job_id: str | None, reason: str = "",
                     state: str | None = None) -> dict:
         attempt = {
@@ -362,11 +410,13 @@ class TaskStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    @_synchronized
     def close_attempt(self, attempt_id: str, state: str) -> None:
         self._conn.execute("UPDATE attempts SET state=?, ended_at=? WHERE id=?",
                            (state, time.time(), attempt_id))
         self._conn.commit()
 
+    @_synchronized
     def append_event(self, task_id: str, type_: str, payload: dict | None = None,
                      attempt_id: str | None = None) -> None:
         self._conn.execute(
@@ -403,6 +453,7 @@ class TaskStore:
             out.append(d)
         return out
 
+    @_synchronized
     def record_approval(self, task_id: str, decision: str, note: str = "",
                         attempt_id: str | None = None, requested_at: float | None = None) -> dict:
         rec = {"work_item_id": task_id, "attempt_id": attempt_id,

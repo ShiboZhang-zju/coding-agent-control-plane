@@ -28,6 +28,8 @@ from adapters.base import ArtifactAssertion, TaskSnapshot, TaskState, Verdict  #
 from controlplane.plane import ControlPlane  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 from controlplane.verify import capture_baseline  # noqa: E402
+__import__("sys").path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))  # repo root on path
+import winproc  # noqa: E402  (hidden console children)
 
 CWD = ROOT / "sandbox" / "repo-a"
 
@@ -77,12 +79,12 @@ def run_case(plane: ControlPlane, store: TaskStore, name: str,
 
 
 def git(*args: str) -> str:
-    p = subprocess.run(["git", "-C", str(CWD), *args], capture_output=True, text=True, timeout=25)
+    p = winproc.run(["git", "-C", str(CWD), *args], capture_output=True, text=True, timeout=25)
     return (p.stdout or p.stderr).strip()
 
 
 def main() -> int:
-    subprocess.run([sys.executable, str(ROOT / "scripts" / "make_sandbox.py")], check=True)
+    winproc.run([sys.executable, str(ROOT / "scripts" / "make_sandbox.py")], check=True)
     store = TaskStore(ROOT / ".poc-state" / "t13.db")
     store.clear()
     plane = ControlPlane(StubAdapter(), store)

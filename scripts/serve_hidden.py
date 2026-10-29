@@ -83,9 +83,13 @@ def cmd_start(port: int) -> int:
     si.wShowWindow = SW_HIDE
     out = open(EVID / "hidden-serve-stdout.log", "ab")
     err = open(EVID / "hidden-serve-stderr.log", "ab")
+    argv = [shutil.which("node") or "node", str(entry_js()), "--serve", "--port", str(port),
+            "--host", "127.0.0.1", "--auth", "password", "--permission-mode", "default"]
+    if os.environ.get("POC_NO_USER_SETTINGS") == "1":
+        # skip user-level settings so the 5s `longmemory` hook cannot block sessions
+        argv += ["--setting-sources", "project,local"]
     server = subprocess.Popen(
-        [shutil.which("node") or "node", str(entry_js()), "--serve", "--port", str(port),
-         "--host", "127.0.0.1", "--auth", "password", "--permission-mode", "default"],
+        argv,
         stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=env,
         startupinfo=si, creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
         close_fds=True)

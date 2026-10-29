@@ -26,6 +26,8 @@ from adapters.codebuddy.client import write_evidence  # noqa: E402
 from controlplane.plane import ControlPlane  # noqa: E402
 from controlplane.policies import agent_worktree  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
+__import__("sys").path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))  # repo root on path
+import winproc  # noqa: E402  (hidden console children)
 
 def job_spec(name: str, cwd: str, model: str | None = None) -> dict:
     return dict(
@@ -39,7 +41,7 @@ def job_spec(name: str, cwd: str, model: str | None = None) -> dict:
 
 
 def git(cwd: str, *args: str) -> str:
-    p = subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True, timeout=25)
+    p = winproc.run(["git", "-C", cwd, *args], capture_output=True, text=True, timeout=25)
     return (p.stdout or p.stderr).strip()
 
 
@@ -64,7 +66,7 @@ def compute_overlap(tasks: list[dict]) -> dict:
 
 def main() -> int:
     suffix = "t11-" + time.strftime("%H%M%S")
-    subprocess.run([sys.executable, str(ROOT / "scripts" / "make_sandbox.py"), suffix], check=True)
+    winproc.run([sys.executable, str(ROOT / "scripts" / "make_sandbox.py"), suffix], check=True)
     sb = json.loads((ROOT / ".poc-state" / "sandbox.json").read_text(encoding="utf-8"))
     repo_a, repo_b = sb["repo_a"], sb["repo_b"]
     model = os.environ.get("POC_T11_MODEL") or None
@@ -82,6 +84,12 @@ def main() -> int:
     plane = ControlPlane(adapter, store, policy=agent_worktree())
 
     log = {"test": "T11-four-agents", "started_at": time.time(), "sandbox": sb, "tasks": []}
+    try:
+        log["cli_version"] = winproc.run(["codebuddy", "--version"], capture_output=True,
+                                            text=True, timeout=30).stdout.strip()
+    except Exception as exc:  # noqa: BLE001
+        log["cli_version"] = f"unknown ({type(exc).__name__})"
+    log["model"] = os.environ.get("POC_T11_MODEL") or "default"
 
     # Dispatch in parallel: a serial loop would let the first agent finish before
     # the last one starts, which would prove nothing about concurrency.

@@ -30,14 +30,23 @@ def server_password(log_path: Path | None = None) -> str:
     env = os.environ.get("POC_SERVE_PASSWORD")
     if env:
         return env
-    log_path = log_path or (project_root() / "evidence" / "environment" / "serve-stdout.log")
-    if not log_path.exists():
+    # Two launch modes write two different banners (default desktop vs hidden
+    # desktop); only one server runs at a time, so trust the most recently
+    # modified banner that actually contains a password line.
+    env_dir = project_root() / "evidence" / "environment"
+    candidates = [log_path] if log_path else [env_dir / "serve-stdout.log",
+                                             env_dir / "hidden-serve-stdout.log"]
+    banners: list[tuple[float, str]] = []
+    for path in candidates:
+        if not path or not path.exists():
+            continue
+        txt = ANSI.sub("", path.read_text(encoding="utf-8", errors="replace"))
+        found = re.findall(r"^.*Password\s+(\S+)\s*$", txt, flags=re.M)
+        if found:
+            banners.append((path.stat().st_mtime, found[-1]))
+    if not banners:
         raise RuntimeError("server password unknown: no env POC_SERVE_PASSWORD and no banner log")
-    txt = ANSI.sub("", log_path.read_text(encoding="utf-8", errors="replace"))
-    found = re.findall(r"^.*Password\s+(\S+)\s*$", txt, flags=re.M)
-    if not found:
-        raise RuntimeError("server password unknown: banner has no Password line")
-    return found[-1]
+    return max(banners)[1]
 
 
 class Api:

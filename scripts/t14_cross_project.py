@@ -22,16 +22,18 @@ from adapters.codebuddy.client import write_evidence  # noqa: E402
 from controlplane.plane import ControlPlane  # noqa: E402
 from controlplane.policies import poc_shell  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
+__import__("sys").path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))  # repo root on path
+import winproc  # noqa: E402  (hidden console children)
 
 
 def git(cwd: Path, *args: str) -> str:
-    p = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=25)
+    p = winproc.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, timeout=25)
     return (p.stdout or p.stderr).strip()
 
 
 def main() -> int:
     suffix = "t14-" + time.strftime("%H%M%S")
-    subprocess.run([sys.executable, str(ROOT / "scripts" / "make_sandbox.py"), suffix], check=True)
+    winproc.run([sys.executable, str(ROOT / "scripts" / "make_sandbox.py"), suffix], check=True)
     sb = json.loads((ROOT / ".poc-state" / "sandbox.json").read_text(encoding="utf-8"))
     repo_a, repo_b = Path(sb["repo_a"]), Path(sb["repo_b"])
     intruder = repo_a / "intruder.txt"

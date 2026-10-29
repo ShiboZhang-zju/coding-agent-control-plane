@@ -1,0 +1,39 @@
+{
+  "test": "T15d-self-flash",
+  "detached": false,
+  "windows_from_hidden_calls": 0,
+  "windows_from_raw_calls": 6,
+  "samples": [
+    {
+      "class": "PseudoConsoleWindow",
+      "pid": 46116,
+      "phase": "raw"
+    },
+    {
+      "class": "PseudoConsoleWindow",
+      "pid": 12088,
+      "phase": "raw"
+    },
+    {
+      "class": "PseudoConsoleWindow",
+      "pid": 31960,
+      "phase": "raw"
+    },
+    {
+      "class": "PseudoConsoleWindow",
+      "pid": 14192,
+      "phase": "raw"
+    },
+    {
+      "class": "PseudoConsoleWindow",
+      "pid": 8064,
+      "phase": "raw"
+    },
+    {
+      "class": "PseudoConsoleWindow",
+      "pid": 49008,
+      "phase": "raw"
+    }
+  ],
+  "pass": true
+}

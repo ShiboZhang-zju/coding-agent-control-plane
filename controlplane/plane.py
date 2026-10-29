@@ -78,7 +78,17 @@ class ControlPlane:
             "warnings": risks,
             "metadata": {"adapter": self.adapter.name},
         }
-        self.store.create(record)
+        record, created = self.store.create_work_item(record)
+        task_id = record["task_id"]
+        if not created:
+            # another thread/process won the race on this idempotency key: it owns
+            # the dispatch, so this caller must not POST a second job.
+            out = dict(record)
+            out["deduplicated"] = True
+            self.store.append_event(task_id, "dispatch_deduplicated_at_insert",
+                                    {"key": idempotency_key})
+            return out
+
         self.store.append_event(task_id, "dispatch_requested",
                                 {"policy": policy.to_dict(), "cwd": cwd})
 
@@ -105,19 +115,22 @@ class ControlPlane:
             return self.store.update(task_id, **patch)
 
         snap = self.adapter.get_task(result.worker_job_id)
-        patch.update(self._snapshot_patch(snap))
+        patch.update(self._snapshot_patch(task_id, snap))
         self.store.append_event(task_id, "dispatch_accepted",
                                 {"worker_job_id": result.worker_job_id,
                                  "http": result.raw.get("dispatch_http")})
         return self.store.update(task_id, worker_job_id=result.worker_job_id, **patch)
 
     # ------------------------------------------------------------------ #
-    def resolve_dispatch(self, task_id: str) -> dict:
-        """Settle a `dispatch_unknown` work item against the worker's truth.
+    def resolve_dispatch(self, task_id: str, confirm_absent: bool = False) -> dict:
+        """Try to bind a `dispatch_unknown` work item to a concrete worker job.
 
-        Binds the job if one exists (matching prompt+cwd+since), otherwise marks
-        the work item `unknown` and clears the way for a *new* attempt with the
-        same idempotency key.
+        Honesty rule (review P0-2): a miss only proves "not visible in this query
+        window with this matcher" — the global job list is ~30s slow and SSE has no
+        replay. So a miss keeps the item in `dispatch_unknown`; it never becomes
+        "safe to re-dispatch" automatically. Only an explicit human/operator
+        confirmation (`confirm_absent=True`) closes the uncertainty, and that
+        decision is recorded as an event.
         """
         rec = self.store.get(task_id)
         if not rec:
@@ -135,14 +148,23 @@ class ControlPlane:
             self.store.append_event(task_id, "dispatch_resolved",
                                     {"worker_job_id": job_id, "note": "job existed"})
             return self.store.update(task_id, worker_job_id=job_id,
-                                     **self._snapshot_patch(snap))
+                                     **self._snapshot_patch(task_id, snap))
 
-        self.store.append_event(task_id, "dispatch_resolved",
-                                {"worker_job_id": None, "note": "no job was created"})
+        if not confirm_absent:
+            self.store.append_event(task_id, "dispatch_unresolved",
+                                    {"note": "not visible in the query window; still uncertain"})
+            return self.store.update(
+                task_id,
+                warnings=list(rec.get("warnings") or []) +
+                ["DISPATCH_STILL_UNKNOWN: 未发现不等于未创建（列表有 ~30s 延迟、无事件重放）；"
+                 "禁止自动重派，需人工 confirm_absent"])
+
+        self.store.append_event(task_id, "dispatch_absent_confirmed",
+                                {"by": "operator", "note": "human confirmed no job exists"})
         return self.store.update(
             task_id, state=TaskState.UNKNOWN.value, verdict=Verdict.INCONCLUSIVE.value,
             warnings=list(rec.get("warnings") or []) +
-            ["DISPATCH_PROVEN_ABSENT: no job exists; a new attempt may be dispatched"])
+            ["DISPATCH_ABSENT_CONFIRMED_BY_OPERATOR: 人工确认未创建，允许新 attempt"])
 
     # ------------------------------------------------------------------ #
     def refresh(self) -> dict:
@@ -161,12 +183,15 @@ class ControlPlane:
                 self.store.append_event(task["task_id"], "lost", {"worker_job_id": jid})
                 continue
             snap = self.adapter.get_task(jid)
-            self.store.update(task["task_id"], **self._snapshot_patch(snap))
+            self.store.update(task["task_id"], **self._snapshot_patch(task["task_id"], snap))
         return {"reconcile": {k: rec[k] for k in ("source", "total", "new", "changed", "lost")},
                 "tasks": self.summary()}
 
-    def _snapshot_patch(self, snap: TaskSnapshot) -> dict:
-        rec = self.store.get(snap.task_id) or {}
+    def _snapshot_patch(self, task_id: str, snap: TaskSnapshot) -> dict:
+        # task_id is passed explicitly: after an adapter/plane restart the adapter
+        # has no in-memory job->task map, so `snap.task_id` degrades to the worker
+        # job id and assertions/baseline would silently be lost (review P0-1).
+        rec = self.store.get(task_id) or {}
         assertions = [ArtifactAssertion(**a) for a in rec.get("assertions") or []]
         baseline = rec.get("baseline") or {}
 
@@ -219,7 +244,7 @@ class ControlPlane:
             raise KeyError(f"no worker job for {task_id}")
         snap = self.adapter.cancel(jid)
         self.store.append_event(task_id, "cancel_requested", {"worker_job_id": jid})
-        return self.store.update(task_id, **self._snapshot_patch(snap))
+        return self.store.update(task_id, **self._snapshot_patch(task_id, snap))
 
     def resume(self, task_id: str) -> dict:
         """Re-attach by conversation. A new worker job becomes a new attempt."""
@@ -229,7 +254,8 @@ class ControlPlane:
         new_job = snap.worker_job_id
         self.store.append_event(task_id, "resume", {"from_job": old_job, "to_job": new_job})
         self.store.add_attempt(task_id, new_job, reason=f"resume from {old_job}")
-        return self.store.update(task_id, worker_job_id=new_job, **self._snapshot_patch(snap))
+        return self.store.update(task_id, worker_job_id=new_job,
+                                 **self._snapshot_patch(task_id, snap))
 
     def respawn(self, task_id: str) -> dict:
         rec = self.store.get(task_id) or {}
@@ -240,7 +266,7 @@ class ControlPlane:
         if new_job and new_job != old_job:
             self.store.add_attempt(task_id, new_job, reason=f"respawn from {old_job}")
         return self.store.update(task_id, worker_job_id=new_job or old_job,
-                                 **self._snapshot_patch(snap))
+                                 **self._snapshot_patch(task_id, snap))
 
     def request_approval(self, task_id: str, decision: str, note: str = "") -> dict:
         """Record a human decision in the ledger.

@@ -36,6 +36,8 @@ from ..base import (
     Verdict,
 )
 from .client import Api, iter_sse_lines, project_root
+__import__("sys").path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))  # repo root on path
+import winproc  # noqa: E402  (hidden console children)
 
 _TERMINAL_STATES = {"done", "failed", "stopped"}
 
@@ -51,7 +53,7 @@ _STATE_MAP = {
 def _pid_alive(pid: int) -> bool:
     """True when the OS still owns this PID (Windows tasklist)."""
     try:
-        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+        out = winproc.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
                              capture_output=True, text=True, timeout=15).stdout
         return str(pid) in out
     except Exception:  # noqa: BLE001
@@ -60,7 +62,7 @@ def _pid_alive(pid: int) -> bool:
 
 def _git(cwd: str, *args: str) -> tuple[int, str]:
     try:
-        p = subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True, timeout=25)
+        p = winproc.run(["git", "-C", cwd, *args], capture_output=True, text=True, timeout=25)
         return p.returncode, (p.stdout or p.stderr).strip()
     except Exception as exc:  # noqa: BLE001
         return 1, f"{type(exc).__name__}: {exc}"

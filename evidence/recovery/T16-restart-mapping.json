@@ -1,0 +1,41 @@
+{
+  "test": "T16-restart-mapping",
+  "cwd": "F:\\coding-agent-control-plane\\sandbox\\repo-a-t11",
+  "before_restart": {
+    "task_id": "cp-0c849439cbe2",
+    "worker_job_id": "job-429538",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertions": 1,
+    "has_baseline": true,
+    "attempts": 1
+  },
+  "after_restart": {
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertions": 1,
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "t16_artifact.txt",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "changed since baseline"
+      }
+    ],
+    "has_baseline": true,
+    "attempts": 1,
+    "current_job": "job-429538"
+  },
+  "pass": {
+    "verdict_kept": true,
+    "verdict_is_verified": true,
+    "assertions_kept": true,
+    "baseline_kept": true,
+    "attempt_kept": true,
+    "job_mapping_kept": true,
+    "no_duplicate_work_item": true
+  },
+  "result": "Pass"
+}

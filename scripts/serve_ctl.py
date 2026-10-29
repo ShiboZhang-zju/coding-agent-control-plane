@@ -22,6 +22,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+__import__("sys").path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))  # repo root on path
+import winproc  # noqa: E402  (hidden console children)
 
 ROOT = Path(__file__).resolve().parent.parent
 EVID = ROOT / "evidence" / "environment"
@@ -59,7 +61,7 @@ def port_listening(port: int) -> bool:
 def who_listens(port: int):
     """Return PID owning the loopback listener on `port` (Windows netstat parse)."""
     try:
-        out = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, timeout=15).stdout
+        out = winproc.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, timeout=15).stdout
     except Exception:
         return None
     needle = f"127.0.0.1:{port}"
@@ -70,7 +72,8 @@ def who_listens(port: int):
     return None
 
 
-def cmd_start(port: int, password: str, home: str | None = None) -> int:
+def cmd_start(port: int, password: str, home: str | None = None,
+              no_user_settings: bool = False) -> int:
     EVID.mkdir(parents=True, exist_ok=True)
     if port_listening(port):
         pid = who_listens(port)
@@ -98,13 +101,18 @@ def cmd_start(port: int, password: str, home: str | None = None) -> int:
         env.pop(key, None)
     argv = [_node_exe(), str(_entry_js()), "--serve", "--port", str(port),
             "--host", "127.0.0.1", "--auth", "password", "--permission-mode", "default"]
+    if no_user_settings:
+        # Skip user-level settings, which is where the heavy `longmemory` hooks live.
+        # Their 5s UserPromptSubmit timeout is what kills parallel agent sessions
+        # (evidence/isolation/T11-parallel-blocked.md). Project/local settings only.
+        argv += ["--setting-sources", "project,local"]
 
     out = open(EVID / "serve-stdout.log", "ab")
     err = open(EVID / "serve-stderr.log", "ab")
     flags = 0
     if os.name == "nt":
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    proc = subprocess.Popen(argv, stdout=out, stderr=err, stdin=subprocess.DEVNULL,
+    proc = winproc.popen(argv, stdout=out, stderr=err, stdin=subprocess.DEVNULL,
                             env=env, creationflags=flags, close_fds=True)
 
     deadline = time.time() + 60
@@ -129,7 +137,7 @@ def cmd_stop(port: int) -> int:
     if not pid:
         print(json.dumps({"result": "no_listener", "port": port}))
         return 0
-    subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True)
+    winproc.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True)
     deadline = time.time() + 20
     while time.time() < deadline and port_listening(port):
         time.sleep(0.5)
@@ -151,9 +159,11 @@ def main() -> int:
     ap.add_argument("--password", default=os.environ.get("POC_SERVE_PASSWORD") or _random_password())
     ap.add_argument("--home", default=os.environ.get("POC_SERVE_HOME"),
                     help="isolated USERPROFILE/HOME so the job store is not shared with a live session")
+    ap.add_argument("--no-user-settings", action="store_true",
+                    help="start with --setting-sources project,local (skips user hooks)")
     a = ap.parse_args()
     if a.action == "start":
-        return cmd_start(a.port, a.password, a.home)
+        return cmd_start(a.port, a.password, a.home, a.no_user_settings)
     if a.action == "stop":
         return cmd_stop(a.port)
     return cmd_status(a.port)

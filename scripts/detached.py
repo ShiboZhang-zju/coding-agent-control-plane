@@ -16,6 +16,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+__import__("sys").path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))  # repo root on path
+import winproc  # noqa: E402  (hidden console children)
 
 ROOT = Path(__file__).resolve().parent.parent
 LOGS = ROOT / ".poc-state" / "logs"
@@ -30,7 +32,7 @@ def log_file(name: str) -> Path:
 
 
 def is_alive(pid: int) -> bool:
-    out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+    out = winproc.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
                          capture_output=True, text=True).stdout
     return str(pid) in out and "python" in out.lower()
 
@@ -50,9 +52,21 @@ def main() -> int:
             return 1
         log = open(log_file(name), "wb")
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-        proc = subprocess.Popen([sys.executable, "-u", str(target)], cwd=str(ROOT),
+        si = None
+        desktop = os.environ.get("POC_HIDDEN_DESKTOP")
+        if desktop and os.name == "nt":
+            # Run the test script on the same hidden desktop as the worker: every
+            # git.exe / tasklist.exe it spawns then creates its console there too,
+            # instead of flashing on the user's screen.
+            flags |= subprocess.CREATE_NO_WINDOW
+            si = subprocess.STARTUPINFO()
+            si.lpDesktop = desktop
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0
+        proc = winproc.popen([sys.executable, "-u", str(target)], cwd=str(ROOT),
                                 stdout=log, stderr=subprocess.STDOUT,
-                                stdin=subprocess.DEVNULL, creationflags=flags)
+                                stdin=subprocess.DEVNULL, creationflags=flags,
+                                startupinfo=si)
         pid_file(name).write_text(str(proc.pid), encoding="utf-8")
         print(json.dumps({"result": "started", "name": name, "pid": proc.pid,
                           "log": str(log_file(name))}))

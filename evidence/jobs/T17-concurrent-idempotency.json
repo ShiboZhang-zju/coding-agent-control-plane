@@ -1,0 +1,32 @@
+{
+  "test": "T17-concurrent-idempotency",
+  "A": {
+    "threads": 8,
+    "worker_dispatches": 1,
+    "work_items": 1,
+    "attempts": 1,
+    "deduplicated_responses": 7,
+    "errors": [],
+    "pass": true
+  },
+  "B": {
+    "state_after_dispatch": "dispatch_unknown",
+    "state_after_unconfirmed_lookup": "dispatch_unknown",
+    "kept_unknown_on_miss": true,
+    "miss_warnings": [
+      "UNISOLATED_SHELL: shell job has no filesystem isolation",
+      "DISPATCH_UNKNOWN: no blind retry. Call resolve_dispatch(task_id) first; it either binds the existing job or proves none was created.",
+      "DISPATCH_STILL_UNKNOWN: 未发现不等于未创建（列表有 ~30s 延迟、无事件重放）；禁止自动重派，需人工 confirm_absent"
+    ],
+    "state_after_operator_confirm": "unknown",
+    "confirm_warnings": [
+      "UNISOLATED_SHELL: shell job has no filesystem isolation",
+      "DISPATCH_UNKNOWN: no blind retry. Call resolve_dispatch(task_id) first; it either binds the existing job or proves none was created.",
+      "DISPATCH_STILL_UNKNOWN: 未发现不等于未创建（列表有 ~30s 延迟、无事件重放）；禁止自动重派，需人工 confirm_absent",
+      "DISPATCH_ABSENT_CONFIRMED_BY_OPERATOR: 人工确认未创建，允许新 attempt"
+    ],
+    "worker_dispatches": 1,
+    "pass": true
+  },
+  "result": "Pass"
+}

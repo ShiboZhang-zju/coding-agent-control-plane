@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Iterable
 
 from adapters.base import ArtifactAssertion, TaskState, Verdict
+__import__("sys").path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))  # repo root on path
+import winproc  # noqa: E402  (hidden console children)
 
 
 # --------------------------------------------------------------------------- #
@@ -30,7 +32,7 @@ from adapters.base import ArtifactAssertion, TaskState, Verdict
 # --------------------------------------------------------------------------- #
 def _git(cwd: str, *args: str) -> tuple[int, str]:
     try:
-        p = subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True, timeout=25)
+        p = winproc.run(["git", "-C", cwd, *args], capture_output=True, text=True, timeout=25)
         return p.returncode, (p.stdout or p.stderr).strip()
     except Exception as exc:  # noqa: BLE001
         return 1, f"{type(exc).__name__}: {exc}"
