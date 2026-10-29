@@ -231,7 +231,102 @@ T11 专门测 agent 并发，结果是：
 | SSE 断线（快照恢复当前可信状态） | 部分：无 replay，靠 `reconcile()` + 单任务查询（T05/T05c） |
 | 人工审批（未批准无法执行） | **Pass（安全侧）**：background job 直接 auto-deny 且无副作用（T09）；但无"人工批准后执行"通道 |
 
-## 8. 复现 / 推送
+## 8. 第二轮评审后的修复（2026-10-29 晚）
+
+### 8.1 安全问题：泄露日志与历史清理
+
+- 泄露内容：`evidence/environment/hidden-serve-stdout.log`（服务启动 banner，含该实例的随机密码）。
+  它在 `d9ac5a9` 进入历史，`567f0e1` 只是把它从索引移除，历史仍可查。
+- 处置：`git filter-branch --index-filter` 重写 `poc/codebuddy-adapter`（仅该分支，未动 `main`），
+  删除本地备份分支、`reflog expire --expire=now --all`、`gc --prune=now`，
+  最后 `push --force-with-lease`。
+  校验结果：`git log --all -- evidence/environment/hidden-serve-stdout.log` 为空，
+  旧 blob `2aec604…` 已不可达。
+- 凭据有效性：该密码属于**已停止**的服务实例，密码本身是每次启动随机生成，下一次启动即失效；
+  当前 `127.0.0.1:8787` 无监听。
+- 残留风险（如实说明）：GitHub 可能仍保留未被引用的旧对象（按 SHA 直链访问），
+  force-push 不等于"撤销泄露"。真正的补救是轮换凭据（已随实例停止生效）。
+  自本次起 `evidence/environment/*serve*.log` 全部 gitignore。
+
+### 8.2 P0-1 重启后验收上下文丢失
+
+`_snapshot_patch(task_id, snap)` 现在显式接收控制平面 ID，`dispatch / resolve_dispatch /
+refresh / cancel / resume / respawn` 六条路径全部改造完。
+新增 T16：创建任务 → 重建 store/adapter/plane（模拟重启，adapter 只知 job id）→ `refresh()`，
+断言 `verdict` 保持 `verified`、`assertions`/`baseline`/`attempt`/`job` 映射均未丢：
+
+```json
+{"verdict_kept": true, "verdict_is_verified": true, "assertions_kept": true,
+ "baseline_kept": true, "attempt_kept": true, "job_mapping_kept": true}
+```
+
+### 8.3 P0-2 `dispatch_unknown` 不再把"查不到"当成"没创建"
+
+`resolve_dispatch(task_id, confirm_absent=False)`：
+
+- 查到 job → 绑定；
+- 查不到 → **保持 `dispatch_unknown`**，追加 `DISPATCH_STILL_UNKNOWN` 警告并记录
+  `dispatch_unresolved` 事件；
+- 只有显式 `confirm_absent=True`（人工决定）才转为 `unknown` 并记录
+  `dispatch_absent_confirmed`，此时才允许新 attempt。
+
+T17-B 验证：`state_after_dispatch == state_after_unconfirmed_lookup == dispatch_unknown`。
+
+### 8.4 P1-3 SQLite 并发
+
+- 所有写方法加 `@_synchronized`（store 级 RLock），连接加 `PRAGMA busy_timeout=15000`；
+- `work_items.idempotency_key` 加 **UNIQUE 索引**，新增原子方法
+  `create_work_item()`：判断与插入在同一临界区，冲突则回读已有记录；
+- `dispatch()` 改为以 `create_work_item()` 的结果为准，未抢到键的调用方**不再 POST**。
+
+T17-A：8 线程同时用同一 key 派发 → `worker_dispatches=1 / work_items=1 / attempts=1 /
+deduplicated_responses=7`（T12 只证明了顺序重复）。
+
+### 8.5 T11：四路真实 Agent 并行 **Pass**
+
+关键前提：服务用 `--setting-sources project,local` 启动，跳过用户级
+`longmemory` hook（其 `UserPromptSubmit` 超时 5s 会让并行会话集体失败）。
+
+实测（`evidence/isolation/T11-4way-success.json`）：
+
+| 任务 | 状态 | 起止（UTC） | worktree 分支 | 产物 |
+|---|---|---|---|---|
+| agent-a1 | done | 06:43:24 → 06:44:59 | `worktree-bg-b3ef26ac` | `agent-a1.txt` |
+| agent-a2 | done | 06:43:28 → 06:45:26 | `worktree-bg-8dc5d154` | `agent-a2.txt` |
+| agent-b1 | done | 06:43:24 → 06:45:05 | `worktree-bg-36726069` | `agent-b1.txt` |
+| agent-b2 | done | 06:43:24 → 06:44:43 | `worktree-bg-87c8807d` | `agent-b2.txt` |
+
+`peak_concurrent_by_timestamps = 4`、`distinct_worktrees = 4`、四个产物均存在且互不污染。
+
+一句免责：本轮收尾时 `refresh()` 因 job store 停顿超时（>5 分钟未返回），因此
+`T11-4way-success.json` 的结论来自 **worker 状态文件 + git worktree**（与 API 无关）。
+验收结论用 `t11_offline_verdicts.py` **离线重算**：从 ledger 取 baseline+assertions，
+从磁盘取 worktree 与 worker 终态，四个任务全部 `verified`（`file_exists` 通过且 `owned=true`），
+见 `T11-4way-ledger.json`。这也顺带证明：**验收层不依赖 worker API 可用性**。
+
+### 8.6 控制台闪窗：根因与修复
+
+第二轮发现的新根因：**我们自己的测试脚本**。`detached.py` 起的进程没有控制台，
+于是它内部每一次 `subprocess.run(["git", ...])` 都会**新分配一个可见控制台窗口**。
+
+- 修复：新增根目录 `winproc.py`，`run()/popen()` 强制 `CREATE_NO_WINDOW + SW_HIDE`；
+  `verify/adapter/make_sandbox/detached/serve_ctl/T11/T13/T14` 全部改用；
+- 对照实验（`evidence/environment/T15d-self-flash.json`）：
+  **裸 subprocess 6 次 → 6 个可见窗口；`winproc` 6 次 → 0 个**；
+- worker 侧的窗口用隐藏桌面方案（`serve_hidden.py`），实测 0 个；
+- 剩下无法消除的是"我每执行一条命令产生的那一个 shell 窗口"（工具层，不是本仓库代码）。
+
+### 8.7 仍未完成（下一轮）
+
+| 项 | 状态 |
+|---|---|
+| 审批门控（approval → dispatch_allowed/blocked 的强制约束） | 未实现（只有记录） |
+| 跨项目 **OS 级**隔离 | 未实现（当前是检测+否决） |
+| 环境版本锁定 | 未做；本轮记录到 CLI 已自动升级至 **2.178.1**（PoC 基线 2.169.0），
+T11 证据里带 `cli_version` 字段 |
+| job store 30s 级读 | 产品侧问题，未绕过（只降低调用频率） |
+
+## 9. 复现 / 推送
 
 ```powershell
 python scripts/serve_ctl.py start

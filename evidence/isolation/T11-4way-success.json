@@ -1,0 +1,189 @@
+{
+  "test": "T11-four-agents-parallel",
+  "recovered_from": "worker state files + git worktrees (UI/API refresh timed out)",
+  "all_succeeded": true,
+  "all_have_artifact": true,
+  "distinct_worktrees": 4,
+  "peak_concurrent_by_timestamps": 4,
+  "tasks": [
+    {
+      "name": "agent-a1",
+      "worker_job_id": "b3ef26ac",
+      "worker_state": "done",
+      "started_at": "2026-10-29T06:43:24.295Z",
+      "finished_at": "2026-10-29T06:44:59.108Z",
+      "pid": 47448,
+      "worktree": "<REPO>\\sandbox\\repo-a-t11-144242\\.codebuddy\\worktrees\\bg-b3ef26ac",
+      "branch": "worktree-bg-b3ef26ac",
+      "artifact": {
+        "path": "<REPO>\\sandbox\\repo-a-t11-144242\\.codebuddy\\worktrees\\bg-b3ef26ac\\agent-a1.txt",
+        "content": "agent-a1"
+      },
+      "uncommitted_in_worktree": [
+        "agent-a1.txt"
+      ],
+      "detail": "result: 文件已创建在当前工作目录（git worktree 根目录）："
+    },
+    {
+      "name": "agent-a2",
+      "worker_job_id": "8dc5d154",
+      "worker_state": "done",
+      "started_at": "2026-10-29T06:43:28.859Z",
+      "finished_at": "2026-10-29T06:45:26.073Z",
+      "pid": 34676,
+      "worktree": "<REPO>\\sandbox\\repo-a-t11-144242\\.codebuddy\\worktrees\\bg-8dc5d154",
+      "branch": "worktree-bg-8dc5d154",
+      "artifact": {
+        "path": "<REPO>\\sandbox\\repo-a-t11-144242\\.codebuddy\\worktrees\\bg-8dc5d154\\agent-a2.txt",
+        "content": "agent-a2"
+      },
+      "uncommitted_in_worktree": [
+        "agent-a2.txt"
+      ],
+      "detail": "result: 已在当前仓库根目录创建 `agent-a2.txt`，内容为一行 `agent-a2`。"
+    },
+    {
+      "name": "agent-b1",
+      "worker_job_id": "36726069",
+      "worker_state": "done",
+      "started_at": "2026-10-29T06:43:24.290Z",
+      "finished_at": "2026-10-29T06:45:05.792Z",
+      "pid": 45736,
+      "worktree": "<REPO>\\sandbox\\repo-b-t11-144242\\.codebuddy\\worktrees\\bg-36726069",
+      "branch": "worktree-bg-36726069",
+      "artifact": {
+        "path": "<REPO>\\sandbox\\repo-b-t11-144242\\.codebuddy\\worktrees\\bg-36726069\\agent-b1.txt",
+        "content": "agent-b1"
+      },
+      "uncommitted_in_worktree": [
+        "agent-b1.txt"
+      ],
+      "detail": "result: 已在当前仓库根目录创建 `agent-b1.txt`，内容为一行 `agent-b1`。未修改其他文件。"
+    },
+    {
+      "name": "agent-b2",
+      "worker_job_id": "87c8807d",
+      "worker_state": "done",
+      "started_at": "2026-10-29T06:43:24.292Z",
+      "finished_at": "2026-10-29T06:44:43.739Z",
+      "pid": 29580,
+      "worktree": "<REPO>\\sandbox\\repo-b-t11-144242\\.codebuddy\\worktrees\\bg-87c8807d",
+      "branch": "worktree-bg-87c8807d",
+      "artifact": {
+        "path": "<REPO>\\sandbox\\repo-b-t11-144242\\.codebuddy\\worktrees\\bg-87c8807d\\agent-b2.txt",
+        "content": "agent-b2"
+      },
+      "uncommitted_in_worktree": [
+        "agent-b2.txt"
+      ],
+      "detail": "result: 已在仓库根目录创建 `agent-b2.txt`，内容为 `agent-b2`。"
+    }
+  ],
+  "main_checkouts": {
+    "repo-a": {
+      "status": "",
+      "head": "e5fa295"
+    },
+    "repo-a-t11": {
+      "status": "?? t15.txt\n?? t16_artifact.txt",
+      "head": "0766e0c"
+    },
+    "repo-a-t11-105352": {
+      "status": "",
+      "head": "93e9b07"
+    },
+    "repo-a-t11-110401": {
+      "status": "",
+      "head": "5c6f5fb"
+    },
+    "repo-a-t11-111851": {
+      "status": "",
+      "head": "1012e58"
+    },
+    "repo-a-t11-112134": {
+      "status": "",
+      "head": "699ce08"
+    },
+    "repo-a-t11-113316": {
+      "status": "",
+      "head": "ba5d1bb"
+    },
+    "repo-a-t11-114234": {
+      "status": "",
+      "head": "ced9d8d"
+    },
+    "repo-a-t11-143229": {
+      "status": "",
+      "head": "566cba8"
+    },
+    "repo-a-t11-143514": {
+      "status": "",
+      "head": "0e5f21c"
+    },
+    "repo-a-t11-143756": {
+      "status": "",
+      "head": "c65e8a5"
+    },
+    "repo-a-t11-143918": {
+      "status": "",
+      "head": "7a718b5"
+    },
+    "repo-a-t11-144242": {
+      "status": "",
+      "head": "ae8b574"
+    },
+    "repo-b": {
+      "status": "",
+      "head": "6d64f80"
+    },
+    "repo-b-t11": {
+      "status": "",
+      "head": "d846c2d"
+    },
+    "repo-b-t11-105352": {
+      "status": "",
+      "head": "d37fe8b"
+    },
+    "repo-b-t11-110401": {
+      "status": "",
+      "head": "f57be30"
+    },
+    "repo-b-t11-111851": {
+      "status": "",
+      "head": "ce73845"
+    },
+    "repo-b-t11-112134": {
+      "status": "",
+      "head": "743b7d7"
+    },
+    "repo-b-t11-113316": {
+      "status": "",
+      "head": "3feedd7"
+    },
+    "repo-b-t11-114234": {
+      "status": "",
+      "head": "2bdf19f"
+    },
+    "repo-b-t11-143229": {
+      "status": "",
+      "head": "11da217"
+    },
+    "repo-b-t11-143514": {
+      "status": "",
+      "head": "b8a5104"
+    },
+    "repo-b-t11-143756": {
+      "status": "",
+      "head": "7aa3c7d"
+    },
+    "repo-b-t11-143918": {
+      "status": "",
+      "head": "c41b0fb"
+    },
+    "repo-b-t11-144242": {
+      "status": "",
+      "head": "18e44bf"
+    }
+  },
+  "pass": true
+}

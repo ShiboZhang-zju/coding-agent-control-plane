@@ -21,10 +21,13 @@
 | T08 | 服务重启后状态重建 | `t08_service_restart.py`、`t08b_exec_survival.py`、`t08c_exec_precise.py` | `evidence/recovery/T08*.json` | 部分：可发现/可重建，但执行不继续 |
 | T09 | 权限请求 + 人工拒绝 | `t09_permission_request.py`、`t09_permission_final.py`、`t09b_permission_verify.py` | `evidence/permissions/T09*.json` | 安全行为 Pass；人工审批路径 Not Supported（background job 自动拒绝） |
 | T10 | 主 Agent 汇总 | `t01_concurrency.py`（`plane.summary()`） | `evidence/jobs/T10-summary.json` | Pass |
-| T11 | 多个**真实 Agent** 并行（独立 Job/worktree/产物归属） | `t11_four_agents.py` | `evidence/isolation/T11-parallel-blocked.md` + `T11-4way/2way-*.json` | Blocked（Job 层 peak=4 已验证；本机 hook 5s 超时导致会话全失败） |
+| T11 | 多个**真实 Agent** 并行（独立 Job/worktree/产物归属） | `t11_four_agents.py`、`t11_recover.py` | `evidence/isolation/T11-4way-success.json`、`T11-4way-ledger.json` | **Pass**（4 路 peak=4、4 个 worktree、4 个产物、全部 verified） |
 | T12 | 幂等派发 + 不安全策略拒绝 | `t12_idempotency.py` | `evidence/jobs/T12-idempotency.json` | Pass |
 | T13 | 假成功：旧产物/他人产物/未发生提交 | `t13_fake_success.py` | `evidence/jobs/T13-fake-success.json` | Pass（3 rejected + 2 正向对照 verified） |
 | T14 | 跨项目写入 → 否决 | `t14_cross_project.py` | `evidence/isolation/T14-cross-project-rejected.json` | Pass |
+| T15/T15b/T15d | 控制台闪窗根因与修复 | `t15_console_flash.py`、`t15b_process_flash.py`、`t15d_selfflash.py` | `evidence/environment/T15*.json`、`CONSOLE-FLASH.md` | Pass（裸 subprocess 6/6 闪；`winproc` 0/6） |
+| T16 | 重启后验收上下文不丢 | `t16_restart_mapping.py` | `evidence/recovery/T16-restart-mapping.json` | Pass |
+| T17 | 并发幂等 + dispatch_unknown 诚实性 | `t17_concurrent_idempotency.py` | `evidence/jobs/T17-concurrent-idempotency.json` | Pass |
 
 ## 环境级缺陷（影响所有测试解释）
 

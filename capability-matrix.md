@@ -7,9 +7,9 @@
 | 任务派发 | 原生支持 | `evidence/jobs/T01-concurrency.json` | `POST /api/v1/jobs`，返回 `id/sessionId/cwd/state` |
 | 后台运行 | 原生支持 | `evidence/jobs/T00-api-probe.json` | `kind=background`，CLI 侧 `--bg` 亦存在 |
 | 并发任务（shell） | 原生支持 | `evidence/jobs/T01-concurrency.json` | 4 个 shell job 同时 `running`（peak=4），互不阻塞 |
-| 并发任务（真实 Agent） | 需要配置 | `evidence/isolation/T11-parallel-blocked.md` | Job 层实测可同时接受 4 个 agent 会话（peak=4）；但本机 `UserPromptSubmit` hook 5s 超时会让并行会话集体失败，可用并发度 ≈1–2 |
-| 幂等派发 | 需要控制平面开发 | `evidence/jobs/T12-idempotency.json` | 同一 idempotency key 只起 1 个 job；第二/三次返回 deduplicated |
-| 派发不确定（dispatch_unknown） | 需要控制平面开发 | `docs/adapter-contract.md` §5 | 已实现"不确定不重试 + resolve_dispatch"，本机未触发到该分支（**未验证**） |
+| 并发任务（真实 Agent） | 需要配置 | `evidence/isolation/T11-4way-success.json` | 4 路真实 agent 并行：peak=4、4 个独立 worktree/分支、4 个产物全部归属正确、全部 `verified`。前提：跳过用户级 hook（`--setting-sources project,local`），否则 5s `UserPromptSubmit` 超时会让并行会话集体失败 |
+| 幂等派发 | 需要控制平面开发 | `evidence/jobs/T12-idempotency.json`、`T17-concurrent-idempotency.json` | 顺序重复与 **8 线程同时**同 key 均只起 1 个 job / 1 个 work item / 1 个 attempt |
+| 派发不确定（dispatch_unknown） | 需要控制平面开发 | `evidence/jobs/T17-concurrent-idempotency.json` | 查不到**不再**等于"未创建"：保持 `dispatch_unknown`，需人工 `confirm_absent` 才允许新 attempt |
 | worktree 隔离 | 需要配置 | `evidence/isolation/T03b-worktree-agent.json` | agent 任务传 `bgIsolation=worktree` → `.codebuddy/worktrees/bg-<job>` + 分支 `worktree-bg-<job>` |
 | 文件级隔离（shell 任务） | 不支持 | `evidence/isolation/T03-isolation.json` | repo-b 派发的 shell 任务成功写入 `../repo-a/cross_from_b.txt` |
 | 状态查询（单任务） | 原生支持 | `evidence/recovery/T08-service-restart.json` | `GET /api/v1/jobs/{id}` 毫秒级 |

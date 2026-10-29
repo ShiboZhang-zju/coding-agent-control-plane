@@ -1,0 +1,79 @@
+{
+  "test": "T11-four-agents-ledger",
+  "mode": "offline verdict (no worker API)",
+  "tasks": [
+    {
+      "task_id": "cp-012e0ff7a58d",
+      "worker_job_id": "36726069",
+      "worker_state": "done",
+      "state": "succeeded",
+      "verdict": "verified",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "agent-b1.txt",
+          "value": null,
+          "passed": true,
+          "owned": true,
+          "observed": "changed since baseline"
+        }
+      ],
+      "cwd_used": "<REPO>\\sandbox\\repo-b-t11-144242\\.codebuddy\\worktrees\\bg-36726069"
+    },
+    {
+      "task_id": "cp-243939785f30",
+      "worker_job_id": "87c8807d",
+      "worker_state": "done",
+      "state": "succeeded",
+      "verdict": "verified",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "agent-b2.txt",
+          "value": null,
+          "passed": true,
+          "owned": true,
+          "observed": "changed since baseline"
+        }
+      ],
+      "cwd_used": "<REPO>\\sandbox\\repo-b-t11-144242\\.codebuddy\\worktrees\\bg-87c8807d"
+    },
+    {
+      "task_id": "cp-794620421045",
+      "worker_job_id": "b3ef26ac",
+      "worker_state": "done",
+      "state": "succeeded",
+      "verdict": "verified",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "agent-a1.txt",
+          "value": null,
+          "passed": true,
+          "owned": true,
+          "observed": "changed since baseline"
+        }
+      ],
+      "cwd_used": "<REPO>\\sandbox\\repo-a-t11-144242\\.codebuddy\\worktrees\\bg-b3ef26ac"
+    },
+    {
+      "task_id": "cp-3240a042d910",
+      "worker_job_id": "8dc5d154",
+      "worker_state": "done",
+      "state": "succeeded",
+      "verdict": "verified",
+      "assertions": [
+        {
+          "kind": "file_exists",
+          "target": "agent-a2.txt",
+          "value": null,
+          "passed": true,
+          "owned": true,
+          "observed": "changed since baseline"
+        }
+      ],
+      "cwd_used": "<REPO>\\sandbox\\repo-a-t11-144242\\.codebuddy\\worktrees\\bg-8dc5d154"
+    }
+  ],
+  "all_verified": true
+}
