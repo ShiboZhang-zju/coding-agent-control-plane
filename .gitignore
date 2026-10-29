@@ -6,8 +6,8 @@ sandbox/*
 # Raw runtime logs / transcripts that may contain machine-specific paths or secrets
 evidence/**/raw/
 evidence/**/*.raw.log
-evidence/environment/serve-stdout.log
-evidence/environment/serve-stderr.log
+evidence/environment/*serve*.log
+evidence/environment/*serve*.log.*
 
 # Control-plane local state / detached test logs (machine specific)
 .poc-state/
