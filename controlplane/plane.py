@@ -34,6 +34,12 @@ class ApprovalRequired(RuntimeError):
     """High-risk dispatch without a matching, unconsumed human approval."""
 
 
+#: How long a dispatch claim (queue_status='dispatching' owned by another
+#: runtime) is trusted before a recovering runtime may treat it as a crash
+#: leftover (review P1: multi-runtime startup race).
+DISPATCH_CLAIM_LEASE_S = 300.0
+
+
 def task_digest(prompt: str, policy: DispatchPolicy,
                 assertions: list[ArtifactAssertion], cwd: str) -> str:
     """Content digest of *exactly* what will run.
@@ -356,13 +362,18 @@ class ControlPlane:
         if policy.requires_approval():
             approval = self.store.reserve_approval(digest, attempt_id)
             if not approval:
+                # This attempt never dispatched anything: close it with an
+                # explicit terminal state so it is not mistaken for execution
+                # history when retry statistics are computed later (review P1).
+                self.store.close_attempt(attempt_id, "blocked")
                 self.store.update(
                     task_id, queue_status="needs_approval",
                     dispatch_claim_owner=None, dispatch_claimed_at=None,
                     warnings=list(record.get("warnings") or []) + [
                         "APPROVAL_RACE_LOST: no unreserved approval matches this digest"])
                 self.store.append_event(task_id, "approval_reservation_failed", {
-                    "digest": digest, "attempt_id": attempt_id})
+                    "digest": digest, "attempt_id": attempt_id,
+                    "attempt_state": "blocked"})
                 raise ApprovalRequired(
                     "another attempt reserved this approval, or no approved digest remains; "
                     "no Worker call was made")
@@ -416,6 +427,7 @@ class ControlPlane:
                 "it either binds the existing job or proves none was created.",
                 *( ["APPROVAL_FROZEN: reservation kept until dispatch is resolved"]
                    if approval else [])]
+            self.store.mark_attempt(attempt_id, "dispatch_unknown")
             self.store.append_event(task_id, "dispatch_unknown", {
                 **result.raw, "approval_frozen": bool(approval),
                 "attempt_id": attempt_id})
@@ -424,13 +436,15 @@ class ControlPlane:
         if not result.accepted or not result.worker_job_id:
             released = (self.store.release_reservation(
                 approval["id"], attempt_id) if approval else False)
+            self.store.close_attempt(attempt_id, "aborted_before_dispatch")
             patch.update(state=TaskState.UNKNOWN.value,
                          verdict=Verdict.INCONCLUSIVE.value, queue_status="needs_human")
             self.store.append_event(task_id, "dispatch_failed", {
                 **result.raw, "approval_released": released,
-                "attempt_id": attempt_id})
+                "attempt_id": attempt_id, "attempt_state": "aborted_before_dispatch"})
             return self.store.update(task_id, **patch)
 
+        self.store.mark_attempt(attempt_id, "dispatched")
         self.store.append_event(task_id, "dispatch_accepted", {
             "worker_job_id": result.worker_job_id,
             "http": result.raw.get("dispatch_http")})
@@ -707,9 +721,14 @@ class ControlPlane:
                 vanished.append({"task_id": task["task_id"], "job": jid, "misses": misses,
                                  "action": "pending second scan"})
                 continue
-            patch = self._mark_lost(task, jid, "job id absent from two consecutive full scans")
+            # Two consecutive misses are NOT proof of death on their own: the
+            # process may still be executing. Only independent liveness evidence
+            # (a dead pid) may conclude `lost`; otherwise the task becomes
+            # suspected_lost and keeps occupying its concurrency slot (review P0).
+            patch, outcome = self._assess_lost(
+                task, jid, "job id absent from two consecutive full scans")
             vanished.append({"task_id": task["task_id"], "job": jid, "misses": misses,
-                             "action": patch["state"]})
+                             "action": outcome})
         return {"ok": True, "total": len(rec["jobs"]), "orphans": orphans[:20],
                 "orphan_count": len(orphans), "vanished": vanished}
 
@@ -731,21 +750,69 @@ class ControlPlane:
                 "count": count, "state_unchanged": True}
 
     def _confirm_lost(self, task: dict, snap: TaskSnapshot, patch: dict) -> dict:
-        """Adapter says lost: demand independent evidence before accepting it."""
-        alive = None
-        probe = getattr(self.adapter, "pid_alive", None)
-        if callable(probe):
-            try:
-                alive = probe(snap.pid)
-            except Exception:  # noqa: BLE001
-                alive = None
-        if alive is False or (snap.pid is None and alive is None):
+        """Adapter says lost: demand independent evidence before accepting it.
+
+        Review P0: a missing pid or an unavailable probe is *uncertainty*, not
+        proof of death. In that case the item keeps its previous state and stays
+        `suspected_lost` — capacity is not released and no retry is authorised.
+        """
+        alive = self._process_alive(snap.pid)
+        if alive is False:
             return patch
         # cannot prove death: keep the previous state, record the doubt
         prev = task.get("state") or TaskState.UNKNOWN.value
+        warning = (f"LOST_UNCONFIRMED: adapter reports lost but pid={snap.pid} "
+                   f"alive={alive}; kept as suspected_lost, capacity not released")
+        self.store.update(task["task_id"],
+                          metadata={**(task.get("metadata") or {}),
+                                    "suspected_lost": True},
+                          warnings=list(task.get("warnings") or []) + [warning])
+        self.store.append_event(task["task_id"], "suspected_lost",
+                                {"pid": snap.pid, "alive": alive,
+                                 "source": "adapter_report"})
         return {**patch, "state": prev,
-                "warnings": list(patch.get("warnings") or []) +
-                [f"LOST_UNCONFIRMED: adapter reports working/lost but pid={snap.pid} alive={alive}"]}
+                "verdict": task.get("verdict") or Verdict.PENDING.value,
+                "queue_status": "running",
+                "warnings": list(patch.get("warnings") or []) + [warning]}
+
+    def _process_alive(self, pid: int | None) -> bool | None:
+        """Independent liveness evidence (never from a failed query).
+
+        Returns None when there is no pid to probe or the adapter cannot answer:
+        absence of evidence, not evidence of death.
+        """
+        probe = getattr(self.adapter, "pid_alive", None)
+        if not callable(probe) or not pid:
+            return None
+        try:
+            return bool(probe(pid))
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _assess_lost(self, task: dict, jid: str | None, reason: str,
+                     *, snap_pid: int | None = None) -> tuple[dict, str]:
+        """Unified lost verdict (review P0): absence is doubt, death is proven.
+
+        Returns ``(patch, outcome)`` where outcome is either ``lost`` (independent
+        evidence: the process is dead) or ``suspected_lost`` (no evidence: state
+        kept, concurrency slot retained, human resolution required).
+        """
+        pid = snap_pid if snap_pid is not None else task.get("pid")
+        alive = self._process_alive(pid)
+        if alive is False:
+            patch = self._mark_lost(task, jid, f"{reason}; pid={pid} confirmed dead")
+            return patch, "lost"
+        metadata = {**(task.get("metadata") or {}),
+                    "suspected_lost": True, "suspected_lost_reason": reason}
+        self.store.update(
+            task["task_id"], metadata=metadata,
+            warnings=list(task.get("warnings") or []) + [
+                f"SUSPECTED_LOST: {reason}; pid={pid} alive={alive}; state kept, "
+                "capacity NOT released, human resolution required"])
+        self.store.append_event(task["task_id"], "suspected_lost",
+                                {"worker_job_id": jid, "reason": reason,
+                                 "pid": pid, "alive": alive})
+        return {}, "suspected_lost"
 
     def _mark_lost(self, task: dict, jid: str, reason: str) -> dict:
         patch = {"state": TaskState.LOST.value, "verdict": Verdict.REJECTED.value,
@@ -755,14 +822,21 @@ class ControlPlane:
         self.store.append_event(task["task_id"], "lost", {"worker_job_id": jid, "reason": reason})
         return patch
 
-    def recover_inflight(self) -> dict:
+    def recover_inflight(self, *, lease_ttl_s: float = DISPATCH_CLAIM_LEASE_S) -> dict:
         """Close the crash window between "intent persisted" and "job id stored".
 
         Any work item still `queued` with no worker job id means we died after
         writing intent (possibly after the POST). Treat it exactly like
         dispatch_unknown: reject blind re-dispatch, require resolve_dispatch().
+
+        Review P1 (multi-runtime race): an item claimed by another runtime less
+        than `lease_ttl_s` ago may simply be mid-POST right now. Such claims are
+        skipped; only claims that are provably expired (or unowned) are recovered,
+        so a starting runtime can no longer flip another instance's live dispatch
+        to `dispatch_unknown`.
         """
-        recovered = []
+        recovered, skipped = [], []
+        now = time.time()
         for task in self.store.all():
             if not self._belongs_to_adapter(task):
                 continue
@@ -772,15 +846,25 @@ class ControlPlane:
             # Only a claimed/immediate intent with no job handle is ambiguous.
             if task.get("queue_status") in ("ready", "needs_approval"):
                 continue
+            owner = task.get("dispatch_claim_owner")
+            claimed_at = float(task.get("dispatch_claimed_at") or 0)
+            if owner and (now - claimed_at) < lease_ttl_s:
+                skipped.append({"task_id": task["task_id"], "owner": owner,
+                                "claim_age_s": round(now - claimed_at, 1)})
+                continue
             self.store.update(
                 task["task_id"], state=TaskState.DISPATCH_UNKNOWN.value,
                 queue_status="needs_human",
+                dispatch_claim_owner=None, dispatch_claimed_at=None,
                 warnings=list(task.get("warnings") or []) +
                 ["DISPATCH_INFLIGHT_AT_RESTART: intent was persisted but no job id; "
                  "run resolve_dispatch() before any new attempt"])
-            self.store.append_event(task["task_id"], "recovered_inflight", {})
+            self.store.append_event(task["task_id"], "recovered_inflight",
+                                    {"owner": owner,
+                                     "claim_age_s": round(now - claimed_at, 1)})
             recovered.append(task["task_id"])
-        return {"recovered": recovered, "count": len(recovered)}
+        return {"recovered": recovered, "count": len(recovered),
+                "skipped_active_claims": skipped}
 
     def _belongs_to_adapter(self, task: dict) -> bool:
         """Route only this Adapter's work; legacy rows without a name stay local."""
@@ -922,6 +1006,8 @@ class ControlPlane:
                             if t.get("state") == TaskState.DISPATCH_UNKNOWN.value]
         queued = [t for t in tasks if t.get("queue_status") == "ready"]
         queue_approvals = [t for t in tasks if t.get("queue_status") == "needs_approval"]
+        suspected_lost = [t for t in tasks
+                          if (t.get("metadata") or {}).get("suspected_lost")]
 
         next_actions = []
         if unknown_dispatch:
@@ -941,6 +1027,9 @@ class ControlPlane:
         if queue_approvals:
             next_actions.append("队列任务等待审批: "
                                 + ", ".join(t["task_id"] for t in queue_approvals))
+        if suspected_lost:
+            next_actions.append("疑似失联待人工裁决（容量未释放）: "
+                                + ", ".join(t["task_id"] for t in suspected_lost))
 
         return {
             "generated_at": time.time(),
@@ -956,6 +1045,7 @@ class ControlPlane:
                 "dispatch_unknown": len(unknown_dispatch),
                 "queued_ready": len(queued),
                 "queued_needs_approval": len(queue_approvals),
+                "suspected_lost": len(suspected_lost),
             },
             "needs_human": [t["task_id"] for t in waiting],
             "tasks": [self._task_view(t) for t in tasks],

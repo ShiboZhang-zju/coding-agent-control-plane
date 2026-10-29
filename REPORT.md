@@ -552,3 +552,74 @@ work item 持久化 `project_id`。
 证据 `evidence/jobs/V02-005-project-registry.json`：两个真实临时 Git 仓库下，未注册路径、
 跨项目路径和禁用项目均被拒绝；全局上限 3 时首批为 `a1 + b1 + b2`，`a2`
 等待 A 的单项目槽位，`a1` 终止后立即派发，全部 Pass。T17–T25 同步回归仍全部 Pass。
+
+## 12. 评审第 3 轮修复（T26，2026-10-29）
+
+针对源码复核确认的 5 个问题（2×P0、3×P1）逐项修复，证据
+evidence/recovery/T26-p0-fixes.json。
+
+### 12.1 P0：Ledger 降级状态跨重启持久化
+
+修复前，fail-closed 只对发现损坏的那个进程有效：截断后的空库在下一次启动通过
+integrity_check，降级标记 LEDGER_DEGRADED.txt 从未被读回，派工禁令形同虚设。
+
+- 降级标记改为 per-db 文件 <ledger>.DEGRADED（旧共享文件名会把同目录其他测试
+  库一并降级），TaskStore.__init__ 启动时读回：只要标记存在即降级，与
+  integrity_check 结果无关；
+- 唯一解除入口是显式人工操作 TaskStore.recover_degraded(operator_note=...)
+  （CLI：controlplane recover-ledger --note ...）。空 note 直接拒绝，恢复动作
+  追加审计到 .poc-state/LEDGER_RECOVERY.log；
+- legacy 	asks.json 迁移失败同样写入持久化标记。
+
+T26-A：损坏 → 降级 → 进程退出 → 重启 → 派工仍被拒、Worker 零调用；空 note 恢复
+被拒；带 note 恢复后派工恢复、标记删除、新进程不再降级。
+
+### 12.2 P0：lost 误判统一为「缺席是疑点，死亡要证据」
+
+- 新增统一失联判定 _assess_lost()：连续两次全量扫描缺失只产生 suspected_lost
+  （状态保持、queue_status=running、并发容量不释放、metadata 记录疑点），只有
+  独立证据（dapter.pid_alive() 确认进程已死）才判 lost 并释放容量；
+- _confirm_lost() 同步收紧：adapter 自报 lost 但 PID 缺失或探测不可用时不再
+  接受，改为 suspected_lost + LOST_UNCONFIRMED 告警；
+- summary() 新增 suspected_lost 计数与人工裁决提示。
+
+T26-B：两次扫描缺失 + PID 存活 → 不 lost、容量保留；死亡证据到达 → lost、容量
+释放；adapter 报 lost 但无 PID → 保持原状态。T18 增加 B2 用例同步回归。
+
+### 12.3 P1：多 Runtime 恢复竞争（claim 租约）
+
+
+ecover_inflight() 增加 DISPATCH_CLAIM_LEASE_S = 300s 租约：另一 Runtime 在
+租约内的活跃 claim 被跳过（skipped_active_claims），只有过期或无主 claim 才被
+恢复为 dispatch_unknown。T26-C：新鲜 claim 原样保留，过期 claim 被接管。
+
+### 12.4 P1：Attempt 残留中间状态
+
+审批预留失败的 Attempt 现在写入 locked 终态（含 ended_at），Worker 明确拒绝
+时写入 borted_before_dispatch，成功派发标记 dispatched（不结束）、结果不确定
+标记 dispatch_unknown（不结束）。T21 并发竞争的 8 个 Attempt 中 7 个现为
+locked，不再被误认为执行历史。
+
+### 12.5 P1：证据脱敏
+
+- scripts/sanitize_evidence.py 新增跨机器用户名兜底正则（/Users/<name>、
+  C:\Users\<name>，含 JSON 转义形式），清理了 V02-005 / T25 证据中生成机
+  的真实主目录路径；
+- 新增 write_evidence() / sanitize_text() 可复用入口：证据序列化后、写盘前
+  自动脱敏，T26 起的新证据脚本使用该入口。
+
+### 12.6 回归
+
+本机（Windows，慢磁盘）全量重跑：T17、T18、T19、T20、T21、T22、T23、T24、T25、
+V02-005、T26 全部 Pass。附带环境修复：清理 sandbox 中 36 个历史遗留临时 Git 仓库
+（每次派发的 sibling 指纹扫描因此从约 40s 降至毫秒级）；T22/T23/T24 的测试 cwd
+移入 sandbox/runtime-tests/ 隔离子目录，等待窗口放宽至与磁盘速度解耦。
+
+### 12.7 未完成（如实记录）
+
+- Windows OS 级隔离未做：项目注册只是控制平面侧路径约束，挡不住具有宿主权限的
+  Worker 进程；
+- 第二 Worker Adapter、Foreman 未启动；
+- Ledger 跨重启降级在多 db 文件并存时依赖 per-db 标记文件，
+ecover_degraded
+  不校验隔离副本内容是否已被人工真正检查，仅强制留痕。

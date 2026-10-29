@@ -4,7 +4,7 @@
     "updated": 1,
     "anomalies": [
       {
-        "task_id": "cp-f3789dc3ce10",
+        "task_id": "cp-27d9a55a6d02",
         "error": "TimeoutError",
         "count": 1,
         "state_unchanged": true
@@ -17,7 +17,7 @@
   "B_vanished_job": {
     "first_scan": [
       {
-        "task_id": "cp-f3789dc3ce10",
+        "task_id": "cp-27d9a55a6d02",
         "job": "job-1",
         "misses": 1,
         "action": "pending second scan"
@@ -26,13 +26,22 @@
     "state_after_one_scan": "running",
     "second_scan": [
       {
-        "task_id": "cp-f3789dc3ce10",
+        "task_id": "cp-27d9a55a6d02",
         "job": "job-1",
         "misses": 2,
         "action": "lost"
       }
     ],
     "state_after_two_scans": "lost",
+    "pass": true
+  },
+  "B2_live_pid_not_lost": {
+    "state": "running",
+    "queue_status": "running",
+    "suspected_lost": true,
+    "action": [
+      "suspected_lost"
+    ],
     "pass": true
   },
   "C_scan_failure": {

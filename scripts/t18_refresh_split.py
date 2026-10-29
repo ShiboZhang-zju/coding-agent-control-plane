@@ -2,7 +2,10 @@
 
 Checks:
   A. a per-job query failure is an observation anomaly (state unchanged), not `lost`
-  B. a job missing from TWO consecutive full scans becomes `lost`
+  B. a job missing from TWO consecutive full scans becomes `lost` **only when the
+     pid is independently confirmed dead** (review P0: absence alone is doubt)
+  B2. the same two misses with a live pid stay `suspected_lost`: state kept,
+      concurrency slot retained
   C. a failing full scan leaves known-task state untouched
 """
 from __future__ import annotations
@@ -32,6 +35,7 @@ class FlakyAdapter:
         self.slow: set[str] = set()
         self.scan_fails = False
         self.scan_visible: set[str] | None = None       # None = report all
+        self.alive: dict[int, bool] = {}                # pid -> liveness evidence
 
     def dispatch(self, request) -> DispatchResult:
         job_id = f"job-{len(self.jobs) + 1}"
@@ -57,6 +61,12 @@ class FlakyAdapter:
         return {"source": "stub", "total": len(visible), "new": [], "changed": [], "lost": [],
                 "jobs": [{"id": j, "state": "done"} for j in visible]}
 
+    def pid_alive(self, pid: int | None):
+        """Independent liveness evidence for the lost verdict."""
+        if pid is None:
+            return None
+        return self.alive.get(pid)
+
 
 def main() -> int:
     cwd = str(ROOT / "sandbox" / "repo-a-t11")
@@ -81,9 +91,11 @@ def main() -> int:
         "pass": after_a["state"] != TaskState.LOST.value and len(r1["anomalies"]) == 1,
     }
 
-    # --- B: job vanishes from two consecutive scans ------------------------
+    # --- B: job vanishes from two consecutive scans, pid confirmed dead ----
     adapter.slow = set()
     adapter.scan_visible = {job_b}
+    store.update(a["task_id"], pid=7071)
+    adapter.alive[7071] = False          # independent evidence: process dead
     first = plane.discover_orphan_jobs()
     state_after_one = store.get(a["task_id"])["state"]
     second = plane.discover_orphan_jobs()
@@ -92,6 +104,23 @@ def main() -> int:
         "first_scan": first["vanished"], "state_after_one_scan": state_after_one,
         "second_scan": second["vanished"], "state_after_two_scans": state_after_two,
         "pass": state_after_one != "lost" and state_after_two == "lost",
+    }
+
+    # --- B2: same two misses, but the pid is ALIVE -> suspected, not lost ---
+    adapter.scan_visible = set()
+    store.update(b["task_id"], pid=8081)
+    adapter.alive[8081] = True
+    plane.discover_orphan_jobs()
+    second_b2 = plane.discover_orphan_jobs()
+    after_b2 = store.get(b["task_id"])
+    adapter.scan_visible = {job_b}
+    log["B2_live_pid_not_lost"] = {
+        "state": after_b2["state"], "queue_status": after_b2["queue_status"],
+        "suspected_lost": (after_b2.get("metadata") or {}).get("suspected_lost"),
+        "action": [v["action"] for v in second_b2["vanished"] if v["job"] == job_b],
+        "pass": (after_b2["state"] != "lost"
+                 and after_b2["queue_status"] == "running"
+                 and (after_b2.get("metadata") or {}).get("suspected_lost") is True),
     }
 
     # --- C: full scan fails ----------------------------------------------
@@ -103,13 +132,14 @@ def main() -> int:
                              "state_before": state_before, "state_after": state_after,
                              "pass": failed["ok"] is False and state_before == state_after}
 
-    log["pass"] = all(log[k]["pass"] for k in ("A_slow_query", "B_vanished_job", "C_scan_failure"))
+    keys = ("A_slow_query", "B_vanished_job", "B2_live_pid_not_lost", "C_scan_failure")
+    log["pass"] = all(log[k]["pass"] for k in keys)
     log["result"] = "Pass" if log["pass"] else "Fail"
     (ROOT / "evidence" / "recovery").mkdir(parents=True, exist_ok=True)
     (ROOT / "evidence" / "recovery" / "T18-refresh-split.json").write_text(
         json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps({k: log[k] for k in ("A_slow_query", "B_vanished_job", "C_scan_failure",
-                                          "result")}, ensure_ascii=False, indent=1)[:1500])
+    print(json.dumps({k: log[k] for k in keys + ("result",)},
+                     ensure_ascii=False, indent=1)[:1500])
     return 0
 
 

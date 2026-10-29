@@ -110,20 +110,29 @@ refresh_known_jobs(timeout_s)   高频  逐 job 查询；单次超时；失败=�
 discover_orphan_jobs()          低频  全量扫描；失败=返回 ok=False，已知任务不受影响
 ```
 
-- **失败 ≠ 死亡**：查询超时只记 `observation_failed` 与 `observe_failures` 计数；
-  `lost` 需要独立证据（pid 不存活，或连续两次全量扫描都看不到该 job）。
+- **失败 ≠ 死亡，缺席 ≠ 死亡**：查询超时只记 `observation_failed` 与 `observe_failures` 计数；
+  连续两次全量扫描缺失只产生 `suspected_lost`（状态保持、并发容量不释放），
+  `lost` 只能由独立死亡证据（`adapter.pid_alive()` 确认进程已死）得出。
 - adapter 报 `working+alive=false` 时，plane 会用 `adapter.pid_alive()` 复核；
-  复核不确定则保持原状态并记 `LOST_UNCONFIRMED`。
+  复核不确定或无 PID 可查时保持原状态并记 `LOST_UNCONFIRMED` / `suspected_lost`，
+  等待人工裁决。
 
-## 8. Ledger 降级 = 只读
+## 8. Ledger 降级 = 只读（跨重启）
 
 `TaskStore.assert_writable(op)`：`degraded=True`（完整性校验失败、已从空库启动）时
 `dispatch / resume / respawn / approve / deny / request_approval` 全部抛 `LedgerDegraded`。
 理由：空库不知道哪些任务正在跑，继续派工会造成重复执行。
 查询、`summary()`、事件与证据导出仍然可用。
 
+降级状态持久化在 per-db 标记文件 `<ledger>.DEGRADED`：重启时空库虽然能通过
+integrity_check，标记会把禁令重新装上。唯一解除入口是人工操作
+`TaskStore.recover_degraded(operator_note=...)`（CLI `recover-ledger --note ...`），
+必须留下可审计的说明，动作追加到 `.poc-state/LEDGER_RECOVERY.log`。
+
 启动时 `recover_inflight()` 收口另一个撞车窗口：**意图已落库但 job id 未写入**
-（POST 成功后进程崩溃）→ 置 `dispatch_unknown`，禁止盲目重派。
+（POST 成功后进程崩溃）→ 置 `dispatch_unknown`，禁止盲目重派。多 Runtime 并存时，
+其他实例在租约期（默认 300s）内的活跃 dispatch claim 会被跳过，只有过期或无主的
+claim 才被接管。
 
 ## 9. 审批：绑定内容，派发前原子预留，一次一用
 
@@ -156,6 +165,15 @@ digest 一致、状态为 `pending`、未消费——已拒绝或已消费的记
 
 关键约束：**批准某个操作 ≠ 批准 Agent 之后改过的 prompt**。
 改了 prompt/policy/断言/cwd 中任何一项，digest 就变，旧审批自动失效。
+
+Attempt 状态（T26 之后）区分"执行历史"与"从未执行的竞争残留"：
+
+| attempt 状态 | 含义 | `ended_at` |
+|---|---|---|
+| `dispatched` | 已绑定 worker job，正在/已经执行 | 空（未结束） |
+| `dispatch_unknown` | POST 结果不确定，等待 resolve | 空（未结束） |
+| `blocked` | 审批预留竞争失败，**从未调用 Worker** | 已结束 |
+| `aborted_before_dispatch` | Worker 明确拒绝，未创建 job | 已结束 |
 
 ## 10. 接入下一个 Worker 的最小工作量
 

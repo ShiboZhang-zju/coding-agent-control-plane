@@ -200,6 +200,9 @@ class TaskStore:
         if base.suffix.lower() == ".json":
             base = base.with_suffix(".db")
         self.path = base
+        # per-db marker: a shared "LEDGER_DEGRADED.txt" in .poc-state/ would
+        # wrongly degrade every other test ledger in the same directory
+        self.degraded_marker = base.with_name(base.name + ".DEGRADED")
         self.degraded = False
         self.degraded_reason = ""
         self._lock = threading.RLock()   # parallel dispatch (T11) writes from threads
@@ -208,6 +211,7 @@ class TaskStore:
         self._conn.executescript(SCHEMA)
         self._conn.commit()
         self._migrate_columns()
+        self._restore_degraded_state()
         if migrate_legacy and self._is_empty():
             self._migrate_legacy_json()
 
@@ -234,6 +238,12 @@ class TaskStore:
         leftover -wal), and a failed rename used to leave the path pointing at the
         same broken bytes, so the "recover into an empty ledger" path exploded.
         Copy-then-truncate works in both cases.
+
+        Review P0 (fail-closed across restarts): the degraded state is persisted in
+        a marker file next to the db. A restart passes integrity_check on the now
+        empty file, but the marker re-degrades it, so the dispatch ban survives the
+        process that discovered the corruption. Only an explicit
+        `recover_degraded()` (human operation) lifts it.
         """
         stamp = time.strftime("%Y%m%d-%H%M%S")
         broken = self.path.with_name(f"{self.path.name}.corrupt-{stamp}")
@@ -245,16 +255,46 @@ class TaskStore:
             broken = None
         self.degraded = True
         self.degraded_reason = f"{type(exc).__name__}: {exc}; quarantined to {broken}"
-        marker = self.path.parent / "LEDGER_DEGRADED.txt"
-        marker.write_text(
+        self._write_degraded_marker(
             f"{time.strftime('%Y-%m-%d %H:%M:%S')} ledger corrupted, started empty\n"
-            f"reason: {self.degraded_reason}\n", encoding="utf-8")
+            f"reason: {self.degraded_reason}\n"
+            "manual recovery required: review the *.corrupt-* copy, then call\n"
+            "recover_degraded(operator_note=...) or `controlplane recover-ledger`.\n")
         print(f"[LEDGER DEGRADED] {self.degraded_reason}", file=sys.stderr)
         conn = sqlite3.connect(str(self.path), timeout=15, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=15000")
         return conn
+
+    def _write_degraded_marker(self, text: str) -> None:
+        try:
+            self.degraded_marker.write_text(text, encoding="utf-8")
+        except OSError:
+            pass
+
+    def _restore_degraded_state(self) -> None:
+        """Re-degrade a ledger that was corrupted by a previous process.
+
+        Without this, the fail-closed guarantee was process-local: the truncated
+        database passes integrity_check on the next start and dispatch was allowed
+        again while we still do not know what was running when the data was lost.
+        """
+        if self.degraded:
+            return
+        try:
+            if not self.degraded_marker.exists():
+                return
+            prior = self.degraded_marker.read_text(
+                encoding="utf-8", errors="replace").strip()
+            last_line = prior.splitlines()[-1] if prior else "unknown"
+            self.degraded = True
+            self.degraded_reason = (
+                "degraded in a previous process (marker "
+                f"{self.degraded_marker.name}); last record: {last_line}")
+            print(f"[LEDGER DEGRADED] {self.degraded_reason}", file=sys.stderr)
+        except OSError:
+            pass
 
     def _migrate_columns(self) -> None:
         """Add columns used by newer ledgers without discarding existing state."""
@@ -293,7 +333,39 @@ class TaskStore:
             raise LedgerDegraded(
                 f"refusing {operation}: ledger is degraded ({self.degraded_reason}). "
                 "Queries, diagnostics and export are still available; recover the ledger "
-                "(or start a new one) before dispatching again.")
+                "(recover_degraded) or start a new one before dispatching again.")
+
+    @_synchronized
+    def recover_degraded(self, operator_note: str = "") -> dict:
+        """The ONLY operation that lifts a persistent degraded state.
+
+        Intended as an explicit human action after reviewing the quarantined
+        `*.corrupt-*` copy and accepting what was lost. An empty note is refused:
+        lifting a fail-closed state must leave an auditable reason. The decision
+        is appended to `LEDGER_RECOVERY.log` beside the ledger.
+        """
+        note = (operator_note or "").strip()
+        if not note:
+            raise ValueError("recover_degraded requires an operator note: the degraded "
+                             "state exists because task history was lost; recovery must "
+                             "be auditable")
+        if not self.degraded:
+            return {"recovered": False, "degraded": False, "note": note}
+        audit = self.path.parent / "LEDGER_RECOVERY.log"
+        try:
+            with audit.open("a", encoding="utf-8") as fh:
+                fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} recovered "
+                         f"{self.path.name} note={note!r} "
+                         f"prior_reason={self.degraded_reason!r}\n")
+        except OSError:
+            pass
+        try:
+            self.degraded_marker.unlink(missing_ok=True)
+        except OSError:
+            pass
+        self.degraded = False
+        self.degraded_reason = ""
+        return {"recovered": True, "degraded": False, "note": note}
 
     def _is_empty(self) -> bool:
         row = self._conn.execute("SELECT COUNT(*) FROM work_items").fetchone()
@@ -308,6 +380,9 @@ class TaskStore:
         except Exception as exc:  # noqa: BLE001
             self.degraded = True
             self.degraded_reason = f"legacy tasks.json unreadable: {exc}"
+            self._write_degraded_marker(
+                f"{time.strftime('%Y-%m-%d %H:%M:%S')} legacy tasks.json unreadable: {exc}\n"
+                "manual recovery required: recover_degraded(operator_note=...).\n")
             print(f"[LEDGER DEGRADED] {self.degraded_reason}", file=sys.stderr)
             return
         records = raw.get("records", {}) if isinstance(raw, dict) else {}
@@ -702,6 +777,14 @@ class TaskStore:
     def close_attempt(self, attempt_id: str, state: str) -> None:
         self._conn.execute("UPDATE attempts SET state=?, ended_at=? WHERE id=?",
                            (state, time.time(), attempt_id))
+        self._conn.commit()
+
+    @_synchronized
+    def mark_attempt(self, attempt_id: str, state: str) -> None:
+        """Set an attempt's state without ending it (e.g. `dispatched`,
+        `dispatch_unknown`): the outcome is known, the attempt is still open."""
+        self._conn.execute("UPDATE attempts SET state=? WHERE id=?",
+                           (state, attempt_id))
         self._conn.commit()
 
     @_synchronized

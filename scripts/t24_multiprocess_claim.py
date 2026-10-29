@@ -54,7 +54,8 @@ def main() -> int:
     db = ROOT / ".poc-state" / "t24-multiprocess.db"
     store = TaskStore(db)
     store.clear()
-    cwd = str(ROOT / "sandbox" / "runtime-t24")
+    cwd = str(ROOT / "sandbox" / "runtime-tests" / "runtime-t24")
+    Path(cwd).mkdir(parents=True, exist_ok=True)
 
     with ctx.Manager() as manager:
         dispatch_log = manager.list()

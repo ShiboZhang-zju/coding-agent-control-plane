@@ -12,9 +12,9 @@
     "show_includes_audit_history": true
   },
   "project": {
-    "id": "prj-c904d76a09",
+    "id": "prj-ce5ace0f13",
     "name": "cli-t25",
-    "root": "/Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/cli-t25",
+    "root": "<REPO>\\sandbox\\cli-t25",
     "default_adapter": "codebuddy",
     "policy": {
       "mode": "agent",
@@ -25,77 +25,77 @@
     },
     "concurrency_limit": 2,
     "active": true,
-    "updated_at": 1793263463.804259
+    "updated_at": 1793267764.387296
   },
   "safe": {
-    "task_id": "cp-71bfac761d92",
+    "task_id": "cp-faa5cfa740c0",
     "title": "safe",
     "adapter": "codebuddy",
-    "project_id": "prj-c904d76a09",
+    "project_id": "prj-ce5ace0f13",
     "priority": 10,
     "queue_status": "ready",
     "state": "queued",
     "verdict": "pending",
     "worker_job_id": null,
-    "cwd": "/Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/cli-t25",
+    "cwd": "<REPO>\\sandbox\\cli-t25",
     "warnings": [],
-    "updated_at": 1793263464.1352818,
-    "task_digest": "b2237de20d0cab07d0d57de939a64ac9",
+    "updated_at": 1793267767.8010828,
+    "task_digest": "86ac8859445be95039de911980c21acd",
     "approval_required": false
   },
   "risky_before_approval": {
-    "task_id": "cp-7228b4e90434",
+    "task_id": "cp-2161e7928368",
     "title": "risky",
     "adapter": "codebuddy",
-    "project_id": "prj-c904d76a09",
+    "project_id": "prj-ce5ace0f13",
     "priority": 20,
     "queue_status": "needs_approval",
     "state": "queued",
     "verdict": "pending",
     "worker_job_id": null,
-    "cwd": "/Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/cli-t25",
+    "cwd": "<REPO>\\sandbox\\cli-t25",
     "warnings": [
       "UNISOLATED_SHELL: shell job has no filesystem isolation"
     ],
-    "updated_at": 1793263464.2013829,
-    "task_digest": "957ef8b304c964b0da84c5a14bb991b1",
+    "updated_at": 1793267768.515659,
+    "task_digest": "2f80ad56b4eea430796522f86098057c",
     "approval_required": true
   },
   "approval": {
-    "id": 1,
+    "id": 2,
     "decision": "approved",
     "queued_items_released": 1
   },
   "items_after_approval": [
     {
-      "task_id": "cp-71bfac761d92",
+      "task_id": "cp-faa5cfa740c0",
       "title": "safe",
       "adapter": "codebuddy",
-      "project_id": "prj-c904d76a09",
+      "project_id": "prj-ce5ace0f13",
       "priority": 10,
       "queue_status": "ready",
       "state": "queued",
       "verdict": "pending",
       "worker_job_id": null,
-      "cwd": "/Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/cli-t25",
+      "cwd": "<REPO>\\sandbox\\cli-t25",
       "warnings": [],
-      "updated_at": 1793263464.1352818
+      "updated_at": 1793267767.8010828
     },
     {
-      "task_id": "cp-7228b4e90434",
+      "task_id": "cp-2161e7928368",
       "title": "risky",
       "adapter": "codebuddy",
-      "project_id": "prj-c904d76a09",
+      "project_id": "prj-ce5ace0f13",
       "priority": 20,
       "queue_status": "ready",
       "state": "queued",
       "verdict": "pending",
       "worker_job_id": null,
-      "cwd": "/Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/cli-t25",
+      "cwd": "<REPO>\\sandbox\\cli-t25",
       "warnings": [
         "UNISOLATED_SHELL: shell job has no filesystem isolation"
       ],
-      "updated_at": 1793263464.334508
+      "updated_at": 1793267769.6188412
     }
   ],
   "result": "Pass"

@@ -176,6 +176,12 @@ def build_parser() -> argparse.ArgumentParser:
     deny = approval_sub.add_parser("deny")
     deny.add_argument("approval_id", type=int)
     deny.add_argument("--note", default="")
+
+    recover = sub.add_parser(
+        "recover-ledger",
+        help="lift a persistent degraded state (manual, audited)")
+    recover.add_argument("--note", required=True,
+                         help="why the degraded state may be lifted (audited)")
     return ap
 
 
@@ -261,6 +267,10 @@ def main() -> int:
                     result = plane.deny(digest, note=args.note,
                                         approval_id=args.approval_id)
                 emit(result, compact=args.compact)
+        elif args.command == "recover-ledger":
+            # Manual, audited recovery of a persistent degraded ledger. The
+            # operator must have reviewed the *.corrupt-* quarantine copy first.
+            emit(store.recover_degraded(args.note), compact=args.compact)
         return 0
     except (KeyError, ValueError) as exc:
         emit({"error": f"{type(exc).__name__}: {exc}"}, compact=args.compact)

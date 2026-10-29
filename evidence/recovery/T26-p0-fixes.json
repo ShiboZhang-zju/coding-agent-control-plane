@@ -1,0 +1,94 @@
+{
+  "test": "T26-p0-fixes",
+  "A_degraded_survives_restart": {
+    "degraded_on_corruption": true,
+    "degraded_after_restart": true,
+    "dispatch_after_restart": "refused",
+    "worker_calls_before_recovery": 0,
+    "recovery_without_note": "refused",
+    "recovery_with_note": {
+      "recovered": true,
+      "degraded": false,
+      "note": "operator reviewed the quarantine copy"
+    },
+    "dispatch_after_recovery": "allowed",
+    "worker_job_after_recovery": "job-1",
+    "marker_deleted": true,
+    "fresh_process_not_degraded": true,
+    "pass": true
+  },
+  "B_scan_miss_live_pid": {
+    "two_misses_with_live_pid": {
+      "state": "running",
+      "verdict": "pending",
+      "queue_status": "running",
+      "suspected_lost": true,
+      "capacity_retained": true
+    },
+    "third_scan_after_death": {
+      "action": [
+        "lost"
+      ],
+      "state": "lost",
+      "verdict": "rejected",
+      "queue_status": "complete",
+      "capacity_released": true
+    },
+    "adapter_lost_without_pid": {
+      "state": "running",
+      "warning": true,
+      "suspected_lost": true
+    },
+    "pass": true
+  },
+  "C_claim_lease": {
+    "recovered": [
+      "cp-16306afa498b"
+    ],
+    "skipped_active_claims": [
+      {
+        "task_id": "cp-3a55a1821a3b",
+        "owner": "runtime-other",
+        "claim_age_s": 5.1
+      }
+    ],
+    "fresh_claim_state": "queued",
+    "fresh_claim_owner_kept": "runtime-other",
+    "stale_claim_state": "dispatch_unknown",
+    "stale_claim_owner_cleared": true,
+    "pass": true
+  },
+  "D_attempt_terminal_states": {
+    "race_outcomes": [
+      {
+        "key": "t26-d-2",
+        "ok": false,
+        "refused": "approval_taken"
+      },
+      {
+        "key": "t26-d-1",
+        "ok": true
+      }
+    ],
+    "winner_attempt": {
+      "state": "dispatched",
+      "ended": false
+    },
+    "loser_attempt": {
+      "state": "blocked",
+      "ended": true
+    },
+    "rejected_attempt": {
+      "state": "aborted_before_dispatch",
+      "ended": true
+    },
+    "pass": true
+  },
+  "pass": {
+    "A_degraded_survives_restart": true,
+    "B_scan_miss_live_pid": true,
+    "C_claim_lease": true,
+    "D_attempt_terminal_states": true
+  },
+  "result": "Pass"
+}

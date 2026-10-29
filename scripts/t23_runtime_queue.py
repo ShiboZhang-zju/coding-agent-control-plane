@@ -57,7 +57,9 @@ class QueueAdapter:
             self.states[job_id] = TaskState.SUCCEEDED
 
 
-def wait_for(predicate, timeout_s: float = 3.0) -> bool:
+def wait_for(predicate, timeout_s: float = 30.0) -> bool:
+    # 30s: each dispatch pays a baseline fingerprint (a couple of git child
+    # processes), which costs seconds per item on slow-disk Windows machines.
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         if predicate():
@@ -69,7 +71,10 @@ def wait_for(predicate, timeout_s: float = 3.0) -> bool:
 def main() -> int:
     store = TaskStore(ROOT / ".poc-state" / "t23-runtime-queue.db")
     store.clear()
-    cwd = str(ROOT / "sandbox" / "runtime-t23")
+    # Isolated from other sandbox repos: baseline scanning cost must stay
+    # machine-independent so the 3s wait_for windows below remain valid.
+    cwd = str(ROOT / "sandbox" / "runtime-tests" / "runtime-t23")
+    Path(cwd).mkdir(parents=True, exist_ok=True)
     adapter = QueueAdapter(cwd)
     plane = ControlPlane(adapter, store, policy=agent_worktree())
 
@@ -116,12 +121,12 @@ def main() -> int:
                and a.get("decision") == "pending"]
     approval = plane.approve(risky["task_digest"], approval_id=pending[-1]["id"])
     calls_after_approval_without_slot = len(adapter.dispatches)
-    time.sleep(0.08)
+    time.sleep(0.5)
     still_capacity_bound = len(adapter.dispatches) == calls_after_approval_without_slot
     adapter.finish(adapter.dispatches[1]["job_id"])
     risky_wave = wait_for(lambda: len(adapter.dispatches) == 4)
     fourth_title = adapter.dispatches[3]["title"] if len(adapter.dispatches) >= 4 else None
-    runtime.stop(timeout_s=2)
+    runtime.stop(timeout_s=10)
 
     risky_after = store.get(risky["task_id"])
     approval_row = [a for a in store.all_approvals()

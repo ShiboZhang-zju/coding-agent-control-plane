@@ -14,9 +14,9 @@
   },
   "projects": [
     {
-      "id": "prj-595d40bd22",
+      "id": "prj-8b043913b5",
       "name": "project-a",
-      "root": "/Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/v02-005-projects/project-a",
+      "root": "<REPO>\\sandbox\\v02-005-projects\\project-a",
       "default_adapter": "project-stub",
       "policy": {
         "mode": "agent",
@@ -27,13 +27,13 @@
       },
       "concurrency_limit": 1,
       "active": true,
-      "created_at": 1793263464.842774,
-      "updated_at": 1793263464.842774
+      "created_at": 1793267783.4452453,
+      "updated_at": 1793267783.4452453
     },
     {
-      "id": "prj-b5068091a2",
+      "id": "prj-edbb22677c",
       "name": "project-b",
-      "root": "/Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/v02-005-projects/project-b",
+      "root": "<REPO>\\sandbox\\v02-005-projects\\project-b",
       "default_adapter": "project-stub",
       "policy": {
         "mode": "agent",
@@ -44,14 +44,14 @@
       },
       "concurrency_limit": 2,
       "active": true,
-      "created_at": 1793263464.858609,
-      "updated_at": 1793263464.858609
+      "created_at": 1793267783.6387582,
+      "updated_at": 1793267783.6387582
     }
   ],
   "boundary_rejections": {
-    "unregistered": "ValueError: cwd is not inside a registered project: /Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/v02-005-projects/unregistered",
-    "path_traversal": "ValueError: cwd escapes project project-a boundary: /Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/v02-005-projects/project-b not under /Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/v02-005-projects/project-a",
-    "non_top_level": "ValueError: project root must be a Git working tree: /Users/xieyun/Documents/ChatGPT/一人管理agent/sandbox/v02-005-projects/project-a/.git (fatal: this operation must be run in a work tree)",
+    "unregistered": "ValueError: cwd is not inside a registered project: <REPO>\\sandbox\\v02-005-projects\\unregistered",
+    "path_traversal": "ValueError: cwd escapes project project-a boundary: <REPO>\\sandbox\\v02-005-projects\\project-b not under <REPO>\\sandbox\\v02-005-projects\\project-a",
+    "non_top_level": "ValueError: project root must be a Git working tree: <REPO>\\sandbox\\v02-005-projects\\project-a\\.git (fatal: this operation must be run in a work tree)",
     "disabled": "ValueError: project is disabled: project-b"
   },
   "dispatch_order": [
@@ -62,22 +62,22 @@
   ],
   "queue": {
     "a1": {
-      "project_id": "prj-595d40bd22",
+      "project_id": "prj-8b043913b5",
       "queue_status": "complete",
       "worker_job_id": "project-job-1"
     },
     "a2": {
-      "project_id": "prj-595d40bd22",
+      "project_id": "prj-8b043913b5",
       "queue_status": "running",
       "worker_job_id": "project-job-4"
     },
     "b1": {
-      "project_id": "prj-b5068091a2",
+      "project_id": "prj-edbb22677c",
       "queue_status": "running",
       "worker_job_id": "project-job-2"
     },
     "b2": {
-      "project_id": "prj-b5068091a2",
+      "project_id": "prj-edbb22677c",
       "queue_status": "running",
       "worker_job_id": "project-job-3"
     }

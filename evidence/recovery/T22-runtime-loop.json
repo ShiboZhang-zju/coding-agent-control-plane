@@ -18,37 +18,38 @@
   "runtime": {
     "running": false,
     "prepared": true,
-    "started_at": 1793263461.340222,
-    "stopped_at": 1793263461.5885298,
-    "cycles": 13,
+    "started_at": 1793267741.424048,
+    "stopped_at": 1793267742.2672882,
+    "cycles": 10,
     "last_error": null,
     "recovery": {
       "recovered": [
-        "cp-e1febcb8738a"
+        "cp-4170452865a6"
       ],
-      "count": 1
+      "count": 1,
+      "skipped_active_claims": []
     },
     "dispatch_queue": {
-      "runs": 1,
+      "runs": 2,
       "consecutive_errors": 0,
-      "last_started_at": 1793263461.3420138,
-      "last_finished_at": 1793263461.3421052,
-      "last_duration_ms": 0.1,
+      "last_started_at": 1793267742.1377394,
+      "last_finished_at": 1793267742.138738,
+      "last_duration_ms": 0.0,
       "last_result": {
         "ok": true,
         "dispatched": 0,
-        "active": 1,
+        "active": 0,
         "items": []
       },
       "last_error": null,
-      "next_in_s": 0.253
+      "next_in_s": 0.359
     },
     "known_jobs": {
       "runs": 5,
       "consecutive_errors": 0,
-      "last_started_at": 1793263461.582933,
-      "last_finished_at": 1793263461.58306,
-      "last_duration_ms": 0.1,
+      "last_started_at": 1793267742.2447293,
+      "last_finished_at": 1793267742.2447293,
+      "last_duration_ms": 0.0,
       "last_result": {
         "ok": true,
         "checked": 0,
@@ -56,14 +57,14 @@
         "anomalies": 0
       },
       "last_error": null,
-      "next_in_s": 0.024
+      "next_in_s": 0.0
     },
     "orphan_scan": {
       "runs": 2,
       "consecutive_errors": 0,
-      "last_started_at": 1793263461.583065,
-      "last_finished_at": 1793263461.5832791,
-      "last_duration_ms": 0.2,
+      "last_started_at": 1793267742.2587652,
+      "last_finished_at": 1793267742.259767,
+      "last_duration_ms": 0.0,
       "last_result": {
         "ok": true,
         "total": 1,
@@ -72,17 +73,17 @@
         "error": null
       },
       "last_error": null,
-      "next_in_s": 0.065
+      "next_in_s": 0.054
     },
     "thread_alive": false
   },
   "task": {
-    "task_id": "cp-88ede8667f34",
+    "task_id": "cp-838be5dbf590",
     "state": "succeeded",
     "verdict": "inconclusive"
   },
   "inflight": {
-    "task_id": "cp-e1febcb8738a",
+    "task_id": "cp-4170452865a6",
     "state": "dispatch_unknown",
     "warnings": [
       "DISPATCH_INFLIGHT_AT_RESTART: intent was persisted but no job id; run resolve_dispatch() before any new attempt"

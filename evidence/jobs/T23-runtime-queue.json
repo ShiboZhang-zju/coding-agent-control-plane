@@ -21,25 +21,25 @@
   "dispatches": [
     {
       "job_id": "job-1",
-      "task_id": "cp-6a9ee81b1931",
+      "task_id": "cp-99f522c6e132",
       "title": "high",
       "prompt": "high"
     },
     {
       "job_id": "job-2",
-      "task_id": "cp-01ab01681b12",
+      "task_id": "cp-9cf2ade46e1e",
       "title": "mid",
       "prompt": "mid"
     },
     {
       "job_id": "job-3",
-      "task_id": "cp-5f38a61e8653",
+      "task_id": "cp-afd56492fd22",
       "title": "low",
       "prompt": "low"
     },
     {
       "job_id": "job-4",
-      "task_id": "cp-d7e7d7daf0be",
+      "task_id": "cp-23841b058cd7",
       "title": "risky",
       "prompt": "risky"
     }
@@ -67,7 +67,7 @@
     }
   },
   "approval": {
-    "id": 1,
+    "id": 4,
     "decision": "approved",
     "consumed": true,
     "consumed_by": "job-4"
@@ -75,27 +75,28 @@
   "runtime": {
     "running": false,
     "prepared": true,
-    "started_at": 1793263461.691069,
-    "stopped_at": 1793263463.054268,
+    "started_at": 1793267743.215346,
+    "stopped_at": 1793267754.951315,
     "cycles": 3,
     "last_error": null,
     "recovery": {
       "recovered": [],
-      "count": 0
+      "count": 0,
+      "skipped_active_claims": []
     },
     "dispatch_queue": {
       "runs": 3,
       "consecutive_errors": 0,
-      "last_started_at": 1793263462.6756322,
-      "last_finished_at": 1793263462.86716,
-      "last_duration_ms": 191.5,
+      "last_started_at": 1793267751.5231907,
+      "last_finished_at": 1793267753.7024016,
+      "last_duration_ms": 2187.0,
       "last_result": {
         "ok": true,
         "dispatched": 1,
         "active": 2,
         "items": [
           {
-            "task_id": "cp-d7e7d7daf0be",
+            "task_id": "cp-23841b058cd7",
             "worker_job_id": "job-4",
             "state": "running",
             "queue_status": "running"
@@ -108,9 +109,9 @@
     "known_jobs": {
       "runs": 3,
       "consecutive_errors": 0,
-      "last_started_at": 1793263462.8671732,
-      "last_finished_at": 1793263463.0542479,
-      "last_duration_ms": 187.1,
+      "last_started_at": 1793267753.7024016,
+      "last_finished_at": 1793267754.9503155,
+      "last_duration_ms": 1235.0,
       "last_result": {
         "ok": true,
         "checked": 2,
@@ -118,17 +119,23 @@
         "anomalies": 0
       },
       "last_error": null,
-      "next_in_s": 0.02
+      "next_in_s": 0.005
     },
     "orphan_scan": {
-      "runs": 0,
+      "runs": 2,
       "consecutive_errors": 0,
-      "last_started_at": null,
-      "last_finished_at": null,
-      "last_duration_ms": null,
-      "last_result": null,
+      "last_started_at": 1793267754.9503155,
+      "last_finished_at": 1793267754.951315,
+      "last_duration_ms": 0.0,
+      "last_result": {
+        "ok": true,
+        "total": 4,
+        "orphan_count": 0,
+        "vanished": 0,
+        "error": null
+      },
       "last_error": null,
-      "next_in_s": 3.637
+      "next_in_s": 4.985
     },
     "thread_alive": false
   },

@@ -30,37 +30,58 @@ def patterns() -> list[tuple[str, str]]:
 
 
 def regexes() -> list[tuple[str, str]]:
-    """Escaped paths embedded in nested strings (e.g. a worker error text inside JSON)."""
+    """Escaped paths embedded in nested strings (e.g. a worker error text inside JSON).
+
+    The generic ``/Users/<name>`` / ``C:\\Users\\<name>`` fallbacks catch evidence
+    produced on a *different* machine (e.g. a macOS build host whose username is
+    not the local one) — exact HOME substitution alone missed those (review P1).
+    """
     import re
 
     user = Path(HOME).name
-    repo = ROOT.name
     return [
         (rf"[A-Za-z]:\\+Users\\+{re.escape(user)}", "<HOME>"),
-        (rf"[A-Za-z]:\\+{re.escape(repo)}", "<REPO>"),
+        (rf"[A-Za-z]:\\+Users\\+[A-Za-z0-9._-]+", "<HOME>"),
         (rf"/[A-Za-z]/Users/{re.escape(user)}", "<HOME>"),
+        # any POSIX-style home, including JSON-escaped "\/Users\/<name>"
+        (r"[/\\]+Users[/\\]+[A-Za-z0-9._-]+", "<HOME>"),
     ]
 
 
-def main() -> int:
-    subs = patterns()
-    regs = regexes()
-    import re as _re
+def sanitize_text(text: str) -> tuple[str, int]:
+    """Apply every substitution to one text blob. Returns (text, hits)."""
+    import re
 
+    hits = 0
+    for a, b in patterns():
+        if a and a in text:
+            hits += text.count(a)
+            text = text.replace(a, b)
+    for pattern, repl in regexes():
+        text, n = re.subn(pattern, repl, text)
+        hits += n
+    return text, hits
+
+
+def write_evidence(path: Path, data) -> None:
+    """Serialize evidence and strip machine paths BEFORE the bytes hit disk.
+
+    Test scripts should use this instead of a raw ``write_text(json.dumps(...))``
+    so committed evidence never leaks a local home directory again.
+    """
+    text = json.dumps(data, ensure_ascii=False, indent=2)
+    text, _ = sanitize_text(text)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def main() -> int:
     changed_files, total = [], 0
     for path in sorted(EVID.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in (".json", ".md", ".txt", ".log"):
             continue
-        text = io.open(path, encoding="utf-8", errors="replace").read()
-        original = text
-        hits = 0
-        for a, b in subs:
-            if a and a in text:
-                hits += text.count(a)
-                text = text.replace(a, b)
-        for pattern, repl in regs:
-            text, n = _re.subn(pattern, repl, text)
-            hits += n
+        original = io.open(path, encoding="utf-8", errors="replace").read()
+        text, hits = sanitize_text(original)
         if text != original:
             io.open(path, "w", encoding="utf-8", newline="\n").write(text)
             changed_files.append({"file": str(path.relative_to(ROOT)), "replacements": hits})

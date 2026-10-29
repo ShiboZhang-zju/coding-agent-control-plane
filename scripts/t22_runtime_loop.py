@@ -52,7 +52,10 @@ def main() -> int:
     db = ROOT / ".poc-state" / "t22-runtime.db"
     store = TaskStore(db)
     store.clear()
-    cwd = str(ROOT / "sandbox" / "runtime-t22")
+    # Isolated sub-directory: sibling-repo baseline scanning must not depend on
+    # how many leftover repos other tests left in sandbox/ (machine-dependent).
+    cwd = str(ROOT / "sandbox" / "runtime-tests" / "runtime-t22")
+    Path(cwd).mkdir(parents=True, exist_ok=True)
     adapter = AdvancingAdapter(cwd)
     plane = ControlPlane(adapter, store, policy=agent_worktree())
 
