@@ -288,6 +288,7 @@ class ProjectService:
         current_attempt = next(
             (attempt for attempt in reversed(attempts)
              if attempt.get("id") == task.get("current_attempt_id")), None)
+        metadata = task.get("metadata") or {}
         return {
             "task_id": task_id,
             "project_id": task.get("project_id"),
@@ -304,6 +305,8 @@ class ProjectService:
             "assertions": task.get("assertions") or [],
             "assertion_results": task.get("assertion_results") or [],
             "warnings": task.get("warnings") or [],
+            "ld_goal_ref": metadata.get("ld_goal_ref"),
+            "ld_submission_signature": metadata.get("ld_submission_signature"),
             "created_at": task.get("created_at"),
             "updated_at": task.get("updated_at"),
         }
@@ -339,6 +342,9 @@ class ProjectService:
             "task_digest": task.get("task_digest"),
             "state": task.get("state"),
             "verdict": task.get("verdict"),
+            "ld_goal_ref": (task.get("metadata") or {}).get("ld_goal_ref"),
+            "ld_submission_signature": (
+                task.get("metadata") or {}).get("ld_submission_signature"),
             "handoff": bool((task.get("metadata") or {}).get("handoff")),
             "handoff_source": {
                 key: (task.get("metadata") or {}).get(key)

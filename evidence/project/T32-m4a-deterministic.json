@@ -1,0 +1,91 @@
+{
+  "test": "T32-m4a-deterministic",
+  "worker_started": false,
+  "projects": {
+    "alpha": "prj-48d6c11d06",
+    "beta": "prj-1017aeaa84"
+  },
+  "scope": {
+    "cross_result": "human_required",
+    "cross_provenance_calls": 0,
+    "same_scope_result": "inspection_complete",
+    "global_unscoped_result": "invalid_model_decision",
+    "read_whitelist_results": [
+      "inspection_complete",
+      "inspection_complete",
+      "inspection_complete",
+      "inspection_complete",
+      "inspection_complete",
+      "inspection_complete"
+    ],
+    "forbidden_tool": "invalid_model_decision"
+  },
+  "idempotency": {
+    "same_task": true,
+    "deduplicated": true,
+    "workspace_conflict": true,
+    "assertion_conflict": true,
+    "concurrent_results": [
+      "conflict",
+      "success"
+    ]
+  },
+  "finish": {
+    "project_count_only": "invalid_model_decision",
+    "same_goal": "finished",
+    "different_goal": "human_required",
+    "historical_unlinked": "human_required"
+  },
+  "actions": {
+    "inspect": "inspection_complete",
+    "submit_task": "task_submitted",
+    "wait": "waiting",
+    "request_human": "human_required",
+    "finish": "finished",
+    "dry_run": "planned",
+    "illegal": "invalid_model_decision",
+    "no_model": "model_not_configured"
+  },
+  "security": {
+    "result": "human_required",
+    "shareable_title_visible": true,
+    "local_title_visible": false,
+    "local_body_visible": false,
+    "project_root_visible": false,
+    "task_content_visible": false,
+    "effective_prompt_key_visible": false
+  },
+  "cli": {
+    "list_projects_exit": 0,
+    "brief_exit": 0,
+    "preview_exit": 0,
+    "run_once_exit": 3,
+    "preview_state": "planned",
+    "run_once_state": "human_required"
+  },
+  "checks": {
+    "cross_project_provenance_refused": true,
+    "selected_scope_fills_omitted_project": true,
+    "global_task_read_requires_explicit_project": true,
+    "all_six_read_decisions_execute": true,
+    "forbidden_tool_rejected": true,
+    "same_request_deduplicates_after_context_change": true,
+    "workspace_change_conflicts": true,
+    "assertion_change_conflicts": true,
+    "concurrent_signature_conflict_is_explicit": true,
+    "reads_allowed_with_project_attention": true,
+    "writes_still_gate_on_project_attention": true,
+    "shareable_model_view_excludes_local_data": true,
+    "project_count_only_finish_rejected": true,
+    "same_goal_verified_task_finishes": true,
+    "different_goal_cannot_reuse_verified_task": true,
+    "historical_unlinked_task_cannot_finish": true,
+    "dry_run_does_not_enqueue": true,
+    "arbitrary_command_rejected": true,
+    "request_human_action": true,
+    "wait_action": true,
+    "no_model_is_explicit": true,
+    "ld_cli_surfaces_work": true
+  },
+  "result": "Pass"
+}

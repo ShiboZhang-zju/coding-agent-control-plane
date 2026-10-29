@@ -290,22 +290,12 @@ def _validate_finish(project_id: str | None, evidence_refs: list[str],
             })
         else:
             raise DecisionValidationError(f"unsupported completion condition: {kind}")
-    if not verified_task_ids and not conditions:
-        raise DecisionValidationError(
-            "finish requires verified_task_ids or completion_conditions")
     has_verified_task_condition = any(
         condition["kind"] == "task_verdict" for condition in conditions)
-    has_positive_verified_count = any(
-        condition["kind"] == "project_count"
-        and condition["field"] == "verified"
-        and condition["operator"] == "gte"
-        and condition["value"] >= 1
-        for condition in conditions)
-    if (not verified_task_ids and not has_verified_task_condition
-            and not has_positive_verified_count):
+    if not verified_task_ids and not has_verified_task_condition:
         raise DecisionValidationError(
-            "finish completion_conditions must include a verified task verdict or "
-            "project verified count gte 1")
+            "finish requires at least one explicit verified task; project counts "
+            "may only be auxiliary conditions")
     return {
         "verified_task_ids": verified_task_ids,
         "completion_conditions": conditions,
@@ -385,7 +375,8 @@ def decision_schema() -> dict[str, Any]:
             "finish": {
                 "requires_evidence_refs": True,
                 "minimum_evidence_rule": (
-                    "verified task verdict, or project verified count gte 1"),
+                    "at least one current-goal task with verdict=verified; project "
+                    "counts are auxiliary only"),
                 "parameters": {
                     "verified_task_ids": "array of task ids",
                     "completion_conditions": [

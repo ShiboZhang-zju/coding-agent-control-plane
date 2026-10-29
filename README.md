@@ -6,9 +6,10 @@
 **Project**，每个 Project 通过 **Coding Agent** 执行具体任务。Control Plane 是这个系统的
 **基础设施层**——它不再是产品本身，而是让上述结构可靠运转的执行治理层。
 
-当前阶段：**M4-A（最小单轮 LD）功能开发完成，但未验证**。
-M1/M2 有已保存的测试证据；M3 代码存在但尚未通过验收。本轮未执行
-CodeBuddy、stub/SQLite 实验或完整回归，不宣称 M3 交接或 M4 MVP 通过。
+当前阶段：**M4-A（最小单轮 LD）功能开发完成，首轮确定性边界测试通过，
+但尚未完成验收**。M1/M2 有已保存的测试证据；M3 代码存在但尚未通过验收。
+M4-A 的 T32 只使用临时 SQLite Ledger 与 sandbox fixture，没有启动 CodeBuddy，
+也没有运行完整回归，因此不宣称 M3 交接或 M4 MVP 通过。
 自主循环式完整 LD Agent 与 M5 跨机器远程执行尚未实现，
 见 [路线图](docs/PROJECT_CENTRIC_ROADMAP.md)。
 
@@ -33,7 +34,7 @@ CodeBuddy、stub/SQLite 实验或完整回归，不宣称 M3 交接或 M4 MVP �
 1. **Control Plane**（已实现）：把派发、幂等、审批、验收、恢复变成厂商无关的确定性能力。
 2. **Project Context / Handoff**（M1–M3 功能已实现）：把项目知识变成独立于 Session 的持久实体，
    在任务执行前注入，并在验收后以确定性规则回写候选进度与知识。
-3. **Minimal LD**（M4-A 功能已实现、未验证）：用受限工具面和结构化决策做一次
+3. **Minimal LD**（M4-A 功能已实现、确定性边界测试部分通过）：用受限工具面和结构化决策做一次
    查询/提交/等待/转人工/完成判定，不做无限自主循环。
 
 ---
@@ -91,8 +92,8 @@ Control Plane（公共执行治理层，与厂商无关）
 
 ## 4. 当前已实现能力
 
-已验证项只引用真实 `evidence/**/*.json`；M3 与 M4-A 都统一显式标为
-“功能已实现/开发完成，未验证”。
+已验证项只引用真实 `evidence/**/*.json`；M3 仍统一标为“功能已实现、未验证”；
+M4-A 只把 T32 实际覆盖的确定性边界标为 Pass，整体仍未完成验收。
 
 ### 4.1 Control Plane（PoC / v0.2，已验证）
 
@@ -131,15 +132,15 @@ Control Plane（公共执行治理层，与厂商无关）
 | Handoff 只读准备（来源/Session/checkpoint/Workspace/context） | 已实现，未验证 | 无新证据 |
 | Handoff 提交（普通 WorkItem + 原子来源 metadata + 签名幂等） | 已实现，未验证 | 无新证据 |
 
-### 4.3 Minimal LD（M4-A，功能开发完成、未验证）
+### 4.3 Minimal LD（M4-A，首轮确定性边界测试通过、未完成验收）
 
 | 能力 | 实现位置 | 状态 |
 |---|---|---|
-| 受限 LD Tool Facade（7 个工具） | `ld/tools.py` | 功能已实现，未测试 |
-| 五种结构化动作 + 严格字段/参数校验 | `ld/decision.py` | 功能已实现，未测试 |
-| 单轮 `run_once(goal, project_id=None, dry_run=False)` | `ld/coordinator.py` | 功能已实现，未测试 |
-| 确定性转人工门控 + `finish` 二次核验 | `ld/coordinator.py` | 功能已实现，未测试 |
-| 同 Ledger CLI（列表/概况/预览/单轮执行） | `scripts/ld_cli.py` | 功能已实现，未测试 |
+| 受限 LD Tool Facade（7 个工具）+ 提交请求签名 | `ld/tools.py` | T32 Pass |
+| 五种结构化动作 + 严格字段/参数校验 | `ld/decision.py` | T32 Pass |
+| 单轮 `run_once(goal, project_id=None, dry_run=False)` | `ld/coordinator.py` | T32 Pass |
+| 项目作用域、转人工门控 + 当前目标 `finish` 二次核验 | `ld/coordinator.py` | T32 Pass（本地确定性） |
+| 同 Ledger CLI（列表/概况/预览/单轮执行） | `scripts/ld_cli.py` | T32 Pass |
 
 M4-A 未引入任何 Agent Framework，也没有内置或伪造模型。模型未注入时返回
 `model_not_configured`；CLI 的 `--decision-json` 只是本地结构化决策注入口，
@@ -271,7 +272,7 @@ add a health endpoint
 - Do not invent project facts that are not stated above.
 ```
 
-### 6.3 M4-A 最小 LD CLI（功能示例，未验证）
+### 6.3 M4-A 最小 LD CLI（功能示例；Python 核心已做确定性测试，CLI 待专项验证）
 
 ```powershell
 # 只读查询，与 Runtime 使用同一 Ledger
@@ -333,6 +334,7 @@ python scripts/t28_project_dispatch.py     # 注入 / 冻结 / 审批绑定 / �
 python scripts/t29_reliability_edges.py    # PID 三态 / 降级标记 I/O
 python scripts/t30_project_cli.py          # CLI 端到端（README 示例来源）
 python scripts/t31_context_update_loop.py  # 自动回写 / 幂等 / needs_merge / 安全边界
+python scripts/t32_ld_m4a.py               # M4-A 动作 / 作用域 / 幂等 / finish / dry-run
 
 # 既有回归
 python scripts/t26_p0_fixes.py
@@ -347,8 +349,11 @@ python scripts/t24_multiprocess_claim.py
 python scripts/t25_cli_queue.py
 ```
 
-M4-A 本轮没有运行任何测试，也没有生成新 evidence。次日应先补决策
-Schema/Tool Facade/单轮 dry-run 的离线测试，再执行 M1/M2 回归，最后单独验收 M3。
+M4-A 已运行 T32 本地确定性测试并生成
+`evidence/project/T32-m4a-deterministic.json`；它覆盖七工具白名单、五种动作、
+四类异常门控、命令字段拒绝、项目作用域、模型输入安全域、CLI、dry-run、
+无模型路径、提交签名、跨连接并发冲突及当前目标 finish。下一步是执行
+M1/M2 关键回归并单独验收 M3；真实模型/Worker 集成仍未执行。
 
 真实 Worker 集成测试（`t11_four_agents.py`、`t12`、`t14`、`t08*`）需要先启动
 CodeBuddy 服务；它们不是离线可跑的，脚本会直接报连接错误。
@@ -392,7 +397,7 @@ sandbox/                        两个一次性 Git 仓库（不入库）
 | M1 | Project Context Foundation | **已完成** |
 | M2 | Project Context Update Loop（验收后回写、候选知识、幂等） | **已完成** |
 | M3 | Session Registry / Handoff（单机多 Session） | **功能已实现，未验证** |
-| M4-A | Minimal LD（受限工具 + 结构化决策 + 单轮协调） | **功能开发完成，未验证** |
+| M4-A | Minimal LD（受限工具 + 结构化决策 + 单轮协调） | **首轮确定性边界测试通过，未完成验收** |
 | M4-B | LD 多轮推进/经验证的 Handoff 工具 | 未实现 |
 | M5 | Distributed Workspace（多节点、远程派工、受控同步） | 未实现 |
 

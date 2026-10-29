@@ -1,8 +1,19 @@
 # Known Issues
 
-本文档记录当前已知但尚未经专项验收的问题。本轮按计划只完成 M4-A
-功能开发，**未启动 CodeBuddy Worker、未运行 M3/M4-A 测试，以下项均为
-“待验证”，未在本轮修复**。
+本文档记录当前已知问题与专项验证缺口。M3 清单仍未启动真实 CodeBuddy 验收；
+M4-A 已完成 T32 本地确定性边界测试（含跨连接并发签名冲突），但尚未运行
+M1/M2 回归验证或真实模型/Worker 集成。T32 没有启动 Worker。
+
+## M4-A 评审处理与剩余问题
+
+| # | 源码位置 | 影响 / 处理 | 最小复现 / 验证方法 | 状态 |
+|---|---|---|---|---|
+| M4A-R01 | `ld/coordinator.py::_resolve_decision_project()` / `_inspect()` | Human Owner 选定项目后，模型省略 `project_id` 的任务查询会固化到该项目；读取完整 provenance 前先查状态归属，避免跨项目 Effective Prompt 泄露。 | 在 Project A 作用域请求 Project B 的 provenance；确认返回转人工且 provenance 工具调用次数为 0。 | 已修复；T32 Pass |
+| M4A-R02 | `ld/decision.py::_validate_finish()` / `ld/coordinator.py::_finish()` | 项目历史 `verified >= 1` 不再能单独完成新目标；至少一个 verified WorkItem 必须带当前目标稳定引用。 | 用纯项目计数、旧目标 verified task、无 goal 引用历史 task 分别 finish；均须拒绝；同目标 verified task 才允许。 | 已修复；T32 Pass |
+| M4A-R03 | `ld/tools.py::submit_project_task()` | LD 提交签名绑定 task、实际目标 Workspace、Assertions、标签/前置条件及执行参数；同 key 异请求冲突，Context Version 不入签名。 | 首次提交后更新 Context 并原样重试应 deduplicate；改 Workspace 或 Assertions 应冲突。 | 已修复；T32 Pass |
+| M4A-01 | `ld/coordinator.py::run_once()` | 项目存在异常任务时，只读动作现已允许；但任何新提交仍会被项目内任一 attention flag 阻塞，即使它可能与新任务独立。这是安全但偏保守的写门控。 | 在项目中放一个 `needs_approval` 任务：inspect 应成功，独立 submit 仍应 `request_human`；再评估是否需要显式依赖关系后细化。 | 已知保守策略；T32 覆盖当前行为 |
+| M4B-01 | `ProjectService.get_task_provenance()` / 未来模型工具回馈层 | provenance 包含完整 Effective Prompt。当前 M4-A 单轮不会把工具结果自动回喂模型；M4-B 多轮前必须分离本地操作者视图与按安全域过滤的模型视图。 | 接入任何多轮模型前，用 `local` 项目任务调用 provenance，断言模型可见响应不含 Prompt、路径或未授权内容。 | 未实现；M4-B 阻塞项 |
+| M4A-V01 | `scripts/t32_ld_m4a.py` | T32 已覆盖七工具、五种动作、四类异常状态、作用域、模型输入安全域、CLI、顺序/并发幂等、finish、dry-run、命令拒绝和无模型路径；尚未执行 M1/M2 关键回归，也没有真实模型或 Worker 集成结论。 | 运行 T27–T31 的适用本地回归；真实 Worker 环境可用后再单独做集成验收，不复用 T32 的 stub 结论。 | 待验证 |
 
 ## M3 待验证清单
 
@@ -23,6 +34,6 @@
 
 ## 本轮处理原则
 
-- 上述项未阻塞 M4-A 的受限查询、普通项目任务提交和单轮协调，因此本轮不修复。
+- M3 上述项未阻塞 M4-A 的受限查询、普通项目任务提交和单轮协调，因此本轮不修复。
 - LD 工具面未开放 Handoff，避免在 M3 验收前扩大上述未确定性。
 - 任何后续“已修复/Pass”结论都必须指向新增的可重现测试与脱敏证据。

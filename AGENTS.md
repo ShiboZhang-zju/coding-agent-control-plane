@@ -119,10 +119,20 @@
   `session_binding_conflict` 以及不明确的执行位置默认 `request_human`。
 - 模型调用必须显式声明允许的安全域；未授权模型输入不得包含
   `security_domain='local'` 的项目内容、项目路径或 Effective Prompt。
-- `finish` 必须重新查询 Ledger 中的 `verified` verdict 或确定性可验证条件，
-  不得仅依据 Worker 终态/自述。
+- Human Owner 为 `run_once()` 指定的项目是不可被模型放宽的查询边界；读取
+  provenance 前必须先用低敏感度状态投影校验任务归属。无指定项目的任务查询
+  也必须在决策中显式声明项目，不能用 `project_id=null` 做全局任务探测。
+- LD 普通任务的幂等键必须同时校验规范化请求签名，至少绑定原始任务、目标
+  Workspace、Assertions、标签/前置条件和执行参数；Context Version 不进入签名，
+  避免正常重试因知识更新而冲突。
+- `finish` 必须重新查询 Ledger 中的 `verified` verdict，且至少一个明确引用的
+  WorkItem 必须带当前 Human Owner 目标的稳定引用。项目历史 verified 计数只能
+  作辅助条件，不得单独证明当前目标完成，也不得仅依据 Worker 终态/自述。
+- 项目级异常不得阻止授权范围内的只读检查；新提交等写操作仍必须应用
+  `needs_approval` / `dispatch_unknown` / `suspected_lost` / Session 冲突门控。
 - M4-A 只是唯一全局 LD 的单轮协调；不得自行扩成无限循环、多 LD、
-  复杂 Goal DAG 或 Agent 协商。未执行专项测试前只能标记“功能开发完成、未验证”。
+  复杂 Goal DAG 或 Agent 协商。只有实际被专项证据覆盖的边界可标为 Pass；
+  局部确定性测试通过不得写成 M4 MVP 已通过验收。
 
 ## 6. 派发与审批规则（M1 补充）
 

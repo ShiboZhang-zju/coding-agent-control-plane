@@ -9,6 +9,8 @@ context-freeze, idempotency, policy, approval and queue semantics.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
+import hashlib
+import json
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
@@ -18,6 +20,16 @@ _ASSERTION_FIELDS = {"kind", "target", "value", "description"}
 _ASSERTION_KINDS = {
     "file_exists", "file_contains", "git_commit", "git_clean", "path_absent",
 }
+
+
+class LDSubmissionIdempotencyConflict(ValueError):
+    """An LD idempotency key already names a different normalized request."""
+
+
+def _submission_signature(payload: Mapping[str, Any]) -> str:
+    canonical = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _string_list(value: Iterable[str], field: str) -> list[str]:
@@ -134,6 +146,7 @@ class LDTools:
         require_verified_constraints: bool = False,
         workspace_id: str | None = None,
         timeout_s: int = 900,
+        goal_ref: str | None = None,
     ) -> dict:
         """Submit one ordinary project task through ProjectService.
 
@@ -159,6 +172,16 @@ class LDTools:
         if workspace_id is not None and (
                 not isinstance(workspace_id, str) or not workspace_id.strip()):
             raise ValueError("workspace_id must be a non-empty string when supplied")
+        if goal_ref is not None and (
+                not isinstance(goal_ref, str) or not goal_ref.startswith("sha256:")
+                or len(goal_ref) != 71):
+            raise ValueError("goal_ref must be a sha256 reference when supplied")
+        if goal_ref is not None:
+            try:
+                int(goal_ref.removeprefix("sha256:"), 16)
+            except ValueError as exc:
+                raise ValueError(
+                    "goal_ref must be a sha256 reference when supplied") from exc
 
         service = (self._submission_service_factory(project_id)
                    if self._submission_service_factory else self._service)
@@ -173,30 +196,66 @@ class LDTools:
                 f"submission service adapter {actual_adapter!r} does not match "
                 f"project adapter {configured_adapter!r}")
 
+        normalized_task = task.strip()
+        normalized_assertions = _assertions(assertions)
+        normalized_tags = _string_list(tags, "tags")
+        normalized_prerequisites = _string_list(prerequisites, "prerequisites")
+        normalized_workspace = workspace_id.strip() if workspace_id else None
+        brief = service.get_project_brief(project_id)
+        if normalized_workspace is None:
+            defaults = [item for item in brief.get("workspaces", [])
+                        if item.get("is_default")]
+            resolved_workspace = defaults[0].get("id") if len(defaults) == 1 else None
+        else:
+            resolved_workspace = normalized_workspace
+        request_signature = _submission_signature({
+            "schema": "m4-a.ld-submission.v1",
+            "project_id": project_id,
+            "task": normalized_task,
+            "workspace_id": resolved_workspace,
+            "assertions": normalized_assertions,
+            "priority": priority,
+            "title": title.strip(),
+            "tags": normalized_tags,
+            "prerequisites": normalized_prerequisites,
+            "require_verified_constraints": require_verified_constraints,
+            "timeout_s": timeout_s,
+            "goal_ref": goal_ref,
+        })
+
         record = service.submit_project_task(
             project_id,
-            task.strip(),
-            assertions=_assertions(assertions),
+            normalized_task,
+            assertions=normalized_assertions,
             priority=priority,
             idempotency_key=idempotency_key.strip(),
             title=title.strip(),
-            tags=_string_list(tags, "tags"),
-            prerequisites=_string_list(prerequisites, "prerequisites"),
+            tags=normalized_tags,
+            prerequisites=normalized_prerequisites,
             require_verified_constraints=require_verified_constraints,
-            workspace_id=workspace_id,
+            # Freeze the resolved target used by the request signature so a
+            # concurrent default-workspace change cannot alter execution intent.
+            workspace_id=resolved_workspace,
             timeout_s=timeout_s,
-            metadata={"submitted_by": "ld", "ld_stage": "m4-a"},
+            metadata={
+                "submitted_by": "ld",
+                "ld_stage": "m4-a",
+                "ld_submission_signature": request_signature,
+                "ld_goal_ref": goal_ref,
+            },
             allow_blocked=False,
         )
         if record.get("project_id") != project_id:
-            raise ValueError(
+            raise LDSubmissionIdempotencyConflict(
                 f"idempotency key {idempotency_key!r} belongs to project "
                 f"{record.get('project_id')}, not {project_id}")
-        if (record.get("deduplicated") and record.get("original_task") is not None
-                and record.get("original_task") != task.strip()):
-            raise ValueError(
-                f"idempotency key {idempotency_key!r} belongs to different task content")
+        stored_signature = (record.get("metadata") or {}).get(
+            "ld_submission_signature")
+        if stored_signature != request_signature:
+            raise LDSubmissionIdempotencyConflict(
+                f"idempotency key {idempotency_key!r} belongs to a different "
+                "LD submission request")
         return record
 
 
-__all__ = ["LDTools"]
+__all__ = ["LDSubmissionIdempotencyConflict", "LDTools"]

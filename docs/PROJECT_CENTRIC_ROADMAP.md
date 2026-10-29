@@ -23,7 +23,7 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 | M1 | Project Context Foundation | v0.2 已完成 | **已完成** |
 | M2 | Project Context Update Loop | M1 | **已完成** |
 | **M3** | Session Registry / Handoff | M1（M2 有益但非必需） | **功能已实现，未验证** |
-| **M4-A** | Minimal LD（受限工具、结构化决策、单轮协调） | M1 + M2；不开放 M3 Handoff | **功能开发完成，未验证** |
+| **M4-A** | Minimal LD（受限工具、结构化决策、单轮协调） | M1 + M2；不开放 M3 Handoff | **首轮确定性边界测试通过，未完成验收** |
 | M4-B | LD 多轮推进与验收后 Handoff | M3 验收 + M4-A | 未实现 |
 | M5 | Distributed Workspace | M1–M4 | 未实现 |
 
@@ -227,7 +227,7 @@ stub/SQLite 验证，因此不存在新的 evidence 或 Pass 结论。尤其以�
 
 ---
 
-## M4-A — Minimal LD ⚠️ 功能开发完成，未验证
+## M4-A — Minimal LD ⚠️ 首轮确定性边界测试通过，未完成验收
 
 ### 目标
 
@@ -238,13 +238,13 @@ stub/SQLite 验证，因此不存在新的 evidence 或 Pass 结论。尤其以�
 
 | 交付物 | 实现位置 | 安全/语义边界 | 当前状态 |
 |---|---|---|---|
-| LD Tool Facade | `ld/tools.py` | 仅 7 个工具；不开放 context 写、approve/deny、Handoff、Policy、直接 Worker 派发 | 功能已实现，未测试 |
-| 任务状态确定性投影 | `ProjectService.get_task_status()` | Worker state 与 control-plane verdict 分离，不暴露/修改 Effective Prompt | 功能已实现，未测试 |
-| 结构化决策 | `ld/decision.py` | `inspect / submit_task / wait / request_human / finish`；严格拒绝未知字段与命令参数 | 功能已实现，未测试 |
-| 单轮协调器 | `ld/coordinator.py::LDCoordinator.run_once()` | 可注入最小模型接口；无模型明确返回 `model_not_configured` | 功能已实现，未测试 |
-| 确定性人工门控 | `ld/coordinator.py` | approval/dispatch unknown/lost/session conflict/执行位置不明确默认 `request_human` | 功能已实现，未测试 |
-| 可核验 `finish` | `ld/decision.py` + `ld/coordinator.py::_finish()` | 只接受 Ledger `verified` task 或受限的项目计数条件，不接受 Worker 自述 | 功能已实现，未测试 |
-| 最小 CLI | `scripts/ld_cli.py` | 同一 Ledger；`--decision-json` 仅读结构化数据；不调 Worker | 功能已实现，未测试 |
+| LD Tool Facade | `ld/tools.py` | 仅 7 个工具；不开放 context 写、approve/deny、Handoff、Policy、直接 Worker 派发；提交签名绑定 Workspace/Assertions/执行意图但不绑定 Context Version | T32 Pass |
+| 任务状态确定性投影 | `ProjectService.get_task_status()` | Worker state 与 control-plane verdict 分离，不暴露/修改 Effective Prompt；投影 LD goal/signature 引用 | T32 Pass |
+| 结构化决策 | `ld/decision.py` | `inspect / submit_task / wait / request_human / finish`；严格拒绝未知字段与命令参数 | T32 Pass |
+| 单轮协调器 | `ld/coordinator.py::LDCoordinator.run_once()` | 可注入最小模型接口；无模型明确返回 `model_not_configured` | T32 Pass |
+| 确定性人工门控 | `ld/coordinator.py` | 读取在授权项目范围内允许；新提交遇到 approval/dispatch unknown/lost/session conflict 时默认 `request_human` | T32 Pass |
+| 可核验 `finish` | `ld/decision.py` + `ld/coordinator.py::_finish()` | 至少一个 `verified` WorkItem 必须带当前目标稳定指纹；项目计数只能作辅助条件 | T32 Pass |
+| 最小 CLI | `scripts/ld_cli.py` | 同一 Ledger；`--decision-json` 仅读结构化数据；不调 Worker | T32 Pass |
 
 ### 决策 Schema（`m4-a.v1`）
 
@@ -266,9 +266,9 @@ stub/SQLite 验证，因此不存在新的 evidence 或 Pass 结论。尤其以�
   前置条件、本地 Workspace 与 timeout；不允许 `allow_blocked / policy / metadata`。
 - `wait`：必须含 `task_id`。
 - `request_human`：必须含 `question`，可带 `blocking_reasons`。
-- `finish`：必须有非空 `evidence_refs`，并带 `verified_task_ids` 或受限
-  `completion_conditions`；仅使用计数条件时至少需要 `verified >= 1`，执行时会
-  重新查 Ledger。
+- `finish`：必须有非空 `evidence_refs`，并明确引用至少一个 `verified_task_id`
+  或 `task_verdict=verified` 条件；执行时重新查 Ledger，且至少一个任务必须携带
+  当前 Human Owner 目标的稳定 SHA-256 引用。项目计数只能作为辅助条件。
 
 `python / shell / command / code / approve / deny / handoff / effective_prompt`
 等不在 Schema 内的控制字段一律拒绝。
@@ -281,7 +281,7 @@ stub/SQLite 验证，因此不存在新的 evidence 或 Pass 结论。尤其以�
 - Human Owner 目标默认标为 `local`；模型未获该域授权时不调用模型。
 - 项目 root、Effective Prompt、未获准域的内容始终不进入决策输入。
 
-### 退出条件（尚未执行）
+### 退出条件（部分执行）
 
 1. 7 个 LD 工具的白名单与禁止路径测试通过。
 2. 五种动作、未知字段、命令注入、跨项目与 `finish` 证据校验通过。
@@ -290,8 +290,13 @@ stub/SQLite 验证，因此不存在新的 evidence 或 Pass 结论。尤其以�
 5. 未授权模型输入不含 `local` body/root/Effective Prompt。
 6. 绝不仅凭 Worker state 返回 `finish`。
 
-**当前退出判定：未满足。** 本轮按要求没有运行上述测试，不存在 M4-A
-evidence 或 Pass 结论。
+T32 已在不启动 Worker 的前提下覆盖七工具白名单、五种动作、四类异常门控、
+未知命令字段、项目任务查询作用域、模型输入安全域、CLI、提交请求签名、
+跨连接并发冲突、当前目标 finish、dry-run 与无模型路径，证据为
+`evidence/project/T32-m4a-deterministic.json`。
+
+**当前退出判定：M4-A 专项确定性条件已由 T32 覆盖，但集成验收仍未满足。**
+尚未运行 M1/M2 完整回归或真实模型/Worker 集成；T32 Pass 不等于 M4 MVP 验收。
 
 ### 明确不做
 

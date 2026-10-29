@@ -8,6 +8,7 @@ Handoff, remote execution, or arbitrary model-authored commands.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import hashlib
 from typing import Any, Protocol
 
 from ld.decision import (
@@ -68,6 +69,8 @@ class LDCoordinator:
         if not isinstance(dry_run, bool):
             raise ValueError("dry_run must be a boolean")
 
+        normalized_goal = goal.strip()
+        goal_ref = self._goal_ref(normalized_goal)
         projects = self._tools.list_projects()
         selected_id = self._resolve_project_id(projects, project_id)
         if self._model is None:
@@ -105,23 +108,8 @@ class LDCoordinator:
             model_progress = self._tools.get_project_progress(
                 selected_id, allowed_security_domains=self._model_domains)
 
-            blockers = self._project_attention_blockers(full_progress)
-            location_problem = self._execution_location_problem(brief)
-            if location_problem:
-                blockers.append(location_problem)
-            if blockers:
-                return self._human_result(
-                    project_id=selected_id,
-                    reason="deterministic project safety gate requires Human Owner input",
-                    next_state="human_required",
-                    blocking_reasons=blockers,
-                    evidence_refs=self._blocker_evidence(full_progress),
-                    source="deterministic_guard",
-                    dry_run=dry_run,
-                )
-
         model_input = self._decision_input(
-            goal.strip(), projects, selected_id, brief, model_progress)
+            normalized_goal, projects, selected_id, brief, model_progress)
         try:
             raw = (self._model.decide(model_input)
                    if hasattr(self._model, "decide") else self._model(model_input))
@@ -146,10 +134,12 @@ class LDCoordinator:
         if decision.project_id and decision.project_id != selected_id:
             target_brief = self._tools.get_project_brief(decision.project_id)
             target_progress = self._tools.get_project_progress(decision.project_id)
+
+        # Project-level attention flags do not prevent bounded reads.  They gate
+        # new writes after the proposed action is known, so an LD can still
+        # inspect the affected task and report useful evidence to the owner.
+        if decision.action is LDAction.SUBMIT_TASK and target_progress:
             blockers = self._project_attention_blockers(target_progress)
-            location_problem = self._execution_location_problem(target_brief)
-            if location_problem:
-                blockers.append(location_problem)
             if blockers:
                 return self._human_result(
                     project_id=decision.project_id,
@@ -207,7 +197,7 @@ class LDCoordinator:
             }
 
         try:
-            return self._execute(decision)
+            return self._execute(decision, goal_ref=goal_ref)
         except Exception as exc:  # tool boundary fails closed; never invent success
             return self._human_result(
                 project_id=decision.project_id,
@@ -302,8 +292,8 @@ class LDCoordinator:
                 "Effective Prompt, dispatch a Worker directly, or request Handoff.",
                 "Use request_human for approval, uncertainty, unsafe execution location, "
                 "or unresolved control-plane state.",
-                "Use finish only with verified task evidence or deterministic completion "
-                "conditions.",
+                "Use finish only with an explicit verified task associated with the "
+                "current goal; project counts are auxiliary evidence only.",
             ],
             "decision_schema": decision_schema(),
         }
@@ -340,6 +330,17 @@ class LDCoordinator:
         selected_id: str | None,
     ) -> LDDecision:
         if decision.project_id is None:
+            if (selected_id and decision.action is LDAction.INSPECT
+                    and decision.parameters.get("tool") in {
+                        "get_task_status", "get_task_provenance",
+                    }):
+                return LDDecision(
+                    action=decision.action,
+                    project_id=selected_id,
+                    reason=decision.reason,
+                    evidence_refs=decision.evidence_refs,
+                    parameters=decision.parameters,
+                )
             return decision
         matches = [item for item in projects
                    if decision.project_id in (item.get("project_id"), item.get("name"))]
@@ -364,6 +365,12 @@ class LDCoordinator:
         if (selected_id and decision.action not in (LDAction.INSPECT, LDAction.REQUEST_HUMAN)
                 and decision.project_id is None):
             raise DecisionValidationError("project-scoped action requires project_id")
+        if (decision.action is LDAction.INSPECT
+                and decision.parameters.get("tool") in {
+                    "get_task_status", "get_task_provenance",
+                } and decision.project_id is None):
+            raise DecisionValidationError(
+                "task inspection requires an explicit project scope")
 
     @staticmethod
     def _project_attention_blockers(progress: dict) -> list[str]:
@@ -380,21 +387,6 @@ class LDCoordinator:
                 if task.get("task_id")]
 
     @staticmethod
-    def _execution_location_problem(brief: dict) -> str | None:
-        if not brief.get("active"):
-            return "project_disabled"
-        workspaces = brief.get("workspaces", [])
-        defaults = [workspace for workspace in workspaces if workspace.get("is_default")]
-        if len(defaults) != 1:
-            return "execution_location_ambiguous:no_single_default_workspace"
-        workspace = defaults[0]
-        if not workspace.get("active"):
-            return f"execution_location_unavailable:{workspace.get('id')}:inactive"
-        if workspace.get("node_id") != "local" or not workspace.get("executable"):
-            return f"execution_location_unsupported:{workspace.get('id')}:remote"
-        return None
-
-    @staticmethod
     def _decision_execution_location_problem(
         decision: LDDecision,
         brief: dict | None,
@@ -403,6 +395,8 @@ class LDCoordinator:
             return None
         if not brief:
             return "execution_location_ambiguous:no_project_brief"
+        if not brief.get("active"):
+            return "project_disabled"
         requested = decision.parameters.get("workspace_id")
         workspaces = brief.get("workspaces", [])
         if requested:
@@ -448,7 +442,7 @@ class LDCoordinator:
     # ------------------------------------------------------------------ #
     # execution
     # ------------------------------------------------------------------ #
-    def _execute(self, decision: LDDecision) -> dict[str, Any]:
+    def _execute(self, decision: LDDecision, *, goal_ref: str) -> dict[str, Any]:
         if decision.action is LDAction.INSPECT:
             result = self._inspect(decision)
             return self._result(
@@ -459,7 +453,7 @@ class LDCoordinator:
             )
         if decision.action is LDAction.SUBMIT_TASK:
             result = self._tools.submit_project_task(
-                decision.project_id or "", **decision.parameters)
+                decision.project_id or "", **decision.parameters, goal_ref=goal_ref)
             flags = set(result.get("attention_flags") or [])
             if result.get("queue_status") == "needs_approval":
                 flags.add("needs_approval")
@@ -497,7 +491,7 @@ class LDCoordinator:
                 next_state="human_required",
                 blocking_reasons=decision.parameters.get("blocking_reasons") or [],
             )
-        return self._finish(decision)
+        return self._finish(decision, goal_ref=goal_ref)
 
     def _inspect(self, decision: LDDecision) -> Any:
         tool = decision.parameters["tool"]
@@ -513,12 +507,17 @@ class LDCoordinator:
         if tool == "get_task_status":
             result = self._tools.get_task_status(decision.parameters["task_id"])
         else:
+            # Provenance contains the frozen Effective Prompt.  Check the
+            # low-sensitivity status projection before retrieving that payload.
+            status = self._tools.get_task_status(decision.parameters["task_id"])
+            self._require_task_project(status, decision.project_id)
             result = self._tools.get_task_provenance(decision.parameters["task_id"])
         self._require_task_project(result, decision.project_id)
         return result
 
-    def _finish(self, decision: LDDecision) -> dict[str, Any]:
+    def _finish(self, decision: LDDecision, *, goal_ref: str) -> dict[str, Any]:
         checked: list[dict[str, Any]] = []
+        goal_linked_tasks: list[str] = []
         task_ids = list(decision.parameters.get("verified_task_ids") or [])
         task_ids.extend(
             condition["task_id"]
@@ -549,8 +548,24 @@ class LDCoordinator:
                     dry_run=False,
                     decision=decision,
                 )
+            if status.get("ld_goal_ref") == goal_ref:
+                goal_linked_tasks.append(task_id)
             checked.append({"kind": "task_verdict", "task_id": task_id,
-                            "actual": "verified", "passed": True})
+                            "actual": "verified", "passed": True,
+                            "current_goal": status.get("ld_goal_ref") == goal_ref})
+
+        if not goal_linked_tasks:
+            return self._human_result(
+                project_id=decision.project_id,
+                reason=("finish evidence has no verified WorkItem associated with "
+                        "the current Human Owner goal"),
+                next_state="human_required",
+                blocking_reasons=["finish_evidence_not_linked_to_current_goal"],
+                evidence_refs=list(decision.evidence_refs),
+                source="finish_validator",
+                dry_run=False,
+                decision=decision,
+            )
 
         project_conditions = [
             condition for condition in decision.parameters.get("completion_conditions", [])
@@ -595,9 +610,14 @@ class LDCoordinator:
                     )
         return self._result(
             decision,
-            result={"verified_conditions": checked},
+            result={"verified_conditions": checked,
+                    "current_goal_task_ids": goal_linked_tasks},
             next_state="finished",
         )
+
+    @staticmethod
+    def _goal_ref(goal: str) -> str:
+        return "sha256:" + hashlib.sha256(goal.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _require_task_project(task: Mapping[str, Any], project_id: str | None) -> None:
