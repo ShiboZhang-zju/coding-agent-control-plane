@@ -24,7 +24,7 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 | M2 | Project Context Update Loop | M1 | **已完成** |
 | **M3** | Session Registry / Handoff | M1（M2 有益但非必需） | **确定性（T33）与真实 Worker（T34）验证通过；git commit checkpoint 路径未覆盖** |
 | **M4-A** | Minimal LD（受限工具、结构化决策、单轮协调） | M1 + M2 | **已完成**（T32/T36 确定性 + T38a 真实模型与真实 Worker 单轮集成验收） |
-| **M4-B** | 有界连续推进（持久化 Goal + 依赖任务确定性交接 + 恢复） | M3 + M4-A | **执行/交接层真实验证（T38 首轮）；Goal 闭环确定性验证（T39/T40 含崩溃注入与租约 fencing）；真实模型严格复跑阻塞（端点已移除，T38b 记录）** |
+| **M4-B** | 有界连续推进（持久化 Goal + 依赖任务确定性交接 + 恢复） | M3 + M4-A | **已完成**（T39/T40 确定性含崩溃注入与租约 fencing；T38b 真实模型严格闭环 25/25 Pass；T38c 真实故障恢复与副作用拒绝验证） |
 | M5 | Distributed Workspace | M1–M4 | 未实现 |
 
 依赖是**功能依赖**而非排期依赖。M4-B 的依赖任务交接走控制平面确定性
@@ -312,7 +312,7 @@ Verifier 双断言 verified → M2 自动上下文更新，证据为
 
 ---
 
-## M4-B — 最小连续推进（有界 Goal）⚠️ 执行/交接真实验证；闭环复跑待模型环境
+## M4-B — 最小连续推进（有界 Goal）✅ 真实闭环验证通过（T38b 25/25）
 
 ### 目标
 
@@ -339,8 +339,8 @@ Human Owner 只声明一次目标；LD 在有限预算内查询项目、提交�
 
 ### 验证状态
 
-**当前退出判定：执行与交接层已真实验证；Goal 自动闭环为确定性验证 +
-真实复跑被阻塞（决策模型端点已从本环境移除），不得宣称真实闭环完成。**
+**当前退出判定：核心条件已满足（T37/T39/T40 确定性 + T38b 真实严格闭环 + T38c
+真实故障恢复）。**
 
 - T37/T39/T40 确定性验证（无 Worker；T39 含真实子进程 `os._exit` 崩溃注入，
   80 项全 Pass）：`evidence/project/T37-m4-goal-advancement.json`、
@@ -350,30 +350,29 @@ Human Owner 只声明一次目标；LD 在有限预算内查询项目、提交�
   finish 的完整闭环（步号连续、报告恰含本 Goal 的 A/B、排除其他 Goal 任务）、
   四个持久化边界崩溃恢复（不重复派工、不调模型）、双进程租约竞争与失租
   fencing、心跳续租、7 种不可证明 checkpoint 状态零副作用阻塞。
-- T38 首轮真实端到端（真实决策模型（OpenAI 兼容端点，按环境配置） + 真实
-  CodeBuddy Worker，16 项全 Pass）：
-  `evidence/project/T38-m4-real-e2e.json` —— 证明了执行与交接层：Session A
-  实现 `load_config`（worktree 内预置测试通过、verified）；CLI 子进程（重启的
-  LD）恢复同一 Goal 提交 Session B —— B 是 handoff WorkItem（source=A），
-  prompt 含 merge 指令与"禁止触碰默认分支"，B 的 worktree 中 **A 的 checkpoint
-  是 HEAD 祖先且全部测试通过**（真实代码接续证明）；main 分支 tip 全程未动；
-  多项目隔离全部通过。**该轮未断言最终 Goal 状态**（评审 P1-3 指出，
-  KNOWN_ISSUES T38-F03）。
-- T38b 严格复跑（对最终报告断言 `completed`、恰含 A/B、历史连续）：
-  `evidence/project/T38b-m4-real-e2e-strict.json` —— **Fail（真实记录）**。
-  A verified 后模型把任务 A 的 id 写进 `prerequisites`（该字段语义是
-  Project Context 条目），handoff 准备被正确阻塞，LD fail-closed 转人工 ×3
-  （Owner "继续" ×2 有界）。根因已修复：任务 id 前置条件按 Ledger 判定
-  （verified 且属于本 Goal 才满足，否则拒绝），拒绝原因持久化并展示给下一次
-  决策；确定性回归 T39 R4 全 Pass。
-- **真实模型严格闭环复跑被阻塞**：本环境的决策模型端点已移除（模型身份
-  亦不再落盘）。解除阻塞条件与复现命令：配置任意 OpenAI 兼容端点
-  （`LD_MODEL_BASE_URL` / `LD_MODEL_NAME`，可选 `LD_MODEL_API_KEY`），启动
-  CodeBuddy 服务后运行 `python scripts/t38_m4_real_e2e.py --part all`。
-- 已知限制（`docs/KNOWN_ISSUES.md` T38-F01/F02）：真实模型在收尾阶段倾向
-  保守转人工，需 `run-goal --resume` 显式解锁（人工只说"继续"，不传递任务
-  内容）；首跑中模型选择 `git_clean` 断言 + agent 未 commit 导致正确
-  rejected，已通过目标文本引导（要求 commit、建议 file 断言）缓解。
+- T38b 真实严格闭环（配置的本地 OpenAI 兼容决策端点 + 真实 CodeBuddy Worker，
+  25/25 全 Pass）：`evidence/project/T38b-m4-real-e2e-strict.json` —— 一次
+  目标声明：A 实现 `load_config`（agent 真实运行测试并 commit，verified）→
+  重启的 LD（CLI 子进程）恢复同一 Goal 提交 B —— B 是 handoff WorkItem
+  （source=A），agent 真实执行 `git merge`（A 的 checkpoint 是 B HEAD 的祖先、
+  B worktree 内全部预置测试通过）、commit、verified → LD 依据两个 verified
+  证据 finish，Goal `completed`；最终报告恰含本 Goal 的 A/B 两个任务、历史
+  连续、无 pending 步、**Owner 介入次数 0**；main 分支 tip 全程未动；多项目
+  隔离全部通过。
+- T38c 真实故障恢复与副作用拒绝（13/13 Pass）：
+  `evidence/project/T38c-m4-real-recovery.json` —— B 因 Bash 权限被拒卡死后
+  人工取消 → LD fail-closed 转人工 → Owner "继续" ×2（含一次控制平面拒绝
+  bypassPermissions 的真实拦截）→ 补交任务 B' 真实 merge + 全部测试通过 +
+  commit，但因 agent 误在项目根执行 git 命令（真实越界副作用）被 Verifier
+  **正确判 rejected**（断言全绿不覆盖副作用）→ 任务预算耗尽，Goal 正确
+  fail-closed 到 needs_human。
+- T38 首轮真实端到端（16 项 Pass，按其断言集）：
+  `evidence/project/T38-m4-real-e2e.json` —— 执行与交接层的首次真实验证。
+- 已知限制（`docs/KNOWN_ISSUES.md` T38-F01/F02/F05）：真实决策模型偶发保守
+  转人工（`--resume` 解锁，T38b 本轮零介入）；agent job 的 worker 权限模式
+  要求项目级 `permissions.allow`（T38 fixture 已内置）；首跑中模型选择
+  `git_clean` 断言 + agent 未 commit 导致正确 rejected，已通过目标文本引导
+  缓解。
 
 ---
 

@@ -1,0 +1,139 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-87fbe8371bcf",
+    "project_id": "prj-e08a7e5970",
+    "title": "实现 validate_config 并通过 test_validate.py（重试）",
+    "state": "running",
+    "verdict": "rejected",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "configlib/__init__.py",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "changed since baseline"
+      },
+      {
+        "kind": "file_contains",
+        "target": "configlib/__init__.py",
+        "value": "def validate_config",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      },
+      {
+        "kind": "file_contains",
+        "target": "configlib/__init__.py",
+        "value": "def load_config",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      }
+    ],
+    "warnings": [
+      "SIDE_EFFECT:undeclared_local_change:<REPO>\\sandbox\\m4-e2e-bb39e4bc\\pyproj"
+    ],
+    "finished_at": null
+  },
+  "attempt": {
+    "id": "at-0c7403f06a",
+    "worker_job_id": "359e5beb",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793349807.6715856,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 13,
+      "work_item_id": "cp-87fbe8371bcf",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-e08a7e5970",
+        "workspace_id": "ws-3d4b70b73e",
+        "context_version": 4,
+        "context_entry_refs": [
+          "ctx-b650f46b9dc4",
+          "ctx-1623eebb90b6",
+          "ctx-1906ab13ff7a",
+          "ctx-24a2c5fd577a"
+        ],
+        "context_injected": true
+      },
+      "created_at": 1793349770.5729868
+    },
+    {
+      "id": 14,
+      "work_item_id": "cp-87fbe8371bcf",
+      "attempt_id": null,
+      "type": "handoff_submitted",
+      "payload": {
+        "source_work_item_id": "cp-4dd3255eef8b",
+        "source_attempt_id": "at-85201992b8",
+        "source_session_reference_id": "sr-69715d6f86",
+        "checkpoint_ref": "63616fb3f68b5d0088cb9c3519d976a6610ec9cd",
+        "checkpoint_capture": {
+          "commit": "63616fb3f68b5d0088cb9c3519d976a6610ec9cd",
+          "base": "7ce3086b459ea7e34d3bb97e94acb5b4d63a4595",
+          "synthetic": true,
+          "included_paths": [
+            "configlib/__init__.py"
+          ],
+          "skipped_paths": []
+        },
+        "checkpoint_ref_protected": true,
+        "handoff_signature": "7ad72f1ef108eda15fbc28f7c6ebbf01"
+      },
+      "created_at": 1793349771.2434092
+    },
+    {
+      "id": 15,
+      "work_item_id": "cp-87fbe8371bcf",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-e08a7e5970",
+        "root": "<REPO>\\sandbox\\m4-e2e-bb39e4bc\\pyproj",
+        "cwd": "<REPO>\\sandbox\\m4-e2e-bb39e4bc\\pyproj"
+      },
+      "created_at": 1793349801.6081011
+    },
+    {
+      "id": 16,
+      "work_item_id": "cp-87fbe8371bcf",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\m4-e2e-bb39e4bc\\pyproj",
+        "attempt_id": "at-0c7403f06a",
+        "approval_id": null
+      },
+      "created_at": 1793349807.721228
+    },
+    {
+      "id": 17,
+      "work_item_id": "cp-87fbe8371bcf",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "359e5beb",
+        "http": 200
+      },
+      "created_at": 1793349807.9284685
+    }
+  ]
+}

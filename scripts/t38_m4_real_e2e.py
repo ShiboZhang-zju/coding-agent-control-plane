@@ -98,6 +98,17 @@ def make_repo(path: Path, files: dict | None = None) -> None:
         target = path / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
+    # Project-scoped worker permissions: the handoff session MUST run
+    # `git merge` / pytest / `git commit` inside its own worktree, but agent
+    # jobs default to permissionMode=acceptEdits under which Bash is denied
+    # in non-interactive mode (and bypassPermissions is forbidden by the
+    # control plane).  Committed project settings are inherited by every
+    # worktree; they scope the grant to this throw-away repo only.
+    perm = json.dumps({"permissions": {"allow": ["Bash", "PowerShell"]}}, indent=1)
+    for rel in (".claude/settings.json", ".codebuddy/settings.json"):
+        target = path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(perm, encoding="utf-8")
     git(path, "add", "-A")
     git(path, "commit", "-q", "-m", "seed")
     git(path, "branch", "-M", "main")
@@ -134,8 +145,12 @@ def build(ledger: Path, repo: Path, project_name: str):
 
 
 def wait_terminal(store: TaskStore, service: ProjectService, task_id: str,
-                  timeout_s: float = 900) -> dict:
-    """Fresh-observer loop: claim+dispatch the queued work, then observe."""
+                  timeout_s: float = 2400) -> dict:
+    """Fresh-observer loop: claim+dispatch the queued work, then observe.
+
+    A real agent session (merge checkpoint, implement, run tests) can easily
+    run past 15 minutes, so the default observation budget is 40 minutes.
+    """
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         service.plane.dispatch_next("t38-observer", concurrency_limit=2)

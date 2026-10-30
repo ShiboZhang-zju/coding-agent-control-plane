@@ -1,0 +1,135 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-1de03caf2720",
+    "project_id": "prj-7821a5d2e3",
+    "title": "probe2-bash",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertion_results": [
+      {
+        "kind": "file_contains",
+        "target": "bash-probe.txt",
+        "value": "2dadce602f285ed8e9e2302e95c41551546d8c45",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      }
+    ],
+    "warnings": [
+      "SESSION_BINDING_CONFLICT:SessionBindingError:work item cp-1de03caf2720 is not bound to a project workspace",
+      "SESSION_BINDING_CONFLICT:SessionBindingError:work item cp-1de03caf2720 is not bound to a project workspace",
+      "SESSION_BINDING_CONFLICT:SessionBindingError:work item cp-1de03caf2720 is not bound to a project workspace",
+      "SESSION_BINDING_CONFLICT:SessionBindingError:work item cp-1de03caf2720 is not bound to a project workspace"
+    ],
+    "finished_at": 1793349618.476
+  },
+  "attempt": {
+    "id": "at-6401290d6d",
+    "worker_job_id": "712ccbe8",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793349534.2883823,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 1,
+      "work_item_id": "cp-1de03caf2720",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-7821a5d2e3",
+        "root": "<REPO>\\sandbox\\perm-probe2",
+        "cwd": "<REPO>\\sandbox\\perm-probe2"
+      },
+      "created_at": 1793349521.4743927
+    },
+    {
+      "id": 2,
+      "work_item_id": "cp-1de03caf2720",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\perm-probe2",
+        "attempt_id": "at-6401290d6d",
+        "approval_id": null
+      },
+      "created_at": 1793349534.3366575
+    },
+    {
+      "id": 3,
+      "work_item_id": "cp-1de03caf2720",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "712ccbe8",
+        "http": 200
+      },
+      "created_at": 1793349534.4110286
+    },
+    {
+      "id": 4,
+      "work_item_id": "cp-1de03caf2720",
+      "attempt_id": "at-6401290d6d",
+      "type": "session_binding_conflict",
+      "payload": {
+        "worker_job_id": "712ccbe8",
+        "session_id": "712ccbe8-3e5d-4267-a3d3-36449c35b576",
+        "error": "SessionBindingError: work item cp-1de03caf2720 is not bound to a project workspace",
+        "source_attempt_id": "at-6401290d6d",
+        "source_attempt_resolved": true
+      },
+      "created_at": 1793349562.1264973
+    },
+    {
+      "id": 5,
+      "work_item_id": "cp-1de03caf2720",
+      "attempt_id": "at-6401290d6d",
+      "type": "session_binding_conflict",
+      "payload": {
+        "worker_job_id": "712ccbe8",
+        "session_id": "712ccbe8-3e5d-4267-a3d3-36449c35b576",
+        "error": "SessionBindingError: work item cp-1de03caf2720 is not bound to a project workspace",
+        "source_attempt_id": "at-6401290d6d",
+        "source_attempt_resolved": true
+      },
+      "created_at": 1793349594.4071937
+    },
+    {
+      "id": 6,
+      "work_item_id": "cp-1de03caf2720",
+      "attempt_id": "at-6401290d6d",
+      "type": "session_binding_conflict",
+      "payload": {
+        "worker_job_id": "712ccbe8",
+        "session_id": "712ccbe8-3e5d-4267-a3d3-36449c35b576",
+        "error": "SessionBindingError: work item cp-1de03caf2720 is not bound to a project workspace",
+        "source_attempt_id": "at-6401290d6d",
+        "source_attempt_resolved": true
+      },
+      "created_at": 1793349634.3638604
+    },
+    {
+      "id": 7,
+      "work_item_id": "cp-1de03caf2720",
+      "attempt_id": "at-6401290d6d",
+      "type": "session_binding_conflict",
+      "payload": {
+        "worker_job_id": "712ccbe8",
+        "session_id": "712ccbe8-3e5d-4267-a3d3-36449c35b576",
+        "error": "SessionBindingError: work item cp-1de03caf2720 is not bound to a project workspace",
+        "source_attempt_id": "at-6401290d6d",
+        "source_attempt_resolved": true
+      },
+      "created_at": 1793349683.4948869
+    }
+  ]
+}

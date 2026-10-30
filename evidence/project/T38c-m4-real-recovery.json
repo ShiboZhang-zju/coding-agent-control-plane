@@ -1,0 +1,108 @@
+{
+  "test": "T38c-m4-real-recovery",
+  "worker_started": true,
+  "decision_model": "configured local endpoint (OpenAI-compatible)",
+  "summary": {
+    "a": {
+      "task_id": "cp-4dd3255eef8b",
+      "verdict": "verified"
+    },
+    "b": {
+      "task_id": "cp-3df80ea50bb4",
+      "verdict": "rejected",
+      "reason": "agent blocked on Bash permission under acceptEdits; cancelled by the human owner"
+    },
+    "b2": {
+      "task_id": "cp-87fbe8371bcf",
+      "verdict": "rejected",
+      "reason": "real merge + 5/5 tests + commit, but REJECTED by the side-effect check: agent briefly ran git commands in the project root (stray branch + marker)"
+    },
+    "goal_status": "needs_human",
+    "task_budget_exhausted": true
+  },
+  "b2_evidence": {
+    "git_log": "5620364 Implement validate_config in configlib\nebe8962 Merge commit '63616fb3f68b5d0088cb9c3519d976a6610ec9cd' into feature/validate-config\n1d6d332 allow project-scoped shell for handoff sessions\n63616fb control-plane handoff checkpoint for cp-4dd3255eef8b (accepted state)",
+    "a_checkpoint_is_ancestor_of_b2_head": true,
+    "all_tests_pass_in_b2_worktree": true,
+    "side_effect_warnings": 5,
+    "stray_marker_file_present": true
+  },
+  "decision_history": [
+    {
+      "step": 1,
+      "state": "committed",
+      "action": "submit_task",
+      "next_state": "task_submitted"
+    },
+    {
+      "step": 2,
+      "state": "committed",
+      "action": "submit_task",
+      "next_state": "task_submitted"
+    },
+    {
+      "step": 3,
+      "state": "committed",
+      "action": "wait",
+      "next_state": "waiting"
+    },
+    {
+      "step": 4,
+      "state": "committed",
+      "action": "inspect",
+      "next_state": "inspection_complete"
+    },
+    {
+      "step": 5,
+      "state": "committed",
+      "action": "submit_task",
+      "next_state": "human_required"
+    },
+    {
+      "step": 6,
+      "state": "committed",
+      "action": "human_resume",
+      "next_state": "active"
+    },
+    {
+      "step": 7,
+      "state": "committed",
+      "action": "submit_task",
+      "next_state": "human_required"
+    },
+    {
+      "step": 8,
+      "state": "committed",
+      "action": "human_resume",
+      "next_state": "active"
+    },
+    {
+      "step": 9,
+      "state": "committed",
+      "action": "submit_task",
+      "next_state": "task_submitted"
+    },
+    {
+      "step": 10,
+      "state": "committed",
+      "action": "request_human",
+      "next_state": "human_required"
+    }
+  ],
+  "checks": {
+    "a_verified": true,
+    "b_cancelled_with_real_verdict": true,
+    "b2_real_merge_of_a_checkpoint": true,
+    "b2_all_tests_pass": true,
+    "b2_committed_on_own_branch": true,
+    "b2_rejected_by_side_effect_check": true,
+    "side_effect_was_real": true,
+    "green_assertions_do_not_override_side_effects": true,
+    "goal_fail_closed_needs_human": true,
+    "task_budget_enforced": true,
+    "history_contiguous": true,
+    "human_resumes_recorded": true,
+    "no_bypass_permissions_used": true
+  },
+  "result": "Pass"
+}

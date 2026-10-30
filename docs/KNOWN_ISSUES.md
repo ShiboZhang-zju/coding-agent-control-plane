@@ -2,12 +2,12 @@
 
 本文档记录已知问题、修复状态与专项验证缺口。当前状态：M3 已由 T33（确定性）与
 T34（真实 CodeBuddy Worker）验证；M4-A 已由 T32/T36（确定性）与 T38a（真实模型 +
-真实 Worker 单轮）验证；M4-B 执行/交接层经 T38 首轮真实验证，可靠性收口（步号/
-崩溃窗口/租约 fencing/checkpoint 安全/安全域默认值）由 T39/T40 确定性验证（含真实
-子进程崩溃注入），**真实模型严格闭环复跑被阻塞（本环境决策模型端点已移除，
-见 T38-F04）**。**"任务执行与交接成功"与"Goal 自动闭环完成"是两个不同的验收
-结论**，本文档分开记录。决策模型端点与模型 id 属于环境配置，不再出现在任何代码
-默认值、日志或证据中。
+真实 Worker 单轮）验证；M4-B 已由 T39/T40 确定性验证（含真实子进程崩溃注入），
+且**真实模型严格闭环复跑通过（T38b 25/25 Pass，配置的本地 OpenAI 兼容端点 +
+真实 CodeBuddy Worker：A verified → B handoff 真实 merge → B verified → finish
+completed，零人工介入）**；故障恢复与副作用拒绝路径另由 T38c 真实验证。
+**"任务执行与交接成功"与"Goal 自动闭环完成"是两个不同的验收结论**，本文档分开
+记录。决策模型端点与模型 id 属于环境配置，不出现在任何代码默认值、日志或证据中。
 
 ## M4 可靠性收口（评审 ee539ee 的处理，2026-10-30）
 
@@ -48,7 +48,8 @@ T34（真实 CodeBuddy Worker）验证；M4-A 已由 T32/T36（确定性）与 T
 | T38-F01 | 真实决策模型（OpenAI 兼容端点，按环境配置）在目标推进的收尾阶段倾向保守转人工：三次真实运行中两次在应 `finish` 或继续提交时选择 `request_human`（决策本身合法）。 | 目标停在 needs_human；需要 `run-goal --resume` 显式解锁（该动作本身被记录为 `human_resume` 决策）。这不是缺陷而是安全设计内的行为：人工只说"继续"，无需传递任何项目状态或任务内容。`finish` 的确定性校验由 T32/T37 覆盖。 | 已知行为；`--resume` 机制已提供 |
 | T38-F02 | 首次真实运行中模型为任务选择了 `git_clean` 断言，而 agent 完成后未 commit，验收正确判 rejected（Verifier 行为正确）。 | 属于目标文本引导问题而非系统缺陷：在目标中明确要求"完成后 git commit"且建议使用 `file_exists`/`file_contains` 断言后，后续运行任务全部 verified。未提交的已验收改动现由 `acceptance_snapshot` + 对象库 checkpoint 接续（不再自动 `git add -A`，见 P1-1）。 | 已通过目标文本引导缓解；Verifier 语义未放宽 |
 | T38-F03 | ee539ee 版 T38 证据的 `goal_status` 取自中间轮次（`report2.status`），并未断言最终 Goal 状态；最终报告的 `verified_tasks` 只含 A。 | 该版 16/16 Pass 只证明执行与交接，**不证明** Goal 自动闭环（评审 P1-3 指出）。T38 脚本已改为对最终报告做严格断言，严格复跑证据另存为 `T38b-m4-real-e2e-strict.json`（首轮证据保留原文件）。 | 已更正；首轮证据仍有效于其断言范围，严格复跑结论见 T38-F04 |
-| T38-F04 | 严格复跑（T38b，对最终 Goal 状态断言）真实执行后 **Fail**：真实模型把任务 A 的 id 写进 `prerequisites`（该字段语义是 Project Context 条目标题/标签），handoff 准备被 "prerequisite ... has no verified project context entry" 正确阻塞，LD fail-closed 转人工 ×3，Owner "继续" ×2 有界后停止。LD 行为正确（不绕过闸门）；缺陷在字段语义衔接。 | 根因已修复：目标派工时任务 id 前置条件按 Ledger 判定（该 WorkItem verified 且属于本 Goal 才满足，跨 Goal/未验收则拒绝），非任务 id 原样传给 Context 条目校验；决策 schema 补充 `prerequisites` 语义说明；失败原因持久化到步 outcome 并作为 `last_step` 展示给下一次决策。确定性回归 T39 R4 全 Pass（同 Goal verified id 被接受并记为任务前置；跨 Goal id 拒绝且原因可见）。**真实模型复跑被阻塞**：本环境决策模型端点已移除（模型身份不再落盘）。解除阻塞：配置任意 OpenAI 兼容端点（`LD_MODEL_BASE_URL`/`LD_MODEL_NAME`）后运行 `python scripts/t38_m4_real_e2e.py --part all`。 | 已修复（T39 R4 Pass）；真实复跑待模型环境 |
+| T38-F04 | 严格复跑（T38b，对最终 Goal 状态断言）首次真实执行后 **Fail**：真实模型把任务 A 的 id 写进 `prerequisites`（该字段语义是 Project Context 条目标题/标签），handoff 准备被 "prerequisite ... has no verified project context entry" 正确阻塞，LD fail-closed 转人工 ×3。LD 行为正确（不绕过闸门）；缺陷在字段语义衔接。 | 根因已修复：目标派工时任务 id 前置条件按 Ledger 判定（该 WorkItem verified 且属于本 Goal 才满足，跨 Goal/未验收则拒绝），非任务 id 原样传给 Context 条目校验；决策 schema 补充 `prerequisites` 语义说明；失败原因持久化到步 outcome 并作为 `last_step` 展示给下一次决策。确定性回归 T39 R4 全 Pass。**修复后真实复跑通过**：T38b（配置的本地 OpenAI 兼容决策端点 + 真实 CodeBuddy Worker）25/25 Pass——A verified → B 以 handoff 提交并真实 merge A 的 checkpoint（HEAD 祖先证明、B worktree 内全部测试通过）→ finish completed，Owner 介入次数 0。 | 已修复；真实复跑通过（T38b Pass） |
+| T38-F05 | 真实环境运行要求（T38b/T38c 轮实证）：CodeBuddy agent job 默认 `permissionMode=acceptEdits` 下非交互模式 Bash/PowerShell 一律被拒；handoff 会话必须执行 `git merge`/pytest/`git commit`，纯文件编辑不足以完成交接（T38c 中任务 B 因此卡死后被人工取消）。`dontAsk` 全部拒绝；`bypassPermissions` 被控制平面 `DispatchPolicy.validate` 拒绝（两次真实提交尝试均被拦下）。 | 采纳 CodeBuddy 自身建议的机制：**项目级 settings `permissions.allow: ["Bash","PowerShell"]`**（`.claude/settings.json` 与 `.codebuddy/settings.json`，随 fixture 仓库提交、被每个 worktree 继承，授权范围仅限一次性沙箱仓库）。T38 脚本 `make_repo` 已内置该文件；实证探针验证 agent 真实执行 Bash 且断言核对真实 commit hash。T38c 另记录：B' agent 曾把 git 命令误打入项目根（留下 stray 分支与 marker），Verifier 副作用检测在断言全绿、测试全过的情况下**正确判 rejected**，任务预算耗尽后 Goal 正确 fail-closed 到 needs_human。 | 已固化；环境要求已写入测试 fixture |
 
 ## M3 待验证清单
 

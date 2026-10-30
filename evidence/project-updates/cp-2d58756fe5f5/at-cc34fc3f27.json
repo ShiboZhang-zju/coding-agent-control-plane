@@ -1,0 +1,128 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-2d58756fe5f5",
+    "project_id": "prj-d3e012365a",
+    "title": "实现 configlib.validate_config 并通过 test_validate.py",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertion_results": [
+      {
+        "kind": "file_contains",
+        "target": "configlib/__init__.py",
+        "value": "def validate_config",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      },
+      {
+        "kind": "file_contains",
+        "target": "configlib/__init__.py",
+        "value": "def load_config",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      }
+    ],
+    "warnings": [],
+    "finished_at": 1793351685.926
+  },
+  "attempt": {
+    "id": "at-cc34fc3f27",
+    "worker_job_id": "def3e800",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793351209.1133494,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 6,
+      "work_item_id": "cp-2d58756fe5f5",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-d3e012365a",
+        "workspace_id": "ws-f82d1a2797",
+        "context_version": 2,
+        "context_entry_refs": [
+          "ctx-41a1e9667b1f",
+          "ctx-89a4c1265d12"
+        ],
+        "context_injected": true
+      },
+      "created_at": 1793351196.6607554
+    },
+    {
+      "id": 7,
+      "work_item_id": "cp-2d58756fe5f5",
+      "attempt_id": null,
+      "type": "handoff_submitted",
+      "payload": {
+        "source_work_item_id": "cp-eb5284bb30dd",
+        "source_attempt_id": "at-fa985f1201",
+        "source_session_reference_id": "sr-8218fccbbb",
+        "checkpoint_ref": "0032f6be29eea930ae181320a9f2f91428b86597",
+        "checkpoint_capture": {
+          "commit": "0032f6be29eea930ae181320a9f2f91428b86597",
+          "base": "0032f6be29eea930ae181320a9f2f91428b86597",
+          "synthetic": false,
+          "included_paths": [],
+          "skipped_paths": [
+            "__pycache__/test_load.cpython-311-pytest-9.0.3.pyc",
+            "configlib/__pycache__/__init__.cpython-311.pyc"
+          ]
+        },
+        "checkpoint_ref_protected": true,
+        "handoff_signature": "c0625fb928f76479eb8ac237211a6007"
+      },
+      "created_at": 1793351197.5761523
+    },
+    {
+      "id": 8,
+      "work_item_id": "cp-2d58756fe5f5",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-d3e012365a",
+        "root": "<REPO>\\sandbox\\m4-e2e-6eb2b00c\\pyproj",
+        "cwd": "<REPO>\\sandbox\\m4-e2e-6eb2b00c\\pyproj"
+      },
+      "created_at": 1793351201.5665152
+    },
+    {
+      "id": 9,
+      "work_item_id": "cp-2d58756fe5f5",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\m4-e2e-6eb2b00c\\pyproj",
+        "attempt_id": "at-cc34fc3f27",
+        "approval_id": null
+      },
+      "created_at": 1793351209.3815053
+    },
+    {
+      "id": 10,
+      "work_item_id": "cp-2d58756fe5f5",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "def3e800",
+        "http": 200
+      },
+      "created_at": 1793351209.716004
+    }
+  ]
+}

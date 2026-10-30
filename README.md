@@ -6,19 +6,21 @@
 **Project**，每个 Project 通过 **Coding Agent** 执行具体任务。Control Plane 是这个系统的
 **基础设施层**——它不再是产品本身，而是让上述结构可靠运转的执行治理层。
 
-当前阶段：**M4-A 已完成真实集成验收；M4-B 执行/交接层真实验证、Goal 闭环确定性验证，
-真实模型严格复跑被阻塞**。M1–M3 均有真实测试证据；M4-A 跑通"真实 LLM 结构化决策 →
-context 注入 → 真实 CodeBuddy Worker → Verifier 验收 → M2 自动上下文更新"完整单轮链路
-（`evidence/project/T38a-m4a-real-single-turn.json`）；M4-B 首轮真实端到端验证了
-一次目标驱动两个相互依赖任务、两个独立 Session 接力、B 真实消费 A 的已验收代码
-（`evidence/project/T38-m4-real-e2e.json`）；可靠性收口（步号冲突、崩溃窗口、
-租约 fencing、checkpoint 安全、安全域默认值）由 T39/T40 确定性验证
-（含真实子进程崩溃注入）。严格版真实复跑（对最终 Goal 状态断言）暴露了
-前置条件语义缺陷（已修复 + 确定性回归），复跑因本环境决策模型端点已移除而阻塞
-（`evidence/project/T38b-m4-real-e2e-strict.json`，复现条件见
-`docs/KNOWN_ISSUES.md` T38-F04）。模型身份（端点/模型 id）不属于测试结果，
-不再出现在代码默认值、日志或证据中。已知限制：真实模型收尾阶段倾向保守转人工，
-需 `--resume` 显式解锁；M5 跨机器远程执行尚未实现，
+当前阶段：**M4 核心闭环已成立（M4-A 单轮与 M4-B 连续推进均通过真实集成验收）**。
+M1–M3 均有真实测试证据；M4-A 跑通"真实 LLM 结构化决策 → context 注入 →
+真实 CodeBuddy Worker → Verifier 验收 → M2 自动上下文更新"完整单轮链路
+（`evidence/project/T38a-m4a-real-single-turn.json`）；M4-B 严格闭环
+（`T38b-m4-real-e2e-strict.json`，25/25 Pass）：一次目标声明 → A 实现
+`load_config` 并真实运行测试与 commit（verified）→ 重启的 LD 恢复同一 Goal 提交
+B（handoff，agent 真实 `git merge` A 的已验收 checkpoint，全部测试通过，verified）
+→ LD 依据两个 verified 证据 finish，Goal `completed`，全程 **Owner 介入 0 次**；
+故障恢复与副作用拒绝路径另由 T38c 真实验证（含 Verifier 在断言全绿时正确拒绝
+有越界副作用的任务）。可靠性收口（步号冲突、崩溃窗口、租约 fencing、
+checkpoint 安全、安全域默认值）由 T39/T40 确定性验证（含真实子进程崩溃注入）。
+模型身份（端点/模型 id）不属于测试结果，不出现在代码默认值、日志或证据中。
+已知限制：真实决策模型偶发保守转人工（`--resume` 解锁）；agent job 的 worker
+权限要求项目级 `permissions.allow`（T38 fixture 已内置，见
+`docs/KNOWN_ISSUES.md` T38-F05）；M5 跨机器远程执行尚未实现，
 见 [路线图](docs/PROJECT_CENTRIC_ROADMAP.md)。
 
 ---
@@ -151,7 +153,7 @@ M4-A 只把 T32 实际覆盖的确定性边界标为 Pass，整体仍未完成�
 | 真实决策模型（OpenAI-compatible，无 SDK） | `ld/model.py` | T36 边界全 Pass；T38a 真实单轮 Pass |
 | provenance 模型视图（M4B-01：Prompt/原文不进模型输入） | `ld/tools.py` | T36 Pass |
 | 持久化 Goal 状态（确定性 goal_id、追加式决策历史、跨进程租约 + fencing token） | `ld/goal_store.py` | T37/T39 Pass |
-| 有界连续推进 `run_goal()` + 依赖任务确定性 handoff 交接 | `ld/coordinator.py` | T37/T39 确定性 Pass；T38 首轮真实执行/交接 Pass；严格闭环复跑阻塞（T38b，模型端点已移除） |
+| 有界连续推进 `run_goal()` + 依赖任务确定性 handoff 交接 | `ld/coordinator.py` | T37/T39 确定性 Pass；T38b 真实严格闭环 25/25 Pass（completed，Owner 介入 0 次）；T38c 真实故障恢复/副作用拒绝 Pass |
 | 同 Ledger CLI（查询/单轮/run-goal/--resume） | `scripts/ld_cli.py` | T32/T38 Pass |
 
 M4 未引入任何 Agent Framework。模型输出必须通过严格 schema 校验，模型永远
@@ -400,14 +402,16 @@ python scripts/t34_m3_real_worker.py --part all   # M3-01/02 真实 Worker
 python scripts/t38_m4_real_e2e.py --part all      # M4 端到端：双依赖任务/恢复/隔离
 ```
 
-T38 首轮证据 `evidence/project/T38-m4-real-e2e.json` 覆盖（按其断言集）：
-一次目标声明 → 两个真实依赖任务（Session B merge Session A 的 checkpoint，
-测试证明代码接续）→ 双双 verified → 重启恢复（CLI 子进程续跑同一 Goal，
-不重派 A）→ 多项目隔离。严格版复跑对**最终 Goal 状态**断言
-（`completed`、报告恰含 A/B、历史连续），证据
-`evidence/project/T38b-m4-real-e2e-strict.json`：因前置条件语义缺陷 Fail
-（已修复，T39 R4 确定性回归 Pass），真实复跑待可用的 OpenAI 兼容端点
-（本环境已移除）。已知限制见 `docs/KNOWN_ISSUES.md` T38-F01/F02/F04。
+T38 首轮证据 `evidence/project/T38-m4-real-e2e.json` 覆盖（按其断言集）：一次目标
+声明 → 两个真实依赖任务 → 双双 verified → 重启恢复（CLI 子进程续跑同一 Goal，
+不重派 A）→ 多项目隔离。严格版 `evidence/project/T38b-m4-real-e2e-strict.json`
+（25/25 Pass）对**最终 Goal 状态**断言（`completed`、报告恰含 A/B、历史连续、
+系统步键、Owner 介入与 human_resume 一致），且要求 Session B 真实 merge
+（A 的 checkpoint 为 B HEAD 祖先）并真实运行测试。故障恢复与副作用拒绝见
+`evidence/project/T38c-m4-real-recovery.json`。运行前置（T38-F05）：决策端点
+`LD_MODEL_*`；handoff 任务的 agent 需要 shell（`git merge`/pytest/commit），
+fixture 已内置项目级 `permissions.allow`。已知限制见
+`docs/KNOWN_ISSUES.md` T38-F01/F02/F04/F05。
 
 ---
 
@@ -451,7 +455,7 @@ sandbox/                        两个一次性 Git 仓库（不入库）
 | M2 | Project Context Update Loop（验收后回写、候选知识、幂等） | **已完成** |
 | M3 | Session Registry / Handoff（单机多 Session） | **已完成**（T33 确定性 + T34 真实 Worker；git commit checkpoint 的"worktree 关闭后可达"未覆盖） |
 | M4-A | Minimal LD（受限工具 + 结构化决策 + 单轮协调） | **已完成**（T32/T36 确定性 + T38a 真实模型/Worker 单轮） |
-| M4-B | 有界连续推进（持久化 Goal + 依赖任务确定性交接 + 恢复） | **执行/交接真实验证（T38 首轮）；闭环确定性验证（T39/T40 含崩溃注入）；真实严格复跑阻塞（模型端点已移除，T38b）** |
+| M4-B | 有界连续推进（持久化 Goal + 依赖任务确定性交接 + 恢复） | **已完成**（T39/T40 确定性含崩溃注入与租约 fencing；T38b 真实严格闭环 25/25 Pass；T38c 真实故障恢复验证） |
 | M5 | Distributed Workspace（多节点、远程派工、受控同步） | 未实现 |
 
 历史计划 [docs/V0.2_PLAN.md](docs/V0.2_PLAN.md) 描述的是 v0.2 阶段（本地单用户
