@@ -9,10 +9,12 @@ A1  ProjectService refuses shell policy for context-injected submissions
 A2  _save_snapshot keeps the WorkItem session identity identical to the
     immutable Session Registry first binding, and a late conflicting snapshot
     event names the Attempt it actually came from.
-A3  HandoffPlanner.capture_source_checkpoint deterministically commits a dirty
-    source worktree (never touching the default branch); checkpoint_mode
-    "reachable" allows a not-yet-integrated checkpoint and renders an explicit
-    merge instruction, while "integrated" keeps the strict M3 blocker;
+A3  HandoffPlanner.build_source_checkpoint assembles a commit identical to the
+    *accepted* worktree state in the object store only (source worktree,
+    branch and main untouched; deterministic id); checkpoint_mode "reachable"
+    allows a not-yet-integrated checkpoint and renders an explicit merge
+    instruction, while "integrated" keeps the strict M3 blocker; the
+    checkpoint gets a private protective ref only after a successful submit;
     context-only handoffs stay labelled as such.
 """
 from __future__ import annotations
@@ -33,6 +35,7 @@ from controlplane.plane import ControlPlane  # noqa: E402
 from controlplane.policies import poc_shell  # noqa: E402
 from controlplane.project_service import ProjectService  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
+from controlplane.verify import worktree_fingerprint  # noqa: E402
 from sanitize_evidence import write_evidence  # noqa: E402
 
 FIXTURE = ROOT / "sandbox" / "m4-fixes"
@@ -173,10 +176,15 @@ def a3_checkpoint_capture(service: ProjectService, plane: ControlPlane,
     source = make_source(plane, store, project_id,
                          worktree=str(WORKTREE), head_commit=wt_head,
                          session="sess-a3")
-    checkpoint = service.handoffs.capture_source_checkpoint(source)
-    after = store.get(source)
-    log = git(WORKTREE, "log", "--format=%s", "-3")
-    clean = not git(WORKTREE, "status", "--porcelain")
+    # What the Verifier records at the first verified observation
+    # (ControlPlane._snapshot_patch): the exact accepted worktree state.
+    rec = store.get(source) or {}
+    store.update(source, metadata={**(rec.get("metadata") or {}),
+                                   "acceptance_snapshot": worktree_fingerprint(str(WORKTREE))})
+    capture = service.handoffs.build_source_checkpoint(source)
+    checkpoint = capture.get("commit")
+    capture_again = service.handoffs.build_source_checkpoint(source)
+    status_after = git(WORKTREE, "status", "--porcelain")
 
     prepared_reachable = service.prepare_handoff(
         source, "continue with A's code", require_checkpoint=True,
@@ -203,13 +211,24 @@ def a3_checkpoint_capture(service: ProjectService, plane: ControlPlane,
         require_checkpoint=True, checkpoint_mode="reachable",
         idempotency_key=f"t35-a3-{uuid.uuid4().hex[:6]}")
     submitted_prompt = record.get("effective_prompt") or ""
+    protected = subprocess.run(
+        ["git", "-C", str(REPO), "rev-parse",
+         f"refs/control-plane/handoff/{record.get('task_id')}"],
+        capture_output=True, text=True, timeout=30).stdout.strip()
 
     main_after = git(REPO, "rev-parse", "main")
     return {
-        "capture_creates_commit": checkpoint not in (None, wt_head),
-        "capture_updates_head_commit": after.get("head_commit") == checkpoint,
-        "capture_leaves_worktree_clean": clean,
-        "capture_message_is_auditable": "handoff checkpoint" in log,
+        "checkpoint_is_new_commit": checkpoint not in (None, wt_head),
+        "checkpoint_parent_is_accepted_head": (
+            bool(checkpoint) and git(WORKTREE, "rev-parse", f"{checkpoint}^") == wt_head),
+        "checkpoint_contains_accepted_file": (
+            bool(checkpoint)
+            and git(WORKTREE, "show", f"{checkpoint}:feature-a.txt") == "work in progress"),
+        "checkpoint_is_deterministic": capture_again.get("commit") == checkpoint,
+        "source_worktree_untouched": (
+            git(WORKTREE, "rev-parse", "HEAD") == wt_head
+            and "feature-a.txt" in status_after),
+        "source_head_commit_unchanged": (store.get(source) or {}).get("head_commit") == wt_head,
         "capture_never_touches_main": main_before == main_after,
         "reachable_mode_ready": prepared_reachable.get("ready") is True,
         "reachable_checkpoint_available": (
@@ -218,6 +237,7 @@ def a3_checkpoint_capture(service: ProjectService, plane: ControlPlane,
             prepared_reachable.get("checkpoint", {}).get("integrated") is False),
         "integrated_mode_still_blocks": any(
             "not contained in target workspace HEAD" in b
+            or "uncommitted changes" in b
             for b in (blocked_integrated or [])),
         "reachable_prompt_has_merge_instruction": (
             f"git merge {checkpoint}" in prompt_reachable),
@@ -225,6 +245,7 @@ def a3_checkpoint_capture(service: ProjectService, plane: ControlPlane,
         "submit_reachable_succeeds": bool(record.get("task_id")),
         "submitted_prompt_has_merge_instruction": (
             f"git merge {checkpoint}" in submitted_prompt),
+        "checkpoint_protected_after_submit": protected == checkpoint,
     }
 
 

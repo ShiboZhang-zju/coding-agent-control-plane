@@ -481,8 +481,10 @@ class ProjectService:
     def prepare_handoff(self, source_work_item_id: str, task: str, **kwargs) -> dict:
         """Preview a new-Session handoff without writing or calling a Worker.
 
-        This is read-only by design: unlike ``submit_handoff``, it never
-        captures a checkpoint (which commits the source worktree).
+        Read-only with respect to the Ledger, the source worktree and every
+        branch.  In ``reachable`` mode the accepted-state checkpoint is
+        assembled in the object store (unreferenced, deterministic), so the
+        preview signature equals what ``submit_handoff`` will freeze.
         """
         return self.handoffs.prepare(source_work_item_id, task, **kwargs).to_dict()
 
@@ -508,17 +510,26 @@ class ProjectService:
         handoff source and checkpoint live in WorkItem metadata at insert time;
         the audit event is useful history, never the recovery source of truth.
 
-        ``checkpoint_mode='reachable'`` additionally captures a deterministic
-        git checkpoint of the source session's worktree (committing uncommitted
-        changes on the worktree's own isolation branch) so Session B can merge
-        the previously accepted code.  ``'integrated'`` keeps the strict M3
-        semantics: the checkpoint must already be contained in the target
-        workspace HEAD.
+        ``checkpoint_mode='reachable'`` hands over a commit assembled from the
+        source's *accepted* state (see ``HandoffPlanner.build_source_checkpoint``):
+        nothing in the source worktree, index or branches changes, and the
+        checkpoint is protected by a private ref only after the WorkItem is
+        durably created.  ``'integrated'`` keeps the strict M3 semantics: the
+        checkpoint must already be contained in the target workspace HEAD.
         """
-        if checkpoint_mode == "reachable":
-            # Deterministic capture *before* prepare so the readiness checks and
-            # the frozen prompt see the real code state, never a dirty worktree.
-            self.handoffs.capture_source_checkpoint(source_work_item_id)
+        # Validate the caller-controlled policy before any Git or Ledger work:
+        # a request that will be refused must not have produced anything.
+        if isinstance(policy, dict):
+            policy = DispatchPolicy(**policy)
+        # Same refusal as submit_project_task: a handoff prompt is a multi-line
+        # context-injected document, never a valid shell script.
+        if policy is not None and policy.mode == "shell":
+            raise ValueError(
+                "submit_handoff refuses shell policy: the context-injected "
+                "multi-line handoff prompt would be executed as a shell script "
+                "and fail")
+        if policy is not None:
+            policy.validate()
         prepared = self.handoffs.prepare(
             source_work_item_id, task,
             target_workspace_id=target_workspace_id,
@@ -539,15 +550,6 @@ class ProjectService:
         assertion_objs = [
             item if isinstance(item, ArtifactAssertion) else ArtifactAssertion(**item)
             for item in assertions]
-        if isinstance(policy, dict):
-            policy = DispatchPolicy(**policy)
-        # Same refusal as submit_project_task: a handoff prompt is a multi-line
-        # context-injected document, never a valid shell script.
-        if policy is not None and policy.mode == "shell":
-            raise ValueError(
-                "submit_handoff refuses shell policy: the context-injected "
-                "multi-line handoff prompt would be executed as a shell script "
-                "and fail")
         project = self.store.get_project(prepared.project_id) or {}
         effective_policy = (policy
                             or (DispatchPolicy(**project["policy"])
@@ -625,12 +627,20 @@ class ProjectService:
                 f"idempotency key {idempotency_key!r} was concurrently claimed by "
                 f"handoff signature {stored_signature!r}")
         if not record.get("deduplicated"):
+            protected = None
+            if (checkpoint_mode == "reachable" and prepared.checkpoint_ref
+                    and prepared.target_workspace_root):
+                protected = self.handoffs.protect_checkpoint(
+                    prepared.target_workspace_root, record["task_id"],
+                    prepared.checkpoint_ref)
             self.store.append_event(record["task_id"], "handoff_submitted", {
                 "source_work_item_id": prepared.source_work_item_id,
                 "source_attempt_id": prepared.source_attempt_id,
                 "source_session_reference_id": (
                     prepared.source_session_reference or {}).get("id"),
                 "checkpoint_ref": prepared.checkpoint_ref,
+                "checkpoint_capture": (prepared.checkpoint or {}).get("capture"),
+                "checkpoint_ref_protected": protected,
                 "handoff_signature": submission_signature,
             })
         out = dict(record)

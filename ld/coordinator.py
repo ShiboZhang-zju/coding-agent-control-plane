@@ -8,7 +8,9 @@ Handoff, remote execution, or arbitrary model-authored commands.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 import hashlib
+import threading
 import time
 from typing import Any, Protocol
 
@@ -18,7 +20,7 @@ from ld.decision import (
     LDDecision,
     decision_schema,
 )
-from ld.goal_store import goal_identity
+from ld.goal_store import GoalLeaseLost, goal_identity, step_idempotency_key
 from ld.tools import LDTools
 
 _SECURITY_DOMAINS = {"local", "shareable"}
@@ -47,6 +49,7 @@ class LDCoordinator:
         *,
         model_authorized_security_domains: tuple[str, ...] = (),
         goal_security_domain: str = "local",
+        fault_hook: Callable[[str], None] | None = None,
     ):
         unknown = set(model_authorized_security_domains) - _SECURITY_DOMAINS
         if unknown:
@@ -58,6 +61,13 @@ class LDCoordinator:
         self._model = model
         self._model_domains = tuple(sorted(set(model_authorized_security_domains)))
         self._goal_security_domain = goal_security_domain
+        # Test-only crash injection at named persistence boundaries; None in
+        # production.  See scripts/t39_m4_goal_reliability.py.
+        self._fault_hook = fault_hook
+
+    def _hook(self, point: str) -> None:
+        if self._fault_hook is not None:
+            self._fault_hook(point)
 
     def run_once(
         self,
@@ -68,12 +78,15 @@ class LDCoordinator:
         goal_context: Mapping[str, Any] | None = None,
         goal_ref: str | None = None,
         submit_executor: Callable[..., dict] | None = None,
+        replay_decision: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Plan and optionally execute exactly one LD action.
 
-        ``goal_context`` / ``goal_ref`` / ``submit_executor`` are internal
-        seams used by :meth:`run_goal`; external callers keep the single-turn
-        semantics and never pass them.
+        ``goal_context`` / ``goal_ref`` / ``submit_executor`` /
+        ``replay_decision`` are internal seams used by :meth:`run_goal`;
+        external callers keep the single-turn semantics and never pass them.
+        ``replay_decision`` re-executes an already persisted, validated
+        decision through the same safety gates without calling the model.
         """
         if not isinstance(goal, str) or not goal.strip():
             raise ValueError("goal must be a non-empty string")
@@ -84,7 +97,7 @@ class LDCoordinator:
         goal_ref = goal_ref or self._goal_ref(normalized_goal)
         projects = self._tools.list_projects()
         selected_id = self._resolve_project_id(projects, project_id)
-        if self._model is None:
+        if replay_decision is None and self._model is None:
             return self._human_result(
                 project_id=selected_id,
                 reason="LD decision model is not configured; no decision was fabricated",
@@ -94,7 +107,8 @@ class LDCoordinator:
                 source="coordinator",
                 dry_run=dry_run,
             )
-        if self._goal_security_domain not in self._model_domains:
+        if (replay_decision is None
+                and self._goal_security_domain not in self._model_domains):
             return self._human_result(
                 project_id=selected_id,
                 reason=(
@@ -119,12 +133,15 @@ class LDCoordinator:
             model_progress = self._tools.get_project_progress(
                 selected_id, allowed_security_domains=self._model_domains)
 
-        model_input = self._decision_input(
-            normalized_goal, projects, selected_id, brief, model_progress,
-            goal_context=goal_context)
         try:
-            raw = (self._model.decide(model_input)
-                   if hasattr(self._model, "decide") else self._model(model_input))
+            if replay_decision is not None:
+                raw = replay_decision
+            else:
+                model_input = self._decision_input(
+                    normalized_goal, projects, selected_id, brief, model_progress,
+                    goal_context=goal_context)
+                raw = (self._model.decide(model_input)
+                       if hasattr(self._model, "decide") else self._model(model_input))
             if not isinstance(raw, Mapping):
                 raise DecisionValidationError("model output must be one structured object")
             decision = LDDecision.from_mapping(raw)
@@ -730,23 +747,29 @@ class LDCoordinator:
         max_wait_s: float | None = None,
         lease_owner: str | None = None,
         resume: bool = False,
+        resume_note: str = "",
+        heartbeat: bool = True,
     ) -> dict[str, Any]:
         """Advance one persistent goal by one auditable transition at a time.
 
-        Never an unbounded loop: every iteration performs exactly one model
-        decision, one action, one durable decision record and one goal state
-        transition.  Boundaries (decision budget, task budget, stalled
-        inspections, model failures, human-attention flags) all stop the goal
-        in an explicit state.  ``poll_interval_s=None`` (default) returns as
-        soon as the goal is waiting on an in-flight task; a value enables a
-        bounded poll that refreshes known jobs and continues after terminal
-        verdicts until the goal completes, needs a human, or ``max_wait_s``
-        expires.
+        Never an unbounded loop: every iteration performs at most one model
+        decision, one action and one transactional goal transition.  Limits
+        (model-decision budget, task budget, stalled inspections, model
+        failures, human-attention flags) all stop the goal in an explicit
+        state.  ``poll_interval_s=None`` (default) returns as soon as the goal
+        waits on an in-flight task.
 
-        Restart safety: the goal id is derived from (project, goal text), the
-        decision history is append-only per step, submissions carry the goal
-        ref plus the model's idempotency key, and a time-boxed lease keeps
-        concurrent processes from double-advancing the same goal.
+        Reliability (M4 reliability closure):
+
+        * the lease carries a fencing token; every goal write is conditioned on
+          it, and a heartbeat renews it during long model calls;
+        * a task submission is persisted as a ``pending`` step *before* the
+          side effect and uses a system-generated idempotency key derived from
+          (goal, step); a restart reconciles a pending step from the Ledger
+          (adopt the existing WorkItem, or replay the persisted decision)
+          before ever asking the model again;
+        * ``resume=True`` lifts a ``needs_human`` goal under the lease, as one
+          step of the same contiguous history.
         """
         if not isinstance(goal, str) or not goal.strip():
             raise ValueError("goal must be a non-empty string")
@@ -756,84 +779,96 @@ class LDCoordinator:
         selected_id = self._resolve_project_id(self._tools.list_projects(), project_id)
         goal_id, goal_ref = goal_identity(normalized_goal, selected_id)
         goal_store.get_or_create(goal_id, selected_id, normalized_goal, goal_ref)
-        if resume:
-            goal = goal_store.get(goal_id) or {}
-            if goal.get("status") == "needs_human":
-                goal_store.resume(
-                    goal_id, note="resumed by the caller after human review")
-        owner = lease_owner or f"ld-goal-{self._tools.service.plane.worker_instance_id}"
-        goal_store.acquire_lease(goal_id, owner)
+        owner = lease_owner or goal_store.default_owner()
+        leased = goal_store.acquire_lease(goal_id, owner)
+        lease = _GoalLease(goal_store, goal_id, owner, int(leased["lease_token"]))
+        if heartbeat:
+            lease.start_heartbeat()
         try:
+            if resume and (goal_store.get(goal_id) or {}).get("status") == "needs_human":
+                goal_store.resume(
+                    goal_id, note=resume_note or "resumed by the Human Owner after review",
+                    token=lease.token)
             return self._advance_goal_loop(
                 goal_id=goal_id, goal_ref=goal_ref, project_id=selected_id,
                 normalized_goal=normalized_goal, goal_store=goal_store,
                 max_decisions=max_decisions, max_tasks=max_tasks,
                 max_stalled_inspections=max_stalled_inspections,
                 poll_interval_s=poll_interval_s, max_wait_s=max_wait_s,
-                lease_owner=owner)
+                lease=lease)
         finally:
-            goal_store.release_lease(goal_id, owner)
+            lease.stop_heartbeat()
+            goal_store.release_lease(goal_id, owner, lease.token)
 
     def _advance_goal_loop(
         self, *, goal_id: str, goal_ref: str, project_id: str,
         normalized_goal: str, goal_store, max_decisions: int, max_tasks: int,
         max_stalled_inspections: int, poll_interval_s: float | None,
-        max_wait_s: float | None, lease_owner: str,
+        max_wait_s: float | None, lease: "_GoalLease",
     ) -> dict[str, Any]:
         deadline = (time.time() + max_wait_s
                     if poll_interval_s is not None and max_wait_s else None)
         stalled = 0
         last_result: dict[str, Any] | None = None
         while True:
+            lease.check()
             goal = goal_store.get(goal_id) or {}
-            if goal.get("status") in ("needs_human", "completed", "failed"):
-                return self._goal_report(goal_id, project_id, goal_store,
-                                         last_result, reason="goal is not active")
-            if goal.get("decision_count", 0) >= max_decisions:
-                goal_store.update_goal(
-                    goal_id, status="needs_human",
-                    last_decision={"stop": "decision budget exhausted",
-                                   "decision_count": goal["decision_count"]})
-                return self._goal_report(goal_id, project_id, goal_store,
-                                         last_result, reason="decision budget exhausted")
-            if not goal_store.renew_lease(goal_id, lease_owner):
-                raise RuntimeError(f"lost the advancement lease on {goal_id}")
+            pending = goal_store.pending_step(goal_id)
+            if pending is not None:
+                # Crash recovery first: never re-plan a step that may already
+                # have produced a WorkItem.
+                step = int(pending["step"])
+                result = self._reconcile_pending_step(
+                    pending, goal=goal, goal_id=goal_id, goal_ref=goal_ref,
+                    project_id=project_id, normalized_goal=normalized_goal,
+                    goal_store=goal_store, max_tasks=max_tasks, lease=lease)
+                transition = self._commit_goal_step(
+                    goal_store, goal_id, goal, result, step, lease,
+                    pending=True, decision=pending.get("decision") or {})
+                last_result = result
+            else:
+                if goal.get("status") in ("needs_human", "completed", "failed"):
+                    return self._goal_report(goal_id, project_id, goal_ref, goal_store,
+                                             last_result, reason="goal is not active")
+                if int(goal.get("model_decision_count", 0)) >= max_decisions:
+                    goal_store.stop_goal(
+                        goal_id, lease.token, "needs_human",
+                        {"stop": "decision budget exhausted",
+                         "model_decision_count": goal.get("model_decision_count")})
+                    return self._goal_report(goal_id, project_id, goal_ref, goal_store,
+                                             last_result,
+                                             reason="decision budget exhausted")
+                step = int(goal.get("decision_count", 0)) + 1
+                goal_context = self._goal_context(
+                    goal, goal_store, goal_ref, max_decisions, max_tasks)
+                result = self.run_once(
+                    normalized_goal, project_id=project_id,
+                    goal_context=goal_context, goal_ref=goal_ref,
+                    submit_executor=self._make_goal_submit_executor(
+                        project_id=project_id, goal_ref=goal_ref, goal=goal,
+                        max_tasks=max_tasks, goal_id=goal_id, step=step,
+                        goal_store=goal_store, lease=lease, replay=False))
+                opened = goal_store.pending_step(goal_id)
+                transition = self._commit_goal_step(
+                    goal_store, goal_id, goal, result, step, lease,
+                    pending=bool(opened and int(opened["step"]) == step),
+                    decision=result.get("decision") or {})
+                last_result = result
 
-            goal_context = self._goal_context(
-                goal, goal_store, goal_ref, max_decisions, max_tasks)
-            result = self.run_once(
-                normalized_goal, project_id=project_id,
-                goal_context=goal_context, goal_ref=goal_ref,
-                submit_executor=self._make_goal_submit_executor(
-                    project_id, goal_ref, goal, max_tasks))
-            step = int(goal.get("decision_count", 0)) + 1
-            outcome = {
-                "action": result.get("action"),
-                "next_state": result.get("next_state"),
-                "task_id": result.get("task_id"),
-                "executed": bool(result.get("executed")),
-                "blocking_reasons": result.get("blocking_reasons") or [],
-            }
-            goal_store.record_decision(
-                goal_id, step, result.get("decision") or {}, outcome)
-            last_result = result
-            transition = self._apply_goal_transition(
-                goal_store, goal_id, goal, result, step)
             if result.get("action") == "inspect" and not result.get("task_id"):
                 stalled += 1
             else:
                 stalled = 0
             if stalled >= max_stalled_inspections:
-                goal_store.update_goal(
-                    goal_id, status="needs_human",
-                    last_decision={"stop": "stalled: repeated inspections "
-                                           "without progress"})
-                return self._goal_report(goal_id, project_id, goal_store,
+                goal_store.stop_goal(
+                    goal_id, lease.token, "needs_human",
+                    {"stop": "stalled: repeated inspections without progress"})
+                return self._goal_report(goal_id, project_id, goal_ref, goal_store,
                                          last_result, reason="stalled")
 
             if transition == "waiting":
                 if deadline is None or time.time() >= deadline:
-                    return self._goal_report(goal_id, project_id, goal_store,
+                    return self._goal_report(goal_id, project_id, goal_ref, goal_store,
                                              last_result, reason="waiting for task")
                 if poll_interval_s:
                     # Let the control plane observe the Worker before the next
@@ -846,29 +881,102 @@ class LDCoordinator:
                     time.sleep(poll_interval_s)
                 continue
             if transition in ("needs_human", "completed", "failed"):
-                return self._goal_report(goal_id, project_id, goal_store,
+                return self._goal_report(goal_id, project_id, goal_ref, goal_store,
                                          last_result, reason=transition)
             # active -> next decision immediately
 
-    def _apply_goal_transition(self, goal_store, goal_id: str, goal: dict,
-                               result: dict, step: int) -> str:
+    def _reconcile_pending_step(self, pending: dict, *, goal: dict, goal_id: str,
+                                goal_ref: str, project_id: str, normalized_goal: str,
+                                goal_store, max_tasks: int,
+                                lease: "_GoalLease") -> dict[str, Any]:
+        """Resolve a step persisted before its side effect completed.
+
+        The WorkItem, if any, is found by the deterministic step key.  If it
+        exists it is adopted; otherwise the *persisted* decision is replayed
+        through the same safety gates.  The model is never consulted.
+        """
+        step = int(pending["step"])
+        decision_map = pending.get("decision") or {}
+        key = step_idempotency_key(goal_id, step)
+        existing = self._tools.service.store.by_idempotency_key(key)
+        if existing:
+            flags: set[str] = set()
+            try:
+                status = self._tools.get_task_status(existing["task_id"])
+                flags = set(status.get("attention_flags") or []) & _HUMAN_ATTENTION_FLAGS
+            except KeyError:
+                flags = {"task_status_unavailable"}
+            if existing.get("queue_status") == "needs_approval":
+                flags.add("needs_approval")
+            return {
+                "action": "submit_task",
+                "project_id": existing.get("project_id"),
+                "reason": "recovered pending step: adopted the existing WorkItem",
+                "evidence_refs": [f"task:{existing['task_id']}"],
+                "task_id": existing["task_id"],
+                "next_state": "human_required" if flags else "task_submitted",
+                "executed": True,
+                "dry_run": False,
+                "decision_source": "recovery",
+                "decision": decision_map,
+                "blocking_reasons": sorted(flags),
+                "recovered": "adopted",
+                "result": {"task_id": existing["task_id"],
+                           "ld_handoff_upgrade": bool(
+                               (existing.get("metadata") or {}).get("handoff"))},
+            }
+        result = self.run_once(
+            normalized_goal, project_id=project_id, goal_ref=goal_ref,
+            replay_decision=decision_map,
+            submit_executor=self._make_goal_submit_executor(
+                project_id=project_id, goal_ref=goal_ref, goal=goal,
+                max_tasks=max_tasks, goal_id=goal_id, step=step,
+                goal_store=goal_store, lease=lease, replay=True))
+        result["recovered"] = "replayed"
+        result["decision_source"] = "recovery"
+        return result
+
+    def _commit_goal_step(self, goal_store, goal_id: str, goal: dict, result: dict,
+                          step: int, lease: "_GoalLease", *, pending: bool,
+                          decision: Mapping[str, Any]) -> str:
+        fields, status = self._goal_transition_fields(goal, result, step)
+        outcome = {
+            "action": result.get("action"),
+            "next_state": result.get("next_state"),
+            "task_id": result.get("task_id"),
+            "executed": bool(result.get("executed")),
+            "blocking_reasons": result.get("blocking_reasons") or [],
+            "recovered": result.get("recovered"),
+        }
+        if pending:
+            goal_store.commit_step(goal_id, step, outcome, fields, lease.token)
+        else:
+            goal_store.record_step(goal_id, step, dict(decision), outcome, fields,
+                                   lease.token)
+        return status
+
+    @staticmethod
+    def _goal_transition_fields(goal: dict, result: dict,
+                                step: int) -> tuple[dict[str, Any], str]:
         action = result.get("action")
         state = result.get("next_state")
         fields: dict[str, Any] = {
-            "decision_count": int(goal.get("decision_count", 0)) + 1,
             "last_decision": {
                 "step": step, "action": action, "next_state": state,
-                "task_id": result.get("task_id")},
+                "task_id": result.get("task_id"),
+                "recovered": result.get("recovered")},
         }
-        if action == "submit_task":
+        if action == "submit_task" and result.get("task_id"):
             fields["task_count"] = int(goal.get("task_count", 0)) + 1
             fields["current_task_id"] = result.get("task_id")
-            if result.get("result", {}).get("ld_handoff_upgrade"):
+            if (result.get("result") or {}).get("ld_handoff_upgrade"):
                 handoffs = list(goal.get("handoff_task_ids") or [])
                 if result.get("task_id") not in handoffs:
                     handoffs.append(result.get("task_id"))
                 fields["handoff_task_ids"] = handoffs
-            status = "needs_human" if state != "task_submitted" else "waiting"
+            status = "waiting" if state == "task_submitted" else "needs_human"
+        elif action == "submit_task":
+            status = "needs_human"
         elif action == "wait":
             status = {"task_verified": "active",
                       "waiting": "waiting"}.get(state, "needs_human")
@@ -879,8 +987,7 @@ class LDCoordinator:
         else:  # inspect or failed model decision
             status = "active" if state == "inspection_complete" else "needs_human"
         fields["status"] = status
-        goal_store.update_goal(goal_id, **fields)
-        return status
+        return fields, status
 
     def _goal_context(self, goal: dict, goal_store, goal_ref: str,
                       max_decisions: int, max_tasks: int) -> dict[str, Any]:
@@ -916,6 +1023,7 @@ class LDCoordinator:
         return {
             "status": goal.get("status"),
             "decision_count": goal.get("decision_count", 0),
+            "human_resume_count": goal.get("resume_count", 0),
             "task_count": goal.get("task_count", 0),
             "max_decisions": max_decisions,
             "max_tasks": max_tasks,
@@ -927,34 +1035,53 @@ class LDCoordinator:
             "instruction": (
                 "Continue this goal. Tasks already submitted for it are listed "
                 "in all_goal_tasks; never resubmit work that already exists — "
-                "wait on it, or submit the next distinct task. When every part "
-                "of the goal is covered by verified tasks, finish with those "
-                "task ids as evidence."),
+                "wait on it, or submit the next distinct task. A task verdict "
+                "'verified' is the control plane's independent acceptance of "
+                "that task's declared assertions; you cannot run tests yourself "
+                "and must not request a human merely to re-check a verified "
+                "task. When every part of the goal is covered by verified tasks, "
+                "finish with those task ids as evidence. Use request_human only "
+                "for a genuine blocker (rejected/inconclusive verdict, approval "
+                "needed, conflicting requirements)."),
         }
 
-    def _make_goal_submit_executor(self, project_id: str, goal_ref: str,
-                                   goal: dict, max_tasks: int):
-        """Deterministic handoff upgrade for dependent goal tasks.
+    def _make_goal_submit_executor(self, *, project_id: str, goal_ref: str,
+                                   goal: dict, max_tasks: int, goal_id: str,
+                                   step: int, goal_store, lease: "_GoalLease",
+                                   replay: bool):
+        """Two-phase, idempotent submission for one goal step.
+
+        1. the validated decision is persisted as a ``pending`` step (skipped
+           on replay: it already is);
+        2. the lease is renewed under its fencing token right before the side
+           effect, so a holder that lost the goal cannot submit;
+        3. the submission uses the system-generated key for (goal, step), never
+           the model's key, so any retry or takeover of this step converges on
+           one WorkItem.
 
         The model only describes the next task.  When an earlier task of the
         same goal is already verified, the control plane — not the model —
-        submits the new task as a session handoff with a reachable git
-        checkpoint, so Session B builds on Session A's accepted code.
+        submits the new task as a session handoff with a reachable checkpoint
+        of that task's accepted code.
         """
+        step_key = step_idempotency_key(goal_id, step)
+
         def executor(decision: LDDecision, ref: str) -> dict:
             if int(goal.get("task_count", 0)) + 1 > max_tasks:
-                raise RuntimeError(
-                    f"goal task budget exhausted ({max_tasks})")
-            prior = self._prior_verified_task(project_id, ref)
+                raise RuntimeError(f"goal task budget exhausted ({max_tasks})")
+            self._hook("after_model_decision")
+            if not replay:
+                goal_store.begin_step(goal_id, step, decision.to_dict(), lease.token)
+            self._hook("after_begin_step")
+            lease.renew_or_raise()
             params = dict(decision.parameters)
-            # The new task is always distinct from the verified prior: it is
-            # being submitted right now. Hand it the prior session's accepted
-            # code via a reachable git checkpoint.
+            params["idempotency_key"] = step_key
+            prior = self._prior_verified_task(project_id, ref)
             if prior:
                 record = self._tools.submit_goal_handoff(
                     decision.project_id or "", prior["task_id"], params["task"],
                     assertions=params.get("assertions") or [],
-                    idempotency_key=params["idempotency_key"],
+                    idempotency_key=step_key,
                     title=params.get("title") or "",
                     tags=params.get("tags") or (),
                     prerequisites=params.get("prerequisites") or (),
@@ -965,12 +1092,15 @@ class LDCoordinator:
                     checkpoint_mode="reachable",
                     require_checkpoint=True,
                     metadata={"submitted_by": "ld", "ld_stage": "m4-b",
-                              "ld_goal_ref": ref})
+                              "ld_goal_ref": ref, "ld_goal_id": goal_id,
+                              "ld_goal_step": step})
                 out = dict(record)
                 out["ld_handoff_upgrade"] = True
-                return out
-            return self._tools.submit_project_task(
-                decision.project_id or "", **decision.parameters, goal_ref=ref)
+            else:
+                out = self._tools.submit_project_task(
+                    decision.project_id or "", **params, goal_ref=ref)
+            self._hook("after_execute")
+            return out
         return executor
 
     def _prior_verified_task(self, project_id: str, goal_ref: str) -> dict | None:
@@ -985,36 +1115,104 @@ class LDCoordinator:
         candidates.sort(key=lambda t: t.get("created_at") or 0)
         return candidates[-1]
 
-    def _goal_report(self, goal_id: str, project_id: str, goal_store,
+    def _goal_report(self, goal_id: str, project_id: str, goal_ref: str, goal_store,
                      last_result: dict | None, reason: str) -> dict[str, Any]:
+        """Final/interim report scoped to exactly this goal's WorkItems.
+
+        Membership is the exact ``ld_goal_ref`` of this goal (never "any LD
+        task in the project"); every verdict is read from the Ledger.
+        """
         goal = goal_store.get(goal_id) or {}
-        decisions = goal_store.decisions(goal_id, limit=200)
+        decisions = goal_store.decisions(goal_id, limit=500)
         service = self._tools.service
-        goal_tasks = [
-            {"task_id": t.get("task_id"), "title": t.get("title"),
-             "state": t.get("state"), "verdict": t.get("verdict")}
-            for t in service.store.all()
-            if t.get("project_id") == project_id
-            and (t.get("metadata") or {}).get("ld_goal_ref")]
+        goal_tasks = sorted(
+            ({"task_id": t.get("task_id"), "title": t.get("title"),
+              "state": t.get("state"), "verdict": t.get("verdict"),
+              "handoff_source": (t.get("metadata") or {}).get("source_work_item_id"),
+              "checkpoint_ref": (t.get("metadata") or {}).get("checkpoint_ref"),
+              "created_at": t.get("created_at")}
+             for t in service.store.all()
+             if t.get("project_id") == project_id
+             and (t.get("metadata") or {}).get("ld_goal_ref") == goal_ref),
+            key=lambda t: t.get("created_at") or 0)
+        steps = [d["step"] for d in decisions]
         return {
             "goal_id": goal_id,
+            "goal_ref": goal_ref,
             "project_id": project_id,
             "status": goal.get("status"),
             "stop_reason": reason,
             "decision_count": goal.get("decision_count"),
+            "model_decision_count": goal.get("model_decision_count"),
+            "human_resume_count": goal.get("resume_count"),
             "task_count": goal.get("task_count"),
             "current_task_id": goal.get("current_task_id"),
             "handoff_task_ids": goal.get("handoff_task_ids") or [],
-            "verified_tasks": [t for t in goal_tasks
-                               if t.get("verdict") == "verified"],
+            "goal_tasks": goal_tasks,
+            "verified_tasks": [t for t in goal_tasks if t.get("verdict") == "verified"],
+            "history_contiguous": steps == list(range(1, len(steps) + 1)),
+            "pending_steps": [d["step"] for d in decisions if d.get("state") == "pending"],
             "last_result": last_result,
             "decision_history": [
                 {"step": d["step"],
-                 "action": d["outcome"].get("action"),
+                 "state": d.get("state"),
+                 "action": d["outcome"].get("action") or d["decision"].get("action"),
                  "next_state": d["outcome"].get("next_state"),
-                 "task_id": d["outcome"].get("task_id")}
+                 "task_id": d["outcome"].get("task_id"),
+                 "recovered": d["outcome"].get("recovered")}
                 for d in decisions],
         }
+
+
+@dataclass
+class _GoalLease:
+    """Fenced goal lease held by one ``run_goal`` call."""
+
+    store: Any
+    goal_id: str
+    owner: str
+    token: int
+    lost: threading.Event = None  # type: ignore[assignment]
+    _stop: threading.Event = None  # type: ignore[assignment]
+    _thread: threading.Thread | None = None
+
+    def __post_init__(self) -> None:
+        self.lost = threading.Event()
+        self._stop = threading.Event()
+
+    def start_heartbeat(self) -> None:
+        interval = max(float(self.store.lease_s) / 3.0, 0.2)
+
+        def beat() -> None:
+            while not self._stop.wait(interval):
+                try:
+                    if not self.store.renew_lease(self.goal_id, self.owner, self.token):
+                        self.lost.set()
+                        return
+                except Exception:  # noqa: BLE001 - any failure means "not proven ours"
+                    self.lost.set()
+                    return
+
+        self._thread = threading.Thread(
+            target=beat, name=f"ld-lease-{self.goal_id}", daemon=True)
+        self._thread.start()
+
+    def stop_heartbeat(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+
+    def check(self) -> None:
+        if self.lost.is_set():
+            raise GoalLeaseLost(self.goal_id, self.token, None)
+
+    def renew_or_raise(self) -> None:
+        """Synchronous fenced renewal immediately before a side effect."""
+        self.check()
+        if not self.store.renew_lease(self.goal_id, self.owner, self.token):
+            self.lost.set()
+            current = (self.store.get(self.goal_id) or {}).get("lease_token")
+            raise GoalLeaseLost(self.goal_id, self.token, current)
 
 
 __all__ = ["DecisionModel", "LDCoordinator"]

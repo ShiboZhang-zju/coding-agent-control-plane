@@ -28,7 +28,8 @@ from adapters.base import (
 )
 from controlplane.context_update import ProjectContextUpdateLoop
 from controlplane.store import SessionBindingError, TaskStore
-from controlplane.verify import capture_baseline, check_all, side_effects, verdict_for
+from controlplane.verify import (capture_baseline, check_all, side_effects,
+                                 verdict_for, worktree_fingerprint)
 
 
 class ApprovalRequired(RuntimeError):
@@ -1103,6 +1104,15 @@ class ControlPlane:
             patch["warnings"] = list(rec.get("warnings") or []) + [
                 "SIDE_EFFECT:" + v["type"] + ":" + str(v.get("repo") or v.get("cwd"))
                 for v in violations]
+        # Pin the exact code state acceptance verified (first verified
+        # observation only).  A later handoff may hand over this state and
+        # nothing else; any change after acceptance blocks the handoff.
+        metadata = rec.get("metadata") or {}
+        if (verdict is Verdict.VERIFIED and in_worktree
+                and not metadata.get("acceptance_snapshot")):
+            fingerprint = worktree_fingerprint(wt)
+            if fingerprint is not None:
+                patch["metadata"] = {**metadata, "acceptance_snapshot": fingerprint}
         return patch
 
     def _save_snapshot(self, task_id: str, snap: TaskSnapshot, *,

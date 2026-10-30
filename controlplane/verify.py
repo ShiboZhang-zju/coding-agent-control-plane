@@ -71,6 +71,64 @@ def repo_fingerprint(path: str, ignore_prefixes: Iterable[str] = (".codebuddy/",
     return {"git": True, "exists": True, "head": head.strip(), "status": "\n".join(kept)}
 
 
+def worktree_fingerprint(root: str) -> dict | None:
+    """Exact, read-only snapshot of a worktree's code state.
+
+    ``{"head": <HEAD sha>, "entries": [[xy, path, blob_sha | None], ...]}``
+    where entries are every uncommitted path git reports (untracked files
+    listed individually, ignored files excluded) with the blob id their
+    current content would have (``None`` for deletions).  Nothing is written
+    to the object store.  Used to pin the state that acceptance actually
+    verified, so a later handoff can prove it hands over exactly that state.
+    Returns None when ``root`` is not a readable git worktree.
+    """
+    if not root or not Path(root).is_dir():
+        return None
+    rc, head = _git(root, "rev-parse", "HEAD")
+    if rc != 0:
+        return None
+    try:
+        proc = winproc.run(
+            ["git", "-C", root, "status", "--porcelain=v1", "-z",
+             "--untracked-files=all"],
+            capture_output=True, text=False, timeout=30)
+    except Exception:  # noqa: BLE001
+        return None
+    if proc.returncode != 0:
+        return None
+    tokens = (proc.stdout or b"").split(b"\0")
+    raw: list[tuple[str, str]] = []
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        i += 1
+        if len(token) < 4:
+            continue
+        xy = token[:2].decode("ascii", "replace")
+        path = token[3:].decode("utf-8", "surrogateescape")
+        if xy[0] in "RC":
+            i += 1  # the rename/copy source path follows; the new path is tracked
+        raw.append((xy, path))
+    existing = [path for _, path in raw if (Path(root) / path).is_file()]
+    shas: dict[str, str] = {}
+    if existing:
+        try:
+            hashed = winproc.run(
+                ["git", "-C", root, "hash-object", "--stdin-paths"],
+                input="\n".join(existing) + "\n", capture_output=True,
+                text=True, encoding="utf-8", timeout=60)
+        except Exception:  # noqa: BLE001
+            return None
+        if hashed.returncode != 0:
+            return None
+        lines = hashed.stdout.split()
+        if len(lines) != len(existing):
+            return None
+        shas = dict(zip(existing, lines))
+    entries = sorted([xy, path.replace("\\", "/"), shas.get(path)] for xy, path in raw)
+    return {"head": head.strip(), "entries": entries}
+
+
 def sibling_repos(cwd: str, exclude: Iterable[str] = ()) -> dict[str, dict]:
     """Every git repo next to `cwd` (same parent directory)."""
     parent = Path(cwd).resolve().parent

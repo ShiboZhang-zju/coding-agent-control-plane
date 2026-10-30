@@ -121,8 +121,9 @@ def _add_model_args(command: argparse.ArgumentParser) -> None:
         help="model call deadline in seconds (or LD_MODEL_TIMEOUT_S)")
     command.add_argument(
         "--model-domains", default=None,
-        help="comma-separated security domains the model may see "
-             "(default: local,shareable when a real model is configured)")
+        help="comma-separated security domains a real model endpoint may see "
+             "(or LD_MODEL_DOMAINS). Default for an endpoint: none — the model "
+             "is not called for a 'local' goal until 'local' is granted")
 
 
 def main() -> int:
@@ -151,7 +152,9 @@ def main() -> int:
             emit(tools.get_project_brief(project["id"]), compact=args.compact)
             return 0
 
-        model = load_decision(getattr(args, "decision_json", None))
+        decision_file = getattr(args, "decision_json", None)
+        model = load_decision(decision_file)
+        endpoint_model = False
         if model is None:
             base_url = args.model_base_url or os.environ.get("LD_MODEL_BASE_URL", "")
             model_name = args.model_name or os.environ.get("LD_MODEL_NAME", "")
@@ -162,11 +165,20 @@ def main() -> int:
                     api_key=args.model_api_key or os.environ.get("LD_MODEL_API_KEY"),
                     timeout_s=(args.model_timeout_s
                                or float(os.environ.get("LD_MODEL_TIMEOUT_S", "60"))))
-        # A JSON decision is local and a real endpoint is explicit configuration;
-        # both authorize the same bounded view of project context.
-        domains = tuple(
-            item.strip() for item in (args.model_domains or "local,shareable").split(",")
-            if item.strip()) if model else ()
+                endpoint_model = True
+        # Security domains are an explicit grant.  A real endpoint receives
+        # project context, so it gets NO domain unless the operator names one
+        # (--model-domains or LD_MODEL_DOMAINS); without the goal's domain the
+        # coordinator refuses to call it.  A --decision-json file is a static
+        # local decision: nothing is sent anywhere, so it keeps the bounded
+        # local view it always had.
+        if endpoint_model:
+            domain_spec = args.model_domains or os.environ.get("LD_MODEL_DOMAINS", "")
+        elif model is not None:
+            domain_spec = args.model_domains or "local,shareable"
+        else:
+            domain_spec = ""
+        domains = tuple(item.strip() for item in domain_spec.split(",") if item.strip())
         coordinator = LDCoordinator(
             tools, model, model_authorized_security_domains=domains)
 

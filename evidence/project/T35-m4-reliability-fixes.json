@@ -16,10 +16,12 @@
       "event_names_source_attempt": true
     },
     "A3": {
-      "capture_creates_commit": true,
-      "capture_updates_head_commit": true,
-      "capture_leaves_worktree_clean": true,
-      "capture_message_is_auditable": true,
+      "checkpoint_is_new_commit": true,
+      "checkpoint_parent_is_accepted_head": true,
+      "checkpoint_contains_accepted_file": true,
+      "checkpoint_is_deterministic": true,
+      "source_worktree_untouched": true,
+      "source_head_commit_unchanged": true,
       "capture_never_touches_main": true,
       "reachable_mode_ready": true,
       "reachable_checkpoint_available": true,
@@ -28,7 +30,8 @@
       "reachable_prompt_has_merge_instruction": true,
       "context_only_still_labelled": true,
       "submit_reachable_succeeds": true,
-      "submitted_prompt_has_merge_instruction": true
+      "submitted_prompt_has_merge_instruction": true,
+      "checkpoint_protected_after_submit": true
     }
   },
   "checks": {
@@ -41,10 +44,12 @@
     "A2.conflict_escalated": true,
     "A2.registry_immutable": true,
     "A2.event_names_source_attempt": true,
-    "A3.capture_creates_commit": true,
-    "A3.capture_updates_head_commit": true,
-    "A3.capture_leaves_worktree_clean": true,
-    "A3.capture_message_is_auditable": true,
+    "A3.checkpoint_is_new_commit": true,
+    "A3.checkpoint_parent_is_accepted_head": true,
+    "A3.checkpoint_contains_accepted_file": true,
+    "A3.checkpoint_is_deterministic": true,
+    "A3.source_worktree_untouched": true,
+    "A3.source_head_commit_unchanged": true,
     "A3.capture_never_touches_main": true,
     "A3.reachable_mode_ready": true,
     "A3.reachable_checkpoint_available": true,
@@ -53,7 +58,8 @@
     "A3.reachable_prompt_has_merge_instruction": true,
     "A3.context_only_still_labelled": true,
     "A3.submit_reachable_succeeds": true,
-    "A3.submitted_prompt_has_merge_instruction": true
+    "A3.submitted_prompt_has_merge_instruction": true,
+    "A3.checkpoint_protected_after_submit": true
   },
   "result": "Pass"
 }

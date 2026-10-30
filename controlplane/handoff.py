@@ -3,21 +3,47 @@
 A handoff is not a second task system.  It is a normal WorkItem whose frozen
 prompt and metadata name the source Attempt, observed Session, usable Git
 checkpoint and exact Project Context version.  This module performs no Worker
-calls and writes nothing; :class:`controlplane.project_service.ProjectService`
-owns the eventual enqueue.
+calls and never changes the Ledger, a worktree, an index or a branch; in
+``reachable`` mode it may write unreferenced, deterministic objects to the Git
+object store.  :class:`controlplane.project_service.ProjectService` owns the
+eventual enqueue and the post-success protective ref.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 from adapters.base import TaskState, Verdict
 from controlplane.context_builder import BuiltContext, ContextBuilder
 from controlplane.store import TaskStore
+from controlplane.verify import worktree_fingerprint
+
+# Tool caches are never part of a handed-over code state.
+_CACHE_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+               ".codebuddy", ".tox", ".nox"}
+_CACHE_SUFFIXES = (".pyc", ".pyo")
+# Anything that looks like a secret blocks automatic handoff (fail closed).
+_SENSITIVE_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".keystore", ".jks")
+_SENSITIVE_NAME_PARTS = ("credential", "secret", "id_rsa", "id_ed25519", "id_ecdsa")
+
+
+def _is_cache_path(path: str) -> bool:
+    parts = PurePosixPath(path.replace("\\", "/")).parts
+    return (any(part in _CACHE_DIRS for part in parts)
+            or path.lower().endswith(_CACHE_SUFFIXES))
+
+
+def _is_sensitive_path(path: str) -> bool:
+    name = PurePosixPath(path.replace("\\", "/")).name.lower()
+    return (name == ".env" or name.startswith(".env.")
+            or name.endswith(_SENSITIVE_SUFFIXES)
+            or any(part in name for part in _SENSITIVE_NAME_PARTS))
 
 
 class HandoffError(ValueError):
@@ -199,10 +225,26 @@ class HandoffPlanner:
                     f"target workspace escapes project boundary: {target_root}")
 
         checkpoint_ref = source.get("head_commit")
+        source_worktree_for_checks = source.get("worktree")
+        capture: dict | None = None
+        if checkpoint_mode == "reachable":
+            # The reachable checkpoint is assembled from the accepted state
+            # (object store only).  It proves the worktree still equals what
+            # acceptance verified, so the strict "source worktree clean and
+            # at head_commit" checks are replaced by that equality proof.
+            source_worktree_for_checks = None
+            try:
+                capture = self.build_source_checkpoint(source_work_item_id)
+                checkpoint_ref = capture.get("commit")
+            except HandoffNotReady as exc:
+                blockers.extend(exc.blockers)
+                capture = {"error": "; ".join(exc.blockers)}
         checkpoint = self._checkpoint(
-            checkpoint_ref, target_root, source.get("worktree"), require_checkpoint,
-            mode=checkpoint_mode)
+            checkpoint_ref, target_root, source_worktree_for_checks,
+            require_checkpoint, mode=checkpoint_mode)
         checkpoint["mode"] = checkpoint_mode
+        if capture is not None:
+            checkpoint["capture"] = capture
         blockers.extend(checkpoint.pop("blockers"))
         unresolved.extend(source.get("warnings") or [])
         if source.get("verdict") != Verdict.VERIFIED.value:
@@ -415,49 +457,139 @@ class HandoffPlanner:
                 "merge it or select a compatible workspace explicitly")
         return result
 
-    def capture_source_checkpoint(self, source_work_item_id: str) -> str | None:
-        """Deterministically turn the source session's worktree into a commit.
+    def build_source_checkpoint(self, source_work_item_id: str) -> dict:
+        """Build a commit that is byte-identical to the *accepted* source state.
 
-        The control plane — not the Worker and not a model — creates the
-        checkpoint: uncommitted changes in the source worktree are committed on
-        that worktree's own isolation branch, and the resulting HEAD is stored
-        as the source's ``head_commit``.  This never touches the project's
-        default branch.  Returns the checkpoint commit, or None when there is
-        no usable worktree (context-only handoff).
+        Safety contract (P1-1):
+
+        * only a ``verified`` source may be checkpointed;
+        * the source worktree must still equal the state pinned at acceptance
+          (``metadata.acceptance_snapshot``: HEAD plus every uncommitted path
+          and blob id).  Any change after acceptance blocks the handoff — it
+          must be re-verified, never silently swept in;
+        * no ``git add -A``: only paths present in the accepted snapshot are
+          included; tool caches are skipped and sensitive-looking files
+          (``.env``, keys, credentials) block the handoff outright;
+        * nothing in the source worktree, its index, or any branch changes.
+          The commit is assembled in the object store (temporary index +
+          ``write-tree`` + ``commit-tree``) with fixed author/committer data,
+          so the same accepted state always yields the same commit id, and a
+          rejected submission leaves only unreferenced objects behind.
+
+        Returns ``{"commit", "base", "synthetic", "included_paths",
+        "skipped_paths"}``.  ``commit`` is None for a context-only source.
+        Raises :class:`HandoffNotReady` when the state cannot be proven.
         """
         source = self.store.get(source_work_item_id)
         if not source:
             raise KeyError(f"no work item {source_work_item_id}")
+        if source.get("verdict") != Verdict.VERIFIED.value:
+            raise HandoffNotReady([
+                f"source verdict is {source.get('verdict')}; only verified work "
+                "can be handed over as a code checkpoint"])
         worktree = source.get("worktree")
         if not worktree or not Path(worktree).is_dir():
-            return source.get("head_commit")
-        try:
-            status = self._git(worktree, "status", "--porcelain")
-            head = self._git(worktree, "rev-parse", "HEAD")
-        except (OSError, subprocess.SubprocessError):
-            return source.get("head_commit")
-        if status.returncode != 0 or head.returncode != 0:
-            return source.get("head_commit")
-        checkpoint = head.stdout.strip()
-        if status.stdout.strip():
-            args = ["-c", "user.name=control-plane",
-                    "-c", "user.email=control-plane@handoff.local",
-                    "commit", "-q", "-m",
-                    f"control-plane handoff checkpoint for {source_work_item_id}"]
-            for step in (["add", "-A"], args):
-                proc = self._git(worktree, *step)
+            # No live worktree: whatever head_commit was observed is the only
+            # evidence; it is validated for reachability by _checkpoint().
+            return {"commit": source.get("head_commit"), "base": source.get("head_commit"),
+                    "synthetic": False, "included_paths": [], "skipped_paths": []}
+        current = worktree_fingerprint(worktree)
+        if current is None:
+            raise HandoffNotReady([f"cannot read source worktree state: {worktree}"])
+        accepted = (source.get("metadata") or {}).get("acceptance_snapshot")
+        if accepted is None:
+            unaccounted = [entry[1] for entry in current["entries"]
+                           if not _is_cache_path(entry[1])]
+            if unaccounted:
+                raise HandoffNotReady([
+                    "source worktree has uncommitted changes but no acceptance "
+                    "snapshot was recorded; the uncommitted state was never "
+                    "verified: " + ", ".join(unaccounted[:10])])
+            recorded = source.get("head_commit")
+            if recorded and current["head"] != recorded:
+                raise HandoffNotReady([
+                    "source worktree HEAD moved after acceptance "
+                    f"({recorded} -> {current['head']}); re-run verification"])
+            accepted = current
+        def significant(entries) -> list[list]:
+            # Tool caches (e.g. a pytest run after acceptance) are neither
+            # handed over nor evidence that the accepted code changed.
+            return [list(e) for e in entries or [] if not _is_cache_path(e[1])]
+
+        if (current["head"] != accepted.get("head")
+                or significant(current["entries"]) != significant(accepted.get("entries"))):
+            raise HandoffNotReady([
+                "source worktree changed after acceptance (HEAD or files differ "
+                "from the verified state); re-run verification before handing off"])
+
+        sensitive = [e[1] for e in accepted["entries"] if _is_sensitive_path(e[1])]
+        if sensitive:
+            raise HandoffNotReady([
+                "accepted source state contains sensitive-looking files that must "
+                "not be handed over automatically: " + ", ".join(sensitive[:10])])
+        skipped = [e[1] for e in accepted["entries"] if _is_cache_path(e[1])]
+        included = [e for e in accepted["entries"] if not _is_cache_path(e[1])]
+        base = accepted["head"]
+        if not included:
+            return {"commit": base, "base": base, "synthetic": False,
+                    "included_paths": [], "skipped_paths": skipped}
+
+        commit = self._commit_from_entries(worktree, base, included,
+                                           source_work_item_id, source)
+        return {"commit": commit, "base": base, "synthetic": True,
+                "included_paths": [e[1] for e in included], "skipped_paths": skipped}
+
+    def _commit_from_entries(self, worktree: str, base: str, entries: list,
+                             source_work_item_id: str, source: dict) -> str:
+        with tempfile.TemporaryDirectory(prefix="cp-handoff-") as tmp:
+            env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
+
+            def git(*args: str, input_text: str | None = None) -> str:
+                proc = subprocess.run(
+                    ["git", "-C", worktree, *args], check=False, capture_output=True,
+                    text=True, encoding="utf-8", timeout=60, env=env, input=input_text)
                 if proc.returncode != 0:
-                    raise HandoffError(
-                        f"cannot capture handoff checkpoint in {worktree}: "
-                        f"git {step[:2]} failed: {proc.stderr.strip()}")
-            new_head = self._git(worktree, "rev-parse", "HEAD")
-            if new_head.returncode != 0:
-                raise HandoffError(
-                    f"cannot read checkpoint HEAD in {worktree}: "
-                    f"{new_head.stderr.strip()}")
-            checkpoint = new_head.stdout.strip()
-        self.store.update(source_work_item_id, head_commit=checkpoint)
-        return checkpoint
+                    raise HandoffNotReady([
+                        f"cannot assemble handoff checkpoint: git {args[0]} failed: "
+                        f"{proc.stderr.strip()}"])
+                return proc.stdout.strip()
+
+            git("read-tree", base)
+            for _xy, path, sha in entries:
+                if sha is None:
+                    git("update-index", "--force-remove", "--", path)
+                    continue
+                written = git("hash-object", "-w", "--", path)
+                if written != sha:
+                    raise HandoffNotReady([
+                        f"source file changed while building the checkpoint: {path}"])
+                listed = git("ls-tree", base, "--", path)
+                mode = listed.split()[0] if listed else "100644"
+                git("update-index", "--add", "--cacheinfo", f"{mode},{sha},{path}")
+            tree = git("write-tree")
+            # Fixed, source-derived date => same accepted state, same commit id.
+            stamp = f"@{max(int(source.get('finished_at') or 0), 1_000_000_000)} +0000"
+            env.update({
+                "GIT_AUTHOR_NAME": "control-plane", "GIT_AUTHOR_EMAIL": "handoff@control-plane.local",
+                "GIT_COMMITTER_NAME": "control-plane",
+                "GIT_COMMITTER_EMAIL": "handoff@control-plane.local",
+                "GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp,
+            })
+            return git("commit-tree", tree, "-p", base, "-m",
+                       f"control-plane handoff checkpoint for {source_work_item_id} "
+                       "(accepted state)")
+
+    def protect_checkpoint(self, target_root: str, handoff_task_id: str,
+                           commit: str) -> bool:
+        """Keep a submitted handoff's checkpoint reachable from a private ref.
+
+        Called only after the handoff WorkItem was durably created, so rejected
+        submissions never leave refs behind.  The ref lives outside
+        ``refs/heads`` and never moves any branch.
+        """
+        proc = self._git(target_root, "update-ref",
+                         f"refs/control-plane/handoff/{handoff_task_id}", commit)
+        return proc.returncode == 0
 
     @staticmethod
     def _render_prompt(base_prompt: str, source: dict,
