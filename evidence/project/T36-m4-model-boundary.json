@@ -10,6 +10,7 @@
       "non_object_rejected": true,
       "timeout_typed": true,
       "describe_hides_secret": true,
+      "describe_hides_endpoint_identity": true,
       "from_env_absent_is_none": true,
       "from_env_configures": true
     },
@@ -31,6 +32,7 @@
     "model.non_object_rejected": true,
     "model.timeout_typed": true,
     "model.describe_hides_secret": true,
+    "model.describe_hides_endpoint_identity": true,
     "model.from_env_absent_is_none": true,
     "model.from_env_configures": true,
     "coordinator.illegal_action_fails_closed": true,

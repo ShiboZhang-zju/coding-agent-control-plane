@@ -947,6 +947,11 @@ class LDCoordinator:
             "executed": bool(result.get("executed")),
             "blocking_reasons": result.get("blocking_reasons") or [],
             "recovered": result.get("recovered"),
+            # Why the step ended where it did (e.g. the exact refusal of a
+            # failed submission), so neither the owner nor the next decision
+            # has to guess.  Bounded; never contains prompts or credentials.
+            "decision_source": result.get("decision_source"),
+            "reason": str(result.get("reason") or "")[:600],
         }
         if pending:
             goal_store.commit_step(goal_id, step, outcome, fields, lease.token)
@@ -1020,6 +1025,30 @@ class LDCoordinator:
             {"task_id": t.get("task_id"), "verdict": t.get("verdict"),
              "title": t.get("title")}
             for t in goal_tasks if t.get("verdict") == "verified"]
+        history = goal_store.decisions(goal.get("goal_id"), limit=500) \
+            if goal.get("goal_id") else []
+        last_step = None
+        resumed_after = False
+        for item in reversed(history):
+            if item.get("state") != "committed":
+                continue
+            outcome = item.get("outcome") or {}
+            if outcome.get("action") == "human_resume":
+                # The owner only said "continue"; the model still needs to
+                # know what stopped the goal before that.
+                resumed_after = True
+                continue
+            last_step = {key: outcome.get(key) for key in (
+                "action", "next_state", "task_id", "blocking_reasons",
+                "decision_source")}
+            last_step["step"] = item["step"]
+            last_step["human_resumed_after_this_step"] = resumed_after
+            # Control-plane refusal text is shown only to a model that is
+            # authorized for the goal's (local) domain — which is the only
+            # model the coordinator ever calls for a local goal.
+            if "local" in self._model_domains:
+                last_step["reason"] = outcome.get("reason")
+            break
         return {
             "status": goal.get("status"),
             "decision_count": goal.get("decision_count", 0),
@@ -1028,6 +1057,7 @@ class LDCoordinator:
             "max_decisions": max_decisions,
             "max_tasks": max_tasks,
             "current_task": current_task,
+            "last_step": last_step,
             "completed_tasks": completed,
             "all_goal_tasks": [
                 {"task_id": t.get("task_id"), "verdict": t.get("verdict"),
@@ -1076,6 +1106,9 @@ class LDCoordinator:
             lease.renew_or_raise()
             params = dict(decision.parameters)
             params["idempotency_key"] = step_key
+            context_prereqs, task_prereqs = self._split_task_prerequisites(
+                project_id, ref, params.get("prerequisites") or [])
+            params["prerequisites"] = context_prereqs
             prior = self._prior_verified_task(project_id, ref)
             if prior:
                 record = self._tools.submit_goal_handoff(
@@ -1084,7 +1117,7 @@ class LDCoordinator:
                     idempotency_key=step_key,
                     title=params.get("title") or "",
                     tags=params.get("tags") or (),
-                    prerequisites=params.get("prerequisites") or (),
+                    prerequisites=context_prereqs,
                     require_verified_constraints=bool(
                         params.get("require_verified_constraints")),
                     target_workspace_id=params.get("workspace_id"),
@@ -1093,7 +1126,8 @@ class LDCoordinator:
                     require_checkpoint=True,
                     metadata={"submitted_by": "ld", "ld_stage": "m4-b",
                               "ld_goal_ref": ref, "ld_goal_id": goal_id,
-                              "ld_goal_step": step})
+                              "ld_goal_step": step,
+                              "ld_task_prerequisites": task_prereqs})
                 out = dict(record)
                 out["ld_handoff_upgrade"] = True
             else:
@@ -1102,6 +1136,35 @@ class LDCoordinator:
             self._hook("after_execute")
             return out
         return executor
+
+    def _split_task_prerequisites(self, project_id: str, goal_ref: str,
+                                  prerequisites) -> tuple[list[str], list[str]]:
+        """Resolve prerequisites that name WorkItems against the Ledger.
+
+        A context prerequisite is a verified Project Context entry; a model may
+        instead name an earlier task.  Such a task-id prerequisite is satisfied
+        only when that WorkItem is ``verified`` and belongs to this goal (same
+        project and goal_ref) — the Ledger verdict is the authority.  Anything
+        else fails closed.  Non-task prerequisites pass through unchanged.
+        """
+        store = self._tools.service.store
+        context_prereqs: list[str] = []
+        task_prereqs: list[str] = []
+        for item in prerequisites:
+            record = store.get(item)
+            if not record:
+                context_prereqs.append(item)
+                continue
+            if (record.get("project_id") != project_id
+                    or (record.get("metadata") or {}).get("ld_goal_ref") != goal_ref):
+                raise ValueError(
+                    f"prerequisite task {item} does not belong to this goal")
+            if record.get("verdict") != "verified":
+                raise ValueError(
+                    f"prerequisite task {item} is not verified "
+                    f"(verdict={record.get('verdict')})")
+            task_prereqs.append(item)
+        return context_prereqs, task_prereqs
 
     def _prior_verified_task(self, project_id: str, goal_ref: str) -> dict | None:
         service = self._tools.service
@@ -1142,6 +1205,9 @@ class LDCoordinator:
             "project_id": project_id,
             "status": goal.get("status"),
             "stop_reason": reason,
+            "last_step_reason": next(
+                (d["outcome"].get("reason") for d in reversed(decisions)
+                 if d.get("state") == "committed" and d["outcome"].get("reason")), None),
             "decision_count": goal.get("decision_count"),
             "model_decision_count": goal.get("model_decision_count"),
             "human_resume_count": goal.get("resume_count"),

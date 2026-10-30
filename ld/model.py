@@ -19,7 +19,6 @@ import os
 import re
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from collections.abc import Mapping
 from typing import Any
@@ -73,7 +72,8 @@ class OpenAIChatModel:
     ``base_url`` may be either the full chat-completions URL or an API root
     such as ``https://host/v1`` (the ``/chat/completions`` suffix is appended
     when missing).  ``api_key`` is optional for local endpoints that do not
-    authenticate.  Nothing about the endpoint or key is logged.
+    authenticate.  Nothing about the endpoint, the model id or the key is
+    logged or persisted: ``describe()`` only reports call-shape settings.
     """
 
     def __init__(
@@ -105,8 +105,6 @@ class OpenAIChatModel:
         self._temperature = temperature
         self._extra_headers = dict(extra_headers or {})
         self._system_prompt = system_prompt
-        # Host + model name only; never credentials, prompts or responses.
-        self._log_host = urllib.parse.urlsplit(self._url).netloc
 
     @classmethod
     def from_env(cls) -> "OpenAIChatModel | None":
@@ -124,8 +122,13 @@ class OpenAIChatModel:
         )
 
     def describe(self) -> dict[str, Any]:
-        """Non-secret endpoint description, safe for evidence and logs."""
-        return {"endpoint_host": self._log_host, "model": self._model,
+        """Non-identifying description, safe for evidence and logs.
+
+        Endpoint identity (host) and the model id are configuration, not
+        results: they must never reach evidence, logs or any other persisted
+        artefact.  Only call-shape settings are described here.
+        """
+        return {"endpoint_configured": True,
                 "timeout_s": self._timeout_s, "max_tokens": self._max_tokens}
 
     def decide(self, decision_input: Mapping[str, Any]) -> Mapping[str, Any]:

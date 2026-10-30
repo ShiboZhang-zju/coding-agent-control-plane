@@ -366,6 +366,22 @@ def decision_schema() -> dict[str, Any]:
                     "assertions", "priority", "title", "tags", "prerequisites",
                     "require_verified_constraints", "workspace_id", "timeout_s",
                 ],
+                "parameter_notes": {
+                    "prerequisites": (
+                        "titles or tags of verified Project Context entries the task "
+                        "relies on. Dependencies on earlier tasks are NOT expressed "
+                        "here: within a goal the control plane hands a verified "
+                        "earlier task's accepted code to the next task "
+                        "automatically. A task id listed here is accepted only if "
+                        "that task is verified and belongs to the current goal."),
+                    "idempotency_key": (
+                        "required; inside a persistent goal the control plane "
+                        "replaces it with a key derived from the goal step"),
+                    "assertions": (
+                        "artifact checks the control plane verifies independently "
+                        "after the task: file_exists / file_contains / path_absent / "
+                        "git_commit / git_clean / git_branch"),
+                },
             },
             "wait": {"required_parameters": ["task_id"]},
             "request_human": {

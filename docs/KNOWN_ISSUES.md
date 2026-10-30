@@ -1,9 +1,26 @@
 # Known Issues
 
-本文档记录当前已知问题与专项验证缺口。M3 本地可确定性验证项（M3-03~M3-12）
-已由 T33 覆盖（不启动 Worker）；M3-01/M3-02 与全部真实 CodeBuddy 集成项仍待
-真实环境验收。M4-A 已完成 T32 确定性边界测试，且 M1/M2 回归（T26–T31）已在
-本地复跑全部通过；真实模型/Worker 集成结论仍缺失。T32/T33 均未启动 Worker。
+本文档记录已知问题、修复状态与专项验证缺口。当前状态：M3 已由 T33（确定性）与
+T34（真实 CodeBuddy Worker）验证；M4-A 已由 T32/T36（确定性）与 T38a（真实模型 +
+真实 Worker 单轮）验证；M4-B 执行/交接层经 T38 首轮真实验证，可靠性收口（步号/
+崩溃窗口/租约 fencing/checkpoint 安全/安全域默认值）由 T39/T40 确定性验证（含真实
+子进程崩溃注入），**真实模型严格闭环复跑被阻塞（本环境决策模型端点已移除，
+见 T38-F04）**。**"任务执行与交接成功"与"Goal 自动闭环完成"是两个不同的验收
+结论**，本文档分开记录。决策模型端点与模型 id 属于环境配置，不再出现在任何代码
+默认值、日志或证据中。
+
+## M4 可靠性收口（评审 ee539ee 的处理，2026-10-30）
+
+| # | 问题 | 处理 | 验证 | 状态 |
+|---|---|---|---|---|
+| P0-1 | `resume()` 写入新步但不递增 `decision_count`，下一模型步 `UNIQUE(goal_id, step)` 冲突 | resume 的决策行与计数递增在同一事务提交；human_resume 是同一连续序列中的一步；模型预算不计人工恢复（`model_decision_count`） | T39 R1：needs_human → resume → finish，步号 1..5 连续、仅一个 human_resume、其后紧跟 finish | 已修复 |
+| P0-2 | 执行动作—记录决策—更新状态非原子，崩溃可致重复派工或重复步号 | 两阶段步：副作用前持久化 pending（含已校验决策）；结果与状态迁移单事务提交；派工键由系统按 (goal, step) 生成；重启先对账 pending 步（adopt 已有 WorkItem 或重放已存决策），不再调用模型 | T39 R2：真实子进程在 4 个边界 `os._exit` 后重启，均恰好 1 个 WorkItem、键为步键、恢复方式符合预期（replayed/adopted）、模型未被询问 | 已修复 |
+| P0-3 | 租约 120s < 模型超时 180s，失租持有者仍可写 | 递增 `lease_token` fencing，所有写入事务内校验；心跳续租；副作用前同步 fenced 续租；owner 改为 pid+uuid | T39 R3：双进程竞争恰一者推进；失租持有者在模型调用后被 `GoalLeaseLost` 拦截、零写入；心跳使入侵者在长调用期间被拒 | 已修复 |
+| P1-1 | `capture_source_checkpoint()` 执行 `git add -A && git commit`；被拒请求也可能已产生 commit | 删除自动提交。Verifier 首次 verified 时固化 `acceptance_snapshot`；checkpoint 仅从与该快照一致的状态在对象库组装（临时 index + commit-tree），源 worktree/分支/main 不变；状态变化、敏感文件、未验收、无快照的脏状态、HEAD 漂移均阻塞；policy 先校验；保护 ref 仅在 WorkItem 成功持久化后创建 | T40 C1–C3：7 种不可证明状态全部阻塞且零副作用；被拒请求零 Git 对象；幂等冲突无第二 ref | 已修复 |
+| P1-2 | CLI 在配置端点后默认授予 `local,shareable` | 真实端点默认不授予任何域，需 `--model-domains` 或 `LD_MODEL_DOMAINS` 显式授权；`--decision-json` 本地静态决策不变 | T40 C4：默认不调用端点（`security_domain_unauthorized:local`），显式授权（参数/环境变量）才调用 | 已修复 |
+| P1-3 | `_goal_report()` 按"存在 ld_goal_ref"过滤，混入其他 Goal 任务；T38 证据中的 `goal_status` 取自中间轮次 | 报告按精确 `goal_ref` 过滤，新增 `goal_tasks`/`history_contiguous`/`pending_steps`；T38 改为从**最终**报告断言 `completed`、恰含 A/B、历史连续、resume 次数与 Owner "继续"次数一致 | T39 R1（报告排除同项目另一 Goal 的 verified 任务）；T38b 严格复跑 | 已修复；真实复跑结论见 T38-F04（阻塞） |
+| R-01 | 剩余风险：Ledger 与 Goal 表分属两个 SQLite 连接，WorkItem 创建与 pending 步提交不在同一事务 | 由"pending 先于副作用 + 系统步键 + 重启对账"保证收敛，而非单事务；T39 R2 覆盖了该窗口 | T39 R2 `after_execute` / `commit_mid` | 设计如此，已验证 |
+| R-02 | 剩余风险：checkpoint 只校验验收后的状态一致性，不审查验收时的内容本身 | 验收时已在 worktree 中的文件即被视为"已验收状态"的一部分（敏感文件名除外）；内容审查仍依赖 Verifier 断言与人工评审 | — | 已知限制 |
 
 ## M4-A 评审处理与剩余问题
 
@@ -28,8 +45,10 @@
 
 | # | 现象 | 影响 / 处理 | 状态 |
 |---|---|---|---|
-| T38-F01 | 真实模型（GPT-5.5）在目标推进的收尾阶段倾向保守转人工：三次真实运行中两次在应 `finish` 或继续提交时选择 `request_human`（决策本身合法）。 | 目标停在 needs_human；需要 `run-goal --resume` 显式解锁（该动作本身被记录为 `human_resume` 决策）。这不是缺陷而是安全设计内的行为：人工只说"继续"，无需传递任何项目状态或任务内容。`finish` 的确定性校验由 T32/T37 覆盖。 | 已知行为；`--resume` 机制已提供 |
-| T38-F02 | 首次真实运行中模型为任务选择了 `git_clean` 断言，而 agent 完成后未 commit，验收正确判 rejected（Verifier 行为正确）。 | 属于目标文本引导问题而非系统缺陷：在目标中明确要求"完成后 git commit"且建议使用 `file_exists`/`file_contains` 断言后，后续运行任务全部 verified。控制平面的 `capture_source_checkpoint` 仍作为 dirty worktree 的确定性兜底。 | 已通过目标文本引导缓解；Verifier 语义未放宽 |
+| T38-F01 | 真实决策模型（OpenAI 兼容端点，按环境配置）在目标推进的收尾阶段倾向保守转人工：三次真实运行中两次在应 `finish` 或继续提交时选择 `request_human`（决策本身合法）。 | 目标停在 needs_human；需要 `run-goal --resume` 显式解锁（该动作本身被记录为 `human_resume` 决策）。这不是缺陷而是安全设计内的行为：人工只说"继续"，无需传递任何项目状态或任务内容。`finish` 的确定性校验由 T32/T37 覆盖。 | 已知行为；`--resume` 机制已提供 |
+| T38-F02 | 首次真实运行中模型为任务选择了 `git_clean` 断言，而 agent 完成后未 commit，验收正确判 rejected（Verifier 行为正确）。 | 属于目标文本引导问题而非系统缺陷：在目标中明确要求"完成后 git commit"且建议使用 `file_exists`/`file_contains` 断言后，后续运行任务全部 verified。未提交的已验收改动现由 `acceptance_snapshot` + 对象库 checkpoint 接续（不再自动 `git add -A`，见 P1-1）。 | 已通过目标文本引导缓解；Verifier 语义未放宽 |
+| T38-F03 | ee539ee 版 T38 证据的 `goal_status` 取自中间轮次（`report2.status`），并未断言最终 Goal 状态；最终报告的 `verified_tasks` 只含 A。 | 该版 16/16 Pass 只证明执行与交接，**不证明** Goal 自动闭环（评审 P1-3 指出）。T38 脚本已改为对最终报告做严格断言，严格复跑证据另存为 `T38b-m4-real-e2e-strict.json`（首轮证据保留原文件）。 | 已更正；首轮证据仍有效于其断言范围，严格复跑结论见 T38-F04 |
+| T38-F04 | 严格复跑（T38b，对最终 Goal 状态断言）真实执行后 **Fail**：真实模型把任务 A 的 id 写进 `prerequisites`（该字段语义是 Project Context 条目标题/标签），handoff 准备被 "prerequisite ... has no verified project context entry" 正确阻塞，LD fail-closed 转人工 ×3，Owner "继续" ×2 有界后停止。LD 行为正确（不绕过闸门）；缺陷在字段语义衔接。 | 根因已修复：目标派工时任务 id 前置条件按 Ledger 判定（该 WorkItem verified 且属于本 Goal 才满足，跨 Goal/未验收则拒绝），非任务 id 原样传给 Context 条目校验；决策 schema 补充 `prerequisites` 语义说明；失败原因持久化到步 outcome 并作为 `last_step` 展示给下一次决策。确定性回归 T39 R4 全 Pass（同 Goal verified id 被接受并记为任务前置；跨 Goal id 拒绝且原因可见）。**真实模型复跑被阻塞**：本环境决策模型端点已移除（模型身份不再落盘）。解除阻塞：配置任意 OpenAI 兼容端点（`LD_MODEL_BASE_URL`/`LD_MODEL_NAME`）后运行 `python scripts/t38_m4_real_e2e.py --part all`。 | 已修复（T39 R4 Pass）；真实复跑待模型环境 |
 
 ## M3 待验证清单
 
@@ -48,10 +67,10 @@
 | M3-11 | `scripts/controlplane_cli.py::_run_project_command()` | Project 子命令已改为按 `default_adapter` 创建只有名称的 Service Plane，但尚未回归；如回归失败，项目任务可被错误标记为 `ledger-only` 而不被 Runtime claim。 | 用非 `ledger-only` 的 `default_adapter` 注册项目，CLI submit/handoff-submit 后检查 WorkItem `adapter`，再运行对应 Runtime claim。 | 已验证；T33 Pass（adapter=stub、Runtime claim 可取、ledger-only 不能 claim） |
 | M3-12 | `controlplane/store.py::session_references()` | 旧 Ledger 中 `legacy_placeholder` 与项目/工作区/任务删除后的悬挂状态投影尚未用历史数据验证，可能误报“可交接”或隐藏旧脏数据。 | 构造 NULL 历史占位、缺失 Workspace/WorkItem 的 reference，查询 Session Registry 投影并检查显式状态。 | 已验证；T33 Pass |
 
-## 本轮处理原则
+## 处理原则
 
-- M3-01/M3-02 需要真实 CodeBuddy Worker，保持待验证；其余 M3 项已由 T33
-  （`scripts/t33_m3_handoff.py`，证据 `evidence/project/T33-m3-handoff-deterministic.json`）
-  以不启动 Worker 的确定性方式验证。
-- LD 工具面未开放 Handoff，避免在 M3 真实集成验收前扩大上述未确定性。
-- 任何后续“已修复/Pass”结论都必须指向新增的可重现测试与脱敏证据。
+- 任何"已修复/Pass"结论都必须指向可重现测试与脱敏证据；stub/确定性 Pass 不等于
+  真实集成 Pass。
+- "两个任务都 verified、代码真实接续"与"Goal 自动进入 completed 并生成只含本
+  Goal 任务的最终报告"分别断言，不得用前者代替后者。
+- Handoff 不作为模型可选动作开放；依赖任务交接由控制平面确定性执行。

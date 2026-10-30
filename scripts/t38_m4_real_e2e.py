@@ -42,7 +42,7 @@ from sanitize_evidence import write_evidence  # noqa: E402
 
 FIXTURE = ROOT / "sandbox" / f"m4-e2e-{uuid.uuid4().hex[:8]}"
 LEDGER = ROOT / ".poc-state" / "t38-m4-e2e.db"
-EVIDENCE = ROOT / "evidence" / "project" / "T38-m4-real-e2e.json"
+EVIDENCE = ROOT / "evidence" / "project" / "T38b-m4-real-e2e-strict.json"
 POLL_S = 15.0
 GOAL_TEXT = (
     "在当前项目中实现一个配置模块。第一阶段实现 configlib 包中的 "
@@ -191,40 +191,45 @@ def goal_part() -> dict:
     # cannot observe the Worker — a real runtime owns observation, which is
     # exactly the division of labour the architecture prescribes.
     def cli_run_goal(extra=()):
-        return subprocess.run(
+        proc = subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "ld_cli.py"),
              "--ledger", str(LEDGER), "--compact", "run-goal", GOAL_TEXT,
              "--project", "t38-config", "--max-decisions", "8",
-             "--max-tasks", "3", *extra],
+             "--max-tasks", "3", "--model-domains", "local,shareable", *extra],
             capture_output=True, text=True, timeout=900, cwd=str(ROOT),
             encoding="utf-8", errors="replace", env=dict(os.environ))
+        try:
+            return proc.returncode, json.loads((proc.stdout or "").strip() or "{}")
+        except json.JSONDecodeError:
+            return proc.returncode, {"_raw": (proc.stdout or "")[-800:],
+                                     "_stderr": (proc.stderr or "")[-400:]}
 
-    # --resume stands in for the Human Owner reviewing the pause and letting
-    # the LD continue (the model occasionally parks a goal conservatively).
-    cli = cli_run_goal(("--resume",))
-    try:
-        report2 = json.loads((cli.stdout or "").strip() or "{}")
-    except json.JSONDecodeError:
-        report2 = {"_raw": (cli.stdout or "")[-800:],
-                   "_stderr": (cli.stderr or "")[-400:]}
-    out["round2_cli_exit"] = cli.returncode
+    # The Human Owner's only interaction after stating the goal: when the LD
+    # parks the goal on a human, the owner says "继续" (--resume).  Bounded.
+    max_resumes = 2
+    resumes_used = 0
+
+    def advance():
+        nonlocal resumes_used
+        code, report = cli_run_goal()
+        while report.get("status") == "needs_human" and resumes_used < max_resumes:
+            resumes_used += 1
+            code, report = cli_run_goal(("--resume",))
+        return code, report
+
+    code, report2 = advance()
+    out["round2_cli_exit"] = code
+    out["round2_status"] = report2.get("status")
 
     # The observer runtime dispatches and watches B to its terminal verdict.
     store, service, tools, coordinator, project = build(LEDGER, repo, "t38-config")
     task_b = report2.get("current_task_id")
-    item_b = wait_terminal(store, service, task_b) if task_b else {}
+    item_b = wait_terminal(store, service, task_b) if task_b and task_b != task_a else {}
+    store.close()
 
-    # Round 2b (another CLI subprocess): B is verified now; the LD finishes.
-    cli_final = cli_run_goal(("--resume",))
-    try:
-        report_final = json.loads((cli_final.stdout or "").strip() or "{}")
-    except json.JSONDecodeError:
-        report_final = {"_raw": (cli_final.stdout or "")[-800:],
-                        "_stderr": (cli_final.stderr or "")[-400:]}
-    report2 = {**report2, "goal_status": report_final.get("status"),
-               "verified_tasks_in_report": report_final.get("verified_tasks"),
-               "decision_history": report_final.get("decision_history")}
-    task_b = report2.get("current_task_id")
+    # Round 2b (another CLI subprocess): B is verified now; the LD must finish.
+    _, report_final = advance()
+    store, service, tools, coordinator, project = build(LEDGER, repo, "t38-config")
     item_b = store.get(task_b) or {}
     prompt_b = item_b.get("effective_prompt") or ""
     goal_tasks = [t for t in store.all()
@@ -242,14 +247,34 @@ def goal_part() -> dict:
         "state": item_b.get("state"), "verdict": item_b.get("verdict"),
         "assertion_results": item_b.get("assertion_results"),
     }
-    out["goal_summary"] = {
-        "goal_task_count": len(goal_tasks),
-        "all_goal_tasks_verified": all(
+    history = report_final.get("decision_history") or []
+    report_verified = sorted(t.get("task_id") for t in report_final.get("verified_tasks") or [])
+    report_goal_tasks = sorted(t.get("task_id") for t in report_final.get("goal_tasks") or [])
+    expected = sorted(t for t in (task_a, task_b) if t)
+    # Exit conditions for "the goal closed itself" — read from the FINAL report.
+    out["goal_final"] = {
+        "status_completed": report_final.get("status") == "completed",
+        "report_verified_tasks_exactly_a_and_b": (
+            len(expected) == 2 and report_verified == expected),
+        "report_goal_tasks_exactly_a_and_b": report_goal_tasks == expected,
+        "ledger_has_exactly_two_goal_tasks": len(goal_tasks) == 2,
+        "all_goal_tasks_verified": bool(goal_tasks) and all(
             t.get("verdict") == "verified" for t in goal_tasks),
+        "history_contiguous": report_final.get("history_contiguous") is True,
+        "no_pending_steps": not report_final.get("pending_steps"),
+        "human_resume_steps_match_owner_continues": sum(
+            1 for d in history if d.get("action") == "human_resume") == resumes_used,
+        "owner_continues_within_bound": resumes_used <= max_resumes,
+        "step_keys_system_generated": bool(goal_tasks) and all(
+            (t.get("idempotency_key") or "").startswith("ldg-goal-") for t in goal_tasks),
+    }
+    out["goal_summary"] = {
+        "final_status": report_final.get("status"),
+        "stop_reason": report_final.get("stop_reason"),
+        "owner_continue_count": resumes_used,
         "task_ids": [t.get("task_id") for t in goal_tasks],
-        "goal_status": report2.get("status"),
-        "verified_tasks_in_report": report2.get("verified_tasks"),
-        "decision_history": report2.get("decision_history"),
+        "verified_tasks_in_final_report": report_final.get("verified_tasks"),
+        "decision_history": history,
     }
 
     # Session B really consumed Session A's accepted code.

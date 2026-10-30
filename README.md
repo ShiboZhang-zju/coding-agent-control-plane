@@ -6,14 +6,20 @@
 **Project**，每个 Project 通过 **Coding Agent** 执行具体任务。Control Plane 是这个系统的
 **基础设施层**——它不再是产品本身，而是让上述结构可靠运转的执行治理层。
 
-当前阶段：**M4 核心闭环已成立（M4-A 集成验收通过、M4-B 最小连续推进完成真实验收）**。
-M1–M3 均有真实测试证据；M4-A 已跑通"真实 LLM 结构化决策 → context 注入 →
-真实 CodeBuddy Worker → Verifier 验收 → M2 自动上下文更新"的完整单轮链路；
-M4-B 的有界 Goal 推进在真实环境完成了一次目标驱动两个相互依赖任务、
-由两个独立 Session 接力交付并通过验收的端到端验证
-（`evidence/project/T38-m4-real-e2e.json`）。
-已知限制：真实模型在收尾阶段倾向保守转人工，需 `--resume` 显式解锁；
-M5 跨机器远程执行尚未实现，见 [路线图](docs/PROJECT_CENTRIC_ROADMAP.md)。
+当前阶段：**M4-A 已完成真实集成验收；M4-B 执行/交接层真实验证、Goal 闭环确定性验证，
+真实模型严格复跑被阻塞**。M1–M3 均有真实测试证据；M4-A 跑通"真实 LLM 结构化决策 →
+context 注入 → 真实 CodeBuddy Worker → Verifier 验收 → M2 自动上下文更新"完整单轮链路
+（`evidence/project/T38a-m4a-real-single-turn.json`）；M4-B 首轮真实端到端验证了
+一次目标驱动两个相互依赖任务、两个独立 Session 接力、B 真实消费 A 的已验收代码
+（`evidence/project/T38-m4-real-e2e.json`）；可靠性收口（步号冲突、崩溃窗口、
+租约 fencing、checkpoint 安全、安全域默认值）由 T39/T40 确定性验证
+（含真实子进程崩溃注入）。严格版真实复跑（对最终 Goal 状态断言）暴露了
+前置条件语义缺陷（已修复 + 确定性回归），复跑因本环境决策模型端点已移除而阻塞
+（`evidence/project/T38b-m4-real-e2e-strict.json`，复现条件见
+`docs/KNOWN_ISSUES.md` T38-F04）。模型身份（端点/模型 id）不属于测试结果，
+不再出现在代码默认值、日志或证据中。已知限制：真实模型收尾阶段倾向保守转人工，
+需 `--resume` 显式解锁；M5 跨机器远程执行尚未实现，
+见 [路线图](docs/PROJECT_CENTRIC_ROADMAP.md)。
 
 ---
 
@@ -144,8 +150,8 @@ M4-A 只把 T32 实际覆盖的确定性边界标为 Pass，整体仍未完成�
 | 项目作用域、转人工门控 + 当前目标 `finish` 二次核验 | `ld/coordinator.py` | T32 Pass（本地确定性） |
 | 真实决策模型（OpenAI-compatible，无 SDK） | `ld/model.py` | T36 边界全 Pass；T38a 真实单轮 Pass |
 | provenance 模型视图（M4B-01：Prompt/原文不进模型输入） | `ld/tools.py` | T36 Pass |
-| 持久化 Goal 状态（确定性 goal_id、追加式决策历史、跨进程租约） | `ld/goal_store.py` | T37 Pass |
-| 有界连续推进 `run_goal()` + 依赖任务确定性 handoff 交接 | `ld/coordinator.py` | T37 确定性 Pass；T38 真实端到端 Pass |
+| 持久化 Goal 状态（确定性 goal_id、追加式决策历史、跨进程租约 + fencing token） | `ld/goal_store.py` | T37/T39 Pass |
+| 有界连续推进 `run_goal()` + 依赖任务确定性 handoff 交接 | `ld/coordinator.py` | T37/T39 确定性 Pass；T38 首轮真实执行/交接 Pass；严格闭环复跑阻塞（T38b，模型端点已移除） |
 | 同 Ledger CLI（查询/单轮/run-goal/--resume） | `scripts/ld_cli.py` | T32/T38 Pass |
 
 M4 未引入任何 Agent Framework。模型输出必须通过严格 schema 校验，模型永远
@@ -369,8 +375,10 @@ python scripts/t31_context_update_loop.py  # 自动回写 / 幂等 / needs_merge
 python scripts/t32_ld_m4a.py               # M4-A 动作 / 作用域 / 幂等 / finish / dry-run
 python scripts/t33_m3_handoff.py           # M3 checkpoint / 迁移 / 并发 / TOCTOU / 投影
 python scripts/t35_m4_fixes.py             # shell 拒绝 / session 一致性 / checkpoint 采集
-python scripts/t36_m4_model.py             # 模型边界 / fail-closed / 模型视图过滤
+python scripts/t36_m4_model.py             # 模型边界 / fail-closed / 模型视图过滤 / 身份不落盘
 python scripts/t37_m4_goal.py              # Goal 生命周期 / 恢复 / 预算 / 租约 / 停滞
+python scripts/t39_m4_goal_reliability.py  # 崩溃注入恢复 / 租约 fencing / resume 步号
+python scripts/t40_m4_checkpoint_safety.py # checkpoint 安全 / CLI 安全域默认值
 
 # 既有回归
 python scripts/t26_p0_fixes.py
@@ -392,10 +400,14 @@ python scripts/t34_m3_real_worker.py --part all   # M3-01/02 真实 Worker
 python scripts/t38_m4_real_e2e.py --part all      # M4 端到端：双依赖任务/恢复/隔离
 ```
 
-T38 的证据 `evidence/project/T38-m4-real-e2e.json` 覆盖：一次目标声明 →
-两个真实依赖任务（Session B merge Session A 的 checkpoint，测试证明代码
-接续）→ 双双 verified → 重启恢复（CLI 子进程续跑同一 Goal，不重派 A）→
-多项目隔离。已知限制见 `docs/KNOWN_ISSUES.md` T38-F01/F02。
+T38 首轮证据 `evidence/project/T38-m4-real-e2e.json` 覆盖（按其断言集）：
+一次目标声明 → 两个真实依赖任务（Session B merge Session A 的 checkpoint，
+测试证明代码接续）→ 双双 verified → 重启恢复（CLI 子进程续跑同一 Goal，
+不重派 A）→ 多项目隔离。严格版复跑对**最终 Goal 状态**断言
+（`completed`、报告恰含 A/B、历史连续），证据
+`evidence/project/T38b-m4-real-e2e-strict.json`：因前置条件语义缺陷 Fail
+（已修复，T39 R4 确定性回归 Pass），真实复跑待可用的 OpenAI 兼容端点
+（本环境已移除）。已知限制见 `docs/KNOWN_ISSUES.md` T38-F01/F02/F04。
 
 ---
 
@@ -439,7 +451,7 @@ sandbox/                        两个一次性 Git 仓库（不入库）
 | M2 | Project Context Update Loop（验收后回写、候选知识、幂等） | **已完成** |
 | M3 | Session Registry / Handoff（单机多 Session） | **已完成**（T33 确定性 + T34 真实 Worker；git commit checkpoint 的"worktree 关闭后可达"未覆盖） |
 | M4-A | Minimal LD（受限工具 + 结构化决策 + 单轮协调） | **已完成**（T32/T36 确定性 + T38a 真实模型/Worker 单轮） |
-| M4-B | 有界连续推进（持久化 Goal + 依赖任务确定性交接 + 恢复） | **最小闭环已验证**（T37 确定性 + T38 真实端到端；模型收尾转人工需 `--resume`） |
+| M4-B | 有界连续推进（持久化 Goal + 依赖任务确定性交接 + 恢复） | **执行/交接真实验证（T38 首轮）；闭环确定性验证（T39/T40 含崩溃注入）；真实严格复跑阻塞（模型端点已移除，T38b）** |
 | M5 | Distributed Workspace（多节点、远程派工、受控同步） | 未实现 |
 
 历史计划 [docs/V0.2_PLAN.md](docs/V0.2_PLAN.md) 描述的是 v0.2 阶段（本地单用户

@@ -154,6 +154,12 @@ def model_layer(server: ThreadingHTTPServer) -> dict:
     described = model_at(server, api_key="sk-secret").describe()
     blob = json.dumps(described) + str(described)
     out["describe_hides_secret"] = "sk-secret" not in blob
+    # Endpoint identity and model id are configuration: they must never reach
+    # evidence or logs, so describe() reports call-shape settings only.
+    port = server.server_address[1]
+    out["describe_hides_endpoint_identity"] = (
+        f"127.0.0.1:{port}" not in blob and "fake-model" not in blob
+        and "endpoint_host" not in described and "model" not in described)
 
     saved = {key: os.environ.pop(key, None) for key in
              ("LD_MODEL_BASE_URL", "LD_MODEL_NAME", "LD_MODEL_API_KEY")}

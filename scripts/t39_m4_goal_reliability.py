@@ -15,6 +15,10 @@ R3  lease fencing (P0-3): concurrent processes cannot both advance a goal; a
     holder whose lease expired and was taken over cannot write any goal state
     or submit a second task; the heartbeat keeps a lease alive through a long
     model call.
+R4  regression for the first strict real run: the model lists the previous
+    task id under ``prerequisites``.  A verified task of this goal is accepted
+    as a task prerequisite; another goal's task fails closed; the refusal
+    reason is persisted and shown to the next decision.
 """
 from __future__ import annotations
 
@@ -398,6 +402,88 @@ def r3_lease_fencing() -> dict:
     return out
 
 
+class PrereqModel(ScriptedModel):
+    """Lists task ids under ``prerequisites`` the way the real model did in T38."""
+
+    def __init__(self, prereq_ids_for_b=None, **kwargs):
+        super().__init__(**kwargs)
+        self.prereq_ids_for_b = prereq_ids_for_b
+        self.seen_last_steps: list[dict | None] = []
+
+    def decide(self, decision_input: dict) -> dict:
+        self.seen_last_steps.append((decision_input.get("goal_state") or {}).get("last_step"))
+        decision = super().decide(decision_input)
+        if decision["action"] == "submit_task" and decision["parameters"]["task"].startswith("part b"):
+            state = decision_input.get("goal_state") or {}
+            verified = [t["task_id"] for t in state.get("completed_tasks", [])]
+            decision["parameters"]["prerequisites"] = (
+                list(self.prereq_ids_for_b) if self.prereq_ids_for_b is not None else verified)
+        return decision
+
+
+def r4_task_id_prerequisites() -> dict:
+    """Regression for the T38 (551f571) real-run failure."""
+    out: dict = {}
+
+    # 4a: same-goal verified task id as prerequisite -> B submitted as handoff.
+    ledger = fresh_ledger("r4a")
+    model = PrereqModel()
+    store, service, coordinator, project = build(ledger, model)
+    goal_store = LDGoalStore(ledger)
+    try:
+        r = coordinator.run_goal(GOAL, project["id"], goal_store)
+        task_a = r.get("current_task_id")
+        complete_task(store, task_a, "sess-r4a")
+        r = coordinator.run_goal(GOAL, project["id"], goal_store)
+        task_b = r.get("current_task_id")
+        meta_b = (store.get(task_b) or {}).get("metadata") or {}
+        out["same_goal_verified_prereq"] = {
+            "b_submitted": bool(task_b) and task_b != task_a,
+            "b_is_handoff": bool(meta_b.get("handoff")),
+            "prereq_recorded_as_task_prereq": meta_b.get("ld_task_prerequisites") == [task_a],
+            "goal_waiting": r.get("status") == "waiting",
+        }
+    finally:
+        store.close()
+        goal_store.close()
+
+    # 4b: another goal's task id as prerequisite -> fail closed, reason kept,
+    #     and the next decision sees why the previous step failed.
+    ledger = fresh_ledger("r4b")
+    store, service, coordinator, project = build(ledger, ScriptedModel())
+    _, other_ref = goal_identity(OTHER_GOAL, project["id"])
+    other = LDTools(service).submit_project_task(
+        project["id"], "feature-z for another goal", idempotency_key="t39-r4b-other",
+        goal_ref=other_ref, assertions=[{"kind": "file_exists", "target": "z.txt"}])
+    complete_task(store, other["task_id"], "sess-r4b-other")
+    model = PrereqModel(prereq_ids_for_b=[other["task_id"]])
+    coordinator._model = model
+    goal_store = LDGoalStore(ledger)
+    try:
+        goal_id, goal_ref = goal_identity(GOAL, project["id"])
+        r = coordinator.run_goal(GOAL, project["id"], goal_store)
+        complete_task(store, r.get("current_task_id"), "sess-r4b-a")
+        r = coordinator.run_goal(GOAL, project["id"], goal_store)
+        history = goal_store.decisions(goal_id, limit=50)
+        failed = history[-1]["outcome"] if history else {}
+        tasks_before_resume = len(goal_tasks(store, goal_ref))
+        coordinator.run_goal(GOAL, project["id"], goal_store, resume=True)
+        out["foreign_goal_prereq"] = {
+            "submission_refused_to_human": r.get("status") == "needs_human",
+            "no_second_task_created": tasks_before_resume == 1,
+            "reason_persisted": "does not belong to this goal" in (failed.get("reason") or ""),
+            "report_exposes_reason": "does not belong to this goal" in (
+                r.get("last_step_reason") or ""),
+            "next_decision_sees_failure": any(
+                step and "does not belong to this goal" in (step.get("reason") or "")
+                for step in model.seen_last_steps),
+        }
+    finally:
+        store.close()
+        goal_store.close()
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--child-crash", default=None)
@@ -414,6 +500,7 @@ def main() -> int:
         "R1_resume_and_complete": r1_resume_and_complete(),
         "R2_crash_injection": r2_crash_injection(),
         "R3_lease_fencing": r3_lease_fencing(),
+        "R4_task_id_prerequisites": r4_task_id_prerequisites(),
     }
 
     checks: dict[str, bool] = {}

@@ -23,7 +23,7 @@
           "state": "committed",
           "action": "submit_task",
           "next_state": "task_submitted",
-          "task_id": "cp-67c22bfa1c4a",
+          "task_id": "cp-ff57f35f956a",
           "recovered": null
         },
         {
@@ -31,7 +31,7 @@
           "state": "committed",
           "action": "submit_task",
           "next_state": "task_submitted",
-          "task_id": "cp-298548f23382",
+          "task_id": "cp-0f6c97b3a150",
           "recovered": null
         },
         {
@@ -143,6 +143,21 @@
         "intruder_refused_during_long_call": true,
         "holder_completed_step": true
       }
+    },
+    "R4_task_id_prerequisites": {
+      "same_goal_verified_prereq": {
+        "b_submitted": true,
+        "b_is_handoff": true,
+        "prereq_recorded_as_task_prereq": true,
+        "goal_waiting": true
+      },
+      "foreign_goal_prereq": {
+        "submission_refused_to_human": true,
+        "no_second_task_created": true,
+        "reason_persisted": true,
+        "report_exposes_reason": true,
+        "next_decision_sees_failure": true
+      }
     }
   },
   "checks": {
@@ -216,7 +231,16 @@
     "R3_lease_fencing.stale_holder.all_steps_written_by_new_holder": true,
     "R3_lease_fencing.stale_holder.goal_state_intact": true,
     "R3_lease_fencing.heartbeat.intruder_refused_during_long_call": true,
-    "R3_lease_fencing.heartbeat.holder_completed_step": true
+    "R3_lease_fencing.heartbeat.holder_completed_step": true,
+    "R4_task_id_prerequisites.same_goal_verified_prereq.b_submitted": true,
+    "R4_task_id_prerequisites.same_goal_verified_prereq.b_is_handoff": true,
+    "R4_task_id_prerequisites.same_goal_verified_prereq.prereq_recorded_as_task_prereq": true,
+    "R4_task_id_prerequisites.same_goal_verified_prereq.goal_waiting": true,
+    "R4_task_id_prerequisites.foreign_goal_prereq.submission_refused_to_human": true,
+    "R4_task_id_prerequisites.foreign_goal_prereq.no_second_task_created": true,
+    "R4_task_id_prerequisites.foreign_goal_prereq.reason_persisted": true,
+    "R4_task_id_prerequisites.foreign_goal_prereq.report_exposes_reason": true,
+    "R4_task_id_prerequisites.foreign_goal_prereq.next_decision_sees_failure": true
   },
   "result": "Pass"
 }
