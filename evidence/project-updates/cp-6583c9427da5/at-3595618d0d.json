@@ -1,0 +1,119 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-6583c9427da5",
+    "project_id": "prj-01680e91fa",
+    "title": "T34-m01-job2",
+    "state": "succeeded",
+    "verdict": "rejected",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "m3-session-2.txt",
+        "value": null,
+        "passed": false,
+        "owned": null,
+        "observed": "missing"
+      }
+    ],
+    "warnings": [
+      "UNISOLATED_SHELL: shell job has no filesystem isolation"
+    ],
+    "finished_at": 1793329387.934
+  },
+  "attempt": {
+    "id": "at-3595618d0d",
+    "worker_job_id": "bbe89df7",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793329334.4263318,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 9,
+      "work_item_id": "cp-6583c9427da5",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "needs_approval",
+        "risk": "high",
+        "project_id": "prj-01680e91fa",
+        "workspace_id": "ws-806fc80d0b",
+        "context_version": null,
+        "context_entry_refs": [],
+        "context_injected": false
+      },
+      "created_at": 1793329333.5204897
+    },
+    {
+      "id": 10,
+      "work_item_id": "cp-6583c9427da5",
+      "attempt_id": null,
+      "type": "approval_required",
+      "payload": {
+        "digest": "1f4cc10ee692b1cb82ce97d46385f72d",
+        "risk": "high",
+        "cwd": "<REPO>\\sandbox\\m3-real-fd8b6371\\repo-a"
+      },
+      "created_at": 1793329333.5825233
+    },
+    {
+      "id": 12,
+      "work_item_id": "cp-6583c9427da5",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-01680e91fa",
+        "root": "<REPO>\\sandbox\\m3-real-fd8b6371\\repo-a",
+        "cwd": "<REPO>\\sandbox\\m3-real-fd8b6371\\repo-a"
+      },
+      "created_at": 1793329333.708298
+    },
+    {
+      "id": 13,
+      "work_item_id": "cp-6583c9427da5",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "shell",
+          "isolation": "none",
+          "permission_mode": "default",
+          "allow_unisolated_shell": true,
+          "risk": "high"
+        },
+        "cwd": "<REPO>\\sandbox\\m3-real-fd8b6371\\repo-a",
+        "attempt_id": "at-3595618d0d",
+        "approval_id": 2
+      },
+      "created_at": 1793329334.5080283
+    },
+    {
+      "id": 14,
+      "work_item_id": "cp-6583c9427da5",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "bbe89df7",
+        "http": 200
+      },
+      "created_at": 1793329335.9412355
+    },
+    {
+      "id": 15,
+      "work_item_id": "cp-6583c9427da5",
+      "attempt_id": null,
+      "type": "approval_consumed",
+      "payload": {
+        "approval_id": 2,
+        "ok": true,
+        "attempt_id": "at-3595618d0d",
+        "consumed_by": "bbe89df7"
+      },
+      "created_at": 1793329336.049542
+    }
+  ]
+}

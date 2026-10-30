@@ -1,0 +1,153 @@
+{
+  "test": "T33-m3-handoff-deterministic",
+  "worker_started": false,
+  "covered": [
+    "M3-03",
+    "M3-04",
+    "M3-05",
+    "M3-06",
+    "M3-07",
+    "M3-08",
+    "M3-09",
+    "M3-10",
+    "M3-11",
+    "M3-12"
+  ],
+  "not_covered": [
+    "M3-01 (requires a real CodeBuddy Worker)",
+    "M3-02 (requires a real two-session end-to-end acceptance)"
+  ],
+  "sections": {
+    "M3-03": {
+      "ready_without_source_worktree": true,
+      "checkpoint_available": true,
+      "checkpoint_integrated": true,
+      "source_worktree_missing": true,
+      "live_worktree_drift_blocked": true
+    },
+    "M3-04": {
+      "legacy_ledger_opens": true,
+      "node_id_column_added": true,
+      "legacy_placeholder_labelled": true,
+      "duplicate_rows_preserved": true,
+      "strict_write_path_refuses_ambiguity": true,
+      "unique_index_not_created_on_conflict": true,
+      "insert_trigger_rearmed_after_reopen": true
+    },
+    "M3-05": {
+      "exactly_one_winner": true,
+      "loser_is_explicit_conflict": true,
+      "final_binding_matches_winner": true,
+      "outcomes": [
+        {
+          "side": "one",
+          "session": "sess-A",
+          "result": null
+        },
+        {
+          "side": "two",
+          "session": "sess-B",
+          "result": "conflict: attempt at-f615cbcef7 was concurrently bound to another session"
+        }
+      ]
+    },
+    "M3-06": {
+      "conflict_event_recorded": true,
+      "work_item_needs_human": true,
+      "work_item_warns": true,
+      "first_binding_immutable": true,
+      "work_item_session_id": "sess-D2",
+      "registry_session_id": "sess-D1",
+      "registry_first_created_before": true
+    },
+    "M3-07": {
+      "conflict_event_recorded": true,
+      "work_item_needs_human": true,
+      "old_attempt_binding_unchanged": true,
+      "event_attempt_is_current": true,
+      "late_snapshot_attempt": "at-ddd8fd6489",
+      "event_attempt_ids": [
+        "at-9baedf8308"
+      ]
+    },
+    "M3-08": {
+      "ready_before_drift": true,
+      "submit_recheck_blocks_unintegrated_head": true,
+      "expected_signature_detects_drift": true,
+      "frozen_prompt_unchanged_after_late_drift": true,
+      "frozen_signature_unchanged_after_late_drift": true,
+      "frozen_context_unchanged_after_late_drift": true
+    },
+    "M3-09": {
+      "untracked_blocks": true,
+      "modified_tracked_blocks": true
+    },
+    "M3-10": {
+      "first_submit_enqueued": true,
+      "context_version_before": 0,
+      "same_key_after_drift_conflicts": true
+    },
+    "M3-11": {
+      "project_added": true,
+      "submit_ok": true,
+      "work_item_routed_to_project_adapter": true,
+      "runtime_claim_picks_it_up": true,
+      "ledger_only_cannot_claim": true,
+      "queue_status": "ready"
+    },
+    "M3-12": {
+      "placeholder_labelled": true,
+      "dangling_workspace_labelled": true,
+      "dangling_work_item_labelled": true,
+      "unscoped_node_labelled": true,
+      "live_binding_still_bound": true
+    }
+  },
+  "checks": {
+    "M3-03.ready_without_source_worktree": true,
+    "M3-03.checkpoint_available": true,
+    "M3-03.checkpoint_integrated": true,
+    "M3-03.source_worktree_missing": true,
+    "M3-03.live_worktree_drift_blocked": true,
+    "M3-04.legacy_ledger_opens": true,
+    "M3-04.node_id_column_added": true,
+    "M3-04.legacy_placeholder_labelled": true,
+    "M3-04.duplicate_rows_preserved": true,
+    "M3-04.strict_write_path_refuses_ambiguity": true,
+    "M3-04.unique_index_not_created_on_conflict": true,
+    "M3-04.insert_trigger_rearmed_after_reopen": true,
+    "M3-05.exactly_one_winner": true,
+    "M3-05.loser_is_explicit_conflict": true,
+    "M3-05.final_binding_matches_winner": true,
+    "M3-06.conflict_event_recorded": true,
+    "M3-06.work_item_needs_human": true,
+    "M3-06.work_item_warns": true,
+    "M3-06.first_binding_immutable": true,
+    "M3-06.registry_first_created_before": true,
+    "M3-07.conflict_event_recorded": true,
+    "M3-07.work_item_needs_human": true,
+    "M3-07.old_attempt_binding_unchanged": true,
+    "M3-07.event_attempt_is_current": true,
+    "M3-08.ready_before_drift": true,
+    "M3-08.submit_recheck_blocks_unintegrated_head": true,
+    "M3-08.expected_signature_detects_drift": true,
+    "M3-08.frozen_prompt_unchanged_after_late_drift": true,
+    "M3-08.frozen_signature_unchanged_after_late_drift": true,
+    "M3-08.frozen_context_unchanged_after_late_drift": true,
+    "M3-09.untracked_blocks": true,
+    "M3-09.modified_tracked_blocks": true,
+    "M3-10.first_submit_enqueued": true,
+    "M3-10.same_key_after_drift_conflicts": true,
+    "M3-11.project_added": true,
+    "M3-11.submit_ok": true,
+    "M3-11.work_item_routed_to_project_adapter": true,
+    "M3-11.runtime_claim_picks_it_up": true,
+    "M3-11.ledger_only_cannot_claim": true,
+    "M3-12.placeholder_labelled": true,
+    "M3-12.dangling_workspace_labelled": true,
+    "M3-12.dangling_work_item_labelled": true,
+    "M3-12.unscoped_node_labelled": true,
+    "M3-12.live_binding_still_bound": true
+  },
+  "result": "Pass"
+}

@@ -1,0 +1,174 @@
+{
+  "test": "T34-m3-real-worker",
+  "worker_started": true,
+  "fixture": "sandbox\\m3-real-3981a775",
+  "M3-01": {
+    "project_id": "prj-8eb7fd1857",
+    "workspace_id": "ws-79a5e42f24",
+    "dispatch_path": {
+      "worker_job_id": "42d50eb0",
+      "state_after_dispatch": "running",
+      "session_id_in_first_snapshot": true
+    },
+    "refresh_path": {
+      "session_id_persisted": true,
+      "session_reference_registered": true,
+      "reference_matches_work_item": true,
+      "view": {
+        "work_item_session_id": "42d50eb0-c650-472c-b39b-ce29226cd7a7",
+        "worker_job_id": "42d50eb0",
+        "attempt_id": "at-23356bd421",
+        "session_reference": {
+          "id": "sr-e96ebb5410",
+          "session_id": "42d50eb0-c650-472c-b39b-ce29226cd7a7",
+          "worker_instance_id": "local-codebuddy-default",
+          "node_id": "local",
+          "work_item_id": "cp-bbf4d75a372c",
+          "attempt_id": "at-23356bd421"
+        },
+        "state": "running",
+        "verdict": "pending"
+      }
+    },
+    "terminal_path": {
+      "state": "succeeded",
+      "verdict": "verified",
+      "session_id_stable": true,
+      "reference_immutable": true,
+      "assertion_passed": true
+    },
+    "restart": {
+      "stop": {
+        "result": "stopped",
+        "port": 8787,
+        "pid": 44072
+      },
+      "start": {
+        "result": "started",
+        "port": 8787,
+        "pid": 35528,
+        "launcher_pid": 35528,
+        "bind": "127.0.0.1:8787",
+        "auth": "password"
+      }
+    },
+    "restart_path": {
+      "session_id_same_after_restart": true,
+      "snapshot_session_id_same": true,
+      "reference_survives_restart": true,
+      "terminal_state": "succeeded",
+      "terminal_verdict": "rejected",
+      "session_id_stable_to_terminal": true,
+      "before_restart": {
+        "work_item_session_id": "9678f85e-f6af-4783-afc7-904b9d94a07c",
+        "worker_job_id": "9678f85e",
+        "attempt_id": "at-acbe4fc24a",
+        "session_reference": {
+          "id": "sr-5cd7e132df",
+          "session_id": "9678f85e-f6af-4783-afc7-904b9d94a07c",
+          "worker_instance_id": "local-codebuddy-default",
+          "node_id": "local",
+          "work_item_id": "cp-b5526c233189",
+          "attempt_id": "at-acbe4fc24a"
+        },
+        "state": "running",
+        "verdict": "pending"
+      },
+      "after_restart": {
+        "work_item_session_id": "9678f85e-f6af-4783-afc7-904b9d94a07c",
+        "worker_job_id": "9678f85e",
+        "attempt_id": "at-acbe4fc24a",
+        "session_reference": {
+          "id": "sr-5cd7e132df",
+          "session_id": "9678f85e-f6af-4783-afc7-904b9d94a07c",
+          "worker_instance_id": "local-codebuddy-default",
+          "node_id": "local",
+          "work_item_id": "cp-b5526c233189",
+          "attempt_id": "at-acbe4fc24a"
+        },
+        "state": "running",
+        "verdict": "pending"
+      }
+    },
+    "checks": {
+      "dispatch_snapshot_has_session": true,
+      "refresh_persists_and_registers": true,
+      "terminal_identity_stable": true,
+      "terminal_reference_immutable": true,
+      "terminal_acceptance_verified": true,
+      "restart_keeps_session_id": true,
+      "restart_snapshot_session_id_same": true,
+      "restart_reference_survives": true,
+      "restart_terminal_stable": true
+    },
+    "result": "Pass"
+  },
+  "M3-02": {
+    "project_id": "prj-8eb7fd1857",
+    "session_a": {
+      "task_id": "cp-62e7d20309b6",
+      "state": "succeeded",
+      "verdict": "verified",
+      "worker_job_id": "375ca4bf",
+      "worker_session_id": "375ca4bf-bb67-4d31-884d-aa95f2ac85d3",
+      "session_reference_registered": true,
+      "head_commit_recorded": false,
+      "worktree_recorded": true
+    },
+    "handoff_prepare": {
+      "ready": true,
+      "blockers": [],
+      "checkpoint_kind": "context_only"
+    },
+    "session_b": {
+      "task_id": "cp-617db1cea66e",
+      "state": "succeeded",
+      "verdict": "verified",
+      "worker_job_id": "e2fe47e1",
+      "worker_session_id": "e2fe47e1-5f81-4994-ac47-93d0468be8e5",
+      "handoff_prompt_rendered": true,
+      "no_resume_directive_present": true,
+      "distinct_session": true,
+      "distinct_worker_job": true,
+      "session_reference_registered": true,
+      "prompt_is_not_session_a_prompt": true,
+      "registered_attempts": [
+        "at-23356bd421",
+        "at-43e993c19d",
+        "at-67c3dce26d",
+        "at-acbe4fc24a"
+      ]
+    },
+    "checks": {
+      "session_a_verified": true,
+      "session_a_reference_registered": true,
+      "prepare_ready_context_only": true,
+      "session_b_verified": true,
+      "handoff_prompt_rendered": true,
+      "fresh_session_no_resume": true,
+      "session_b_reference_registered": true,
+      "two_distinct_attempts_registered": true
+    },
+    "result": "Pass"
+  },
+  "checks": {
+    "M3-01.dispatch_snapshot_has_session": true,
+    "M3-01.refresh_persists_and_registers": true,
+    "M3-01.terminal_identity_stable": true,
+    "M3-01.terminal_reference_immutable": true,
+    "M3-01.terminal_acceptance_verified": true,
+    "M3-01.restart_keeps_session_id": true,
+    "M3-01.restart_snapshot_session_id_same": true,
+    "M3-01.restart_reference_survives": true,
+    "M3-01.restart_terminal_stable": true,
+    "M3-02.session_a_verified": true,
+    "M3-02.session_a_reference_registered": true,
+    "M3-02.prepare_ready_context_only": true,
+    "M3-02.session_b_verified": true,
+    "M3-02.handoff_prompt_rendered": true,
+    "M3-02.fresh_session_no_resume": true,
+    "M3-02.session_b_reference_registered": true,
+    "M3-02.two_distinct_attempts_registered": true
+  },
+  "result": "Pass"
+}

@@ -22,8 +22,8 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 |---|---|---|---|
 | M1 | Project Context Foundation | v0.2 已完成 | **已完成** |
 | M2 | Project Context Update Loop | M1 | **已完成** |
-| **M3** | Session Registry / Handoff | M1（M2 有益但非必需） | **功能已实现，未验证** |
-| **M4-A** | Minimal LD（受限工具、结构化决策、单轮协调） | M1 + M2；不开放 M3 Handoff | **首轮确定性边界测试通过，未完成验收** |
+| **M3** | Session Registry / Handoff | M1（M2 有益但非必需） | **确定性（T33）与真实 Worker（T34）验证通过；git commit checkpoint 路径未覆盖** |
+| **M4-A** | Minimal LD（受限工具、结构化决策、单轮协调） | M1 + M2；不开放 M3 Handoff | **确定性边界测试通过，M1/M2 回归已复跑；真实集成验收未完成** |
 | M4-B | LD 多轮推进与验收后 Handoff | M3 验收 + M4-A | 未实现 |
 | M5 | Distributed Workspace | M1–M4 | 未实现 |
 
@@ -163,7 +163,7 @@ M4-B 启用 Handoff 前必须先完成 M3 验收。M5 之前不得宣称支持�
 
 ---
 
-## M3 — Session Registry / Handoff ⚠️ 功能已实现，未验证
+## M3 — Session Registry / Handoff ✅ 确定性与真实 Worker 验证通过
 
 ### 目标
 
@@ -183,13 +183,13 @@ M4-B 启用 Handoff 前必须先完成 M3 验收。M5 之前不得宣称支持�
 
 | 交付物 | 实现位置 | 当前状态 |
 |---|---|---|
-| Snapshot 观测时登记 Session，不再写 enqueue 空占位 | `ControlPlane._save_snapshot()` | 已实现，未运行验证 |
-| `node / worker_instance / session / task / attempt` 完整链 | `TaskStore.observe_session_reference()` | 已实现，未运行验证 |
-| Attempt 级唯一绑定 + 异 Session 冲突显式转人工 | `session_references` 部分唯一索引 + Store/Plane | 已实现，未运行验证 |
-| 只读 Handoff Prepare（来源/Session/Workspace/checkpoint/context） | `controlplane/handoff.py` | 已实现，未运行验证 |
-| Handoff Submit 创建普通 WorkItem，来源与 checkpoint 原子落 metadata | `ProjectService.submit_handoff()` | 已实现，未运行验证 |
-| 提交前重检、冻结 Prompt/context/workspace、内容签名幂等 | 同上 + `ControlPlane.enqueue()` | 已实现，未运行验证 |
-| CLI `project handoff-prepare / handoff-submit / sessions` | `scripts/controlplane_cli.py` | 已实现，未运行验证 |
+| Snapshot 观测时登记 Session，不再写 enqueue 空占位 | `ControlPlane._save_snapshot()` | 已实现；T33 Pass |
+| `node / worker_instance / session / task / attempt` 完整链 | `TaskStore.observe_session_reference()` | 已实现；T33 Pass |
+| Attempt 级唯一绑定 + 异 Session 冲突显式转人工 | `session_references` 部分唯一索引 + Store/Plane | 已实现；T33 Pass |
+| 只读 Handoff Prepare（来源/Session/Workspace/checkpoint/context） | `controlplane/handoff.py` | 已实现；T33 Pass |
+| Handoff Submit 创建普通 WorkItem，来源与 checkpoint 原子落 metadata | `ProjectService.submit_handoff()` | 已实现；T33 Pass |
+| 提交前重检、冻结 Prompt/context/workspace、内容签名幂等 | 同上 + `ControlPlane.enqueue()` | 已实现；T33 Pass |
+| CLI `project handoff-prepare / handoff-submit / sessions` | `scripts/controlplane_cli.py` | 已实现；T33 Pass |
 
 实现采用的最小模型是：
 
@@ -209,14 +209,11 @@ Handoff 状态机或第二份验收真相。
 - 交接验证任务在"无旧会话"条件下通过验收（`verified`）。
 - SessionReference 中不存在指向已删除项目/工作区的悬挂记录（或悬挂被显式标记）。
 
-**当前退出判定：未满足。** 按本轮要求没有启动 CodeBuddy，也没有执行
-stub/SQLite 验证，因此不存在新的 evidence 或 Pass 结论。尤其以下仍为
-**未验证**：
-
-- 真实 CodeBuddy Snapshot 的 Session ID 是否在所有路径稳定可用；
-- 真实 Worker worktree 关闭后 checkpoint 的保留与可达性；
-- Session A 关闭后，Session B 不读旧 transcript 完成并通过 verdict 验收；
-- 新 schema 迁移、并发 Session 冲突、Handoff 幂等的实际回归。
+**当前退出判定：核心条件已满足（T33 + T34）。** 交接验证在真实 Worker 上完成
+（Session B 不读旧 transcript、不 resume，verdict=verified）；Session Registry
+无悬挂歧义（T33 M3-12）。唯一未覆盖：git commit 形式的 checkpoint（worker job
+不映射 `head_commit`，真实交接当前只能 `context_only`；补齐 commit 映射后需
+重跑 T34 的 checkpoint 分支）。
 
 完整待验证问题、影响与复现方法见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)。
 
@@ -295,8 +292,9 @@ T32 已在不启动 Worker 的前提下覆盖七工具白名单、五种动作�
 跨连接并发冲突、当前目标 finish、dry-run 与无模型路径，证据为
 `evidence/project/T32-m4a-deterministic.json`。
 
-**当前退出判定：M4-A 专项确定性条件已由 T32 覆盖，但集成验收仍未满足。**
-尚未运行 M1/M2 完整回归或真实模型/Worker 集成；T32 Pass 不等于 M4 MVP 验收。
+**当前退出判定：M4-A 专项确定性条件已由 T32 覆盖，M1/M2 关键回归（T26–T31）
+已于 2026-10-30 本地复跑全部 Pass，但集成验收仍未满足。** 尚未运行真实模型或
+真实 Worker 集成；T32 Pass 不等于 M4 MVP 验收。
 
 ### 明确不做
 
