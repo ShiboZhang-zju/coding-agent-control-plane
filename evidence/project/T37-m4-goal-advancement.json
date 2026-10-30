@@ -1,0 +1,53 @@
+{
+  "test": "T37-m4-goal-advancement",
+  "worker_started": false,
+  "sections": {
+    "lifecycle": {
+      "goal_id_deterministic": true,
+      "round1_submits_task_a": true,
+      "round1_stops_waiting": true,
+      "recovery_does_not_resubmit": true,
+      "task_b_submitted": true,
+      "task_b_is_handoff": true,
+      "handoff_prompt_has_merge": true,
+      "handoff_records_goal_ref": true,
+      "handoff_task_ids_tracked": true,
+      "goal_completed": true,
+      "both_tasks_verified_in_report": true,
+      "history_append_only": true,
+      "history_complete": true
+    },
+    "budget": {
+      "budget_stops_needs_human": true,
+      "budget_stop_reason": true
+    },
+    "lease": {
+      "concurrent_advance_refused": true,
+      "released_lease_allows_resume": true
+    },
+    "stall": {
+      "stalled_inspections_stop": true
+    }
+  },
+  "checks": {
+    "lifecycle.goal_id_deterministic": true,
+    "lifecycle.round1_submits_task_a": true,
+    "lifecycle.round1_stops_waiting": true,
+    "lifecycle.recovery_does_not_resubmit": true,
+    "lifecycle.task_b_submitted": true,
+    "lifecycle.task_b_is_handoff": true,
+    "lifecycle.handoff_prompt_has_merge": true,
+    "lifecycle.handoff_records_goal_ref": true,
+    "lifecycle.handoff_task_ids_tracked": true,
+    "lifecycle.goal_completed": true,
+    "lifecycle.both_tasks_verified_in_report": true,
+    "lifecycle.history_append_only": true,
+    "lifecycle.history_complete": true,
+    "budget.budget_stops_needs_human": true,
+    "budget.budget_stop_reason": true,
+    "lease.concurrent_advance_refused": true,
+    "lease.released_lease_allows_resume": true,
+    "stall.stalled_inspections_stop": true
+  },
+  "result": "Pass"
+}

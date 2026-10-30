@@ -88,6 +88,18 @@ def build_parser() -> argparse.ArgumentParser:
             help=("local structured decision file; use '-' for stdin. If omitted, "
                   "the coordinator reports model_not_configured"))
         _add_model_args(command)
+
+    goal_cmd = sub.add_parser(
+        "run-goal", help="advance one persistent goal with bounded decisions")
+    goal_cmd.add_argument("goal")
+    goal_cmd.add_argument("--project", required=True, help="project id or name")
+    goal_cmd.add_argument("--max-decisions", type=int, default=10)
+    goal_cmd.add_argument("--max-tasks", type=int, default=3)
+    goal_cmd.add_argument(
+        "--poll-interval-s", type=float, default=None,
+        help="poll the in-flight task and keep advancing until it settles")
+    goal_cmd.add_argument("--max-wait-s", type=float, default=1800.0)
+    _add_model_args(goal_cmd)
     return parser
 
 
@@ -136,7 +148,7 @@ def main() -> int:
             emit(tools.get_project_brief(project["id"]), compact=args.compact)
             return 0
 
-        model = load_decision(args.decision_json)
+        model = load_decision(getattr(args, "decision_json", None))
         if model is None:
             base_url = args.model_base_url or os.environ.get("LD_MODEL_BASE_URL", "")
             model_name = args.model_name or os.environ.get("LD_MODEL_NAME", "")
@@ -154,6 +166,29 @@ def main() -> int:
             if item.strip()) if model else ()
         coordinator = LDCoordinator(
             tools, model, model_authorized_security_domains=domains)
+
+        if args.command == "run-goal":
+            if model is None:
+                emit({"error": "run-goal requires a real decision model; "
+                               "configure --model-base-url/--model-name or "
+                               "LD_MODEL_BASE_URL/LD_MODEL_NAME"},
+                     compact=args.compact)
+                return 3
+            from ld.goal_store import LDGoalStore
+            goal_store = LDGoalStore(store.path)
+            try:
+                report = coordinator.run_goal(
+                    args.goal, args.project, goal_store,
+                    max_decisions=args.max_decisions,
+                    max_tasks=args.max_tasks,
+                    poll_interval_s=args.poll_interval_s,
+                    max_wait_s=args.max_wait_s)
+            finally:
+                goal_store.close()
+            emit(report, compact=args.compact)
+            return (0 if report.get("status") == "completed" else
+                    3 if report.get("status") in ("waiting", "needs_human") else 1)
+
         result = coordinator.run_once(
             args.goal,
             project_id=args.project,

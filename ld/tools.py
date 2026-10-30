@@ -100,6 +100,11 @@ class LDTools:
         self._service = service
         self._submission_service_factory = submission_service_factory
 
+    @property
+    def service(self) -> ProjectService:
+        """The wrapped service (read-side helpers for goal advancement)."""
+        return self._service
+
     def list_projects(self) -> list[dict]:
         return self._service.list_projects()
 
