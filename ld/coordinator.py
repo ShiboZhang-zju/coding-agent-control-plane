@@ -729,6 +729,7 @@ class LDCoordinator:
         poll_interval_s: float | None = None,
         max_wait_s: float | None = None,
         lease_owner: str | None = None,
+        resume: bool = False,
     ) -> dict[str, Any]:
         """Advance one persistent goal by one auditable transition at a time.
 
@@ -755,6 +756,11 @@ class LDCoordinator:
         selected_id = self._resolve_project_id(self._tools.list_projects(), project_id)
         goal_id, goal_ref = goal_identity(normalized_goal, selected_id)
         goal_store.get_or_create(goal_id, selected_id, normalized_goal, goal_ref)
+        if resume:
+            goal = goal_store.get(goal_id) or {}
+            if goal.get("status") == "needs_human":
+                goal_store.resume(
+                    goal_id, note="resumed by the caller after human review")
         owner = lease_owner or f"ld-goal-{self._tools.service.plane.worker_instance_id}"
         goal_store.acquire_lease(goal_id, owner)
         try:
@@ -830,6 +836,13 @@ class LDCoordinator:
                     return self._goal_report(goal_id, project_id, goal_store,
                                              last_result, reason="waiting for task")
                 if poll_interval_s:
+                    # Let the control plane observe the Worker before the next
+                    # decision; a ledger-only plane cannot refresh and the
+                    # caller's runtime owns observation in that case.
+                    try:
+                        self._tools.service.plane.refresh_known_jobs()
+                    except Exception:  # noqa: BLE001 - refresh is best effort
+                        pass
                     time.sleep(poll_interval_s)
                 continue
             if transition in ("needs_human", "completed", "failed"):
@@ -938,8 +951,8 @@ class LDCoordinator:
             # being submitted right now. Hand it the prior session's accepted
             # code via a reachable git checkpoint.
             if prior:
-                record = self._tools.service.submit_handoff(
-                    prior["task_id"], params["task"],
+                record = self._tools.submit_goal_handoff(
+                    decision.project_id or "", prior["task_id"], params["task"],
                     assertions=params.get("assertions") or [],
                     idempotency_key=params["idempotency_key"],
                     title=params.get("title") or "",

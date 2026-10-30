@@ -1,0 +1,100 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-03a245f2a9c2",
+    "project_id": "prj-a06f586cf8",
+    "title": "第一阶段：在当前工作分支中实现 configlib 包的 load_config(config_dict) 函数，使预置",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "configlib/__init__.py",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "changed since baseline"
+      },
+      {
+        "kind": "file_contains",
+        "target": "configlib/__init__.py",
+        "value": "def load_config",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      }
+    ],
+    "warnings": [],
+    "finished_at": 1793334485.567
+  },
+  "attempt": {
+    "id": "at-a147a17ecc",
+    "worker_job_id": "e583faea",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793334412.6440895,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 1,
+      "work_item_id": "cp-03a245f2a9c2",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-a06f586cf8",
+        "workspace_id": "ws-f277da2744",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "context_injected": true
+      },
+      "created_at": 1793334409.6780577
+    },
+    {
+      "id": 2,
+      "work_item_id": "cp-03a245f2a9c2",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-a06f586cf8",
+        "root": "<REPO>\\sandbox\\m4-e2e-f6e7360d\\pyproj",
+        "cwd": "<REPO>\\sandbox\\m4-e2e-f6e7360d\\pyproj"
+      },
+      "created_at": 1793334411.2548149
+    },
+    {
+      "id": 3,
+      "work_item_id": "cp-03a245f2a9c2",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\m4-e2e-f6e7360d\\pyproj",
+        "attempt_id": "at-a147a17ecc",
+        "approval_id": null
+      },
+      "created_at": 1793334412.69372
+    },
+    {
+      "id": 4,
+      "work_item_id": "cp-03a245f2a9c2",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "e583faea",
+        "http": 200
+      },
+      "created_at": 1793334412.7775457
+    }
+  ]
+}

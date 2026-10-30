@@ -6,12 +6,14 @@
 **Project**，每个 Project 通过 **Coding Agent** 执行具体任务。Control Plane 是这个系统的
 **基础设施层**——它不再是产品本身，而是让上述结构可靠运转的执行治理层。
 
-当前阶段：**M4-A（最小单轮 LD）功能开发完成，首轮确定性边界测试通过，
-但尚未完成验收**。M1/M2 有已保存的测试证据；M3 代码存在但尚未通过验收。
-M4-A 的 T32 只使用临时 SQLite Ledger 与 sandbox fixture，没有启动 CodeBuddy，
-也没有运行完整回归，因此不宣称 M3 交接或 M4 MVP 通过。
-自主循环式完整 LD Agent 与 M5 跨机器远程执行尚未实现，
-见 [路线图](docs/PROJECT_CENTRIC_ROADMAP.md)。
+当前阶段：**M4 核心闭环已成立（M4-A 集成验收通过、M4-B 最小连续推进完成真实验收）**。
+M1–M3 均有真实测试证据；M4-A 已跑通"真实 LLM 结构化决策 → context 注入 →
+真实 CodeBuddy Worker → Verifier 验收 → M2 自动上下文更新"的完整单轮链路；
+M4-B 的有界 Goal 推进在真实环境完成了一次目标驱动两个相互依赖任务、
+由两个独立 Session 接力交付并通过验收的端到端验证
+（`evidence/project/T38-m4-real-e2e.json`）。
+已知限制：真实模型在收尾阶段倾向保守转人工，需 `--resume` 显式解锁；
+M5 跨机器远程执行尚未实现，见 [路线图](docs/PROJECT_CENTRIC_ROADMAP.md)。
 
 ---
 
@@ -132,7 +134,7 @@ M4-A 只把 T32 实际覆盖的确定性边界标为 Pass，整体仍未完成�
 | Handoff 只读准备（来源/Session/checkpoint/Workspace/context） | 已实现，未验证 | 无新证据 |
 | Handoff 提交（普通 WorkItem + 原子来源 metadata + 签名幂等） | 已实现，未验证 | 无新证据 |
 
-### 4.3 Minimal LD（M4-A，首轮确定性边界测试通过、未完成验收）
+### 4.3 Minimal LD（M4-A 已完成集成验收；M4-B 最小连续推进已真实验证）
 
 | 能力 | 实现位置 | 状态 |
 |---|---|---|
@@ -140,12 +142,17 @@ M4-A 只把 T32 实际覆盖的确定性边界标为 Pass，整体仍未完成�
 | 五种结构化动作 + 严格字段/参数校验 | `ld/decision.py` | T32 Pass |
 | 单轮 `run_once(goal, project_id=None, dry_run=False)` | `ld/coordinator.py` | T32 Pass |
 | 项目作用域、转人工门控 + 当前目标 `finish` 二次核验 | `ld/coordinator.py` | T32 Pass（本地确定性） |
-| 同 Ledger CLI（列表/概况/预览/单轮执行） | `scripts/ld_cli.py` | T32 Pass |
+| 真实决策模型（OpenAI-compatible，无 SDK） | `ld/model.py` | T36 边界全 Pass；T38a 真实单轮 Pass |
+| provenance 模型视图（M4B-01：Prompt/原文不进模型输入） | `ld/tools.py` | T36 Pass |
+| 持久化 Goal 状态（确定性 goal_id、追加式决策历史、跨进程租约） | `ld/goal_store.py` | T37 Pass |
+| 有界连续推进 `run_goal()` + 依赖任务确定性 handoff 交接 | `ld/coordinator.py` | T37 确定性 Pass；T38 真实端到端 Pass |
+| 同 Ledger CLI（查询/单轮/run-goal/--resume） | `scripts/ld_cli.py` | T32/T38 Pass |
 
-M4-A 未引入任何 Agent Framework，也没有内置或伪造模型。模型未注入时返回
-`model_not_configured`；CLI 的 `--decision-json` 只是本地结构化决策注入口，
-不会加载 Python 或 Shell。Human Owner 目标默认按 `local` 域处理，模型未获得
-`local` 授权时协调器不会调用它。
+M4 未引入任何 Agent Framework。模型输出必须通过严格 schema 校验，模型永远
+不直接接触 Worker、SQLite、文件系统或 Shell；所有派工经
+`LDTools → ProjectService → ControlPlane`，不绕过审批。Human Owner 目标默认按
+`local` 域处理，模型未获得 `local` 授权时协调器不会调用它。已知限制：真实
+模型在收尾阶段倾向保守转人工（T38-F01），由 `run-goal --resume` 显式解锁。
 
 ---
 
@@ -153,11 +160,8 @@ M4-A 未引入任何 Agent Framework，也没有内置或伪造模型。模型�
 
 **明确未实现，不要假设存在：**
 
-- **循环式完整 LD Agent。** 当前只有单轮、唯一全局 LD 协调器；没有内置 LLM、
-  自动多轮规划、多 LD、复杂 Goal DAG 或 Agent 协商。
-- **经真实 Worker 验证的 Session 自动交接。** prepare/submit 功能已实现，
-  但“关闭 Session A 后由 Session B 不读旧 transcript 继续并通过验收”
-  本轮未执行，仍属未验证。
+- **无限自主的完整 LD Agent。** M4-B 是有界推进（决策/任务预算、停滞检测、
+  人工恢复），不是无人值守的自主循环；真实模型收尾阶段可能转人工。
 - **可靠跨机器远程执行。** `workspaces.node_id` 字段已存在，但非 `local` 节点会被
   `ContextBuilder` 判为阻塞缺口并拒绝派发。不存在"看起来能远程、实际本地跑"的假实现。
 - **跨机器原生 Session 迁移。** 未实现，也不承诺。
@@ -272,7 +276,7 @@ add a health endpoint
 - Do not invent project facts that are not stated above.
 ```
 
-### 6.3 M4-A 最小 LD CLI（功能示例；Python 核心已做确定性测试，CLI 待专项验证）
+### 6.3 LD：真实模型单轮决策与有界连续目标（M4-A / M4-B）
 
 ```powershell
 # 只读查询，与 Runtime 使用同一 Ledger
@@ -286,10 +290,38 @@ python scripts/ld_cli.py --ledger $L preview "继续实现当前项目" --projec
 python scripts/ld_cli.py --ledger $L preview "实现健康检查" `
   --project <project-id> --decision-json .\decision.json
 
-# 执行一轮；submit_task 仍只是走 ProjectService 入队，不绕过审批
-python scripts/ld_cli.py --ledger $L run-once "实现健康检查" `
-  --project <project-id> --decision-json .\decision.json
+# 接入真实模型（OpenAI-compatible /chat/completions；无 SDK 依赖）
+$env:LD_MODEL_BASE_URL = "https://your-endpoint/v1"
+$env:LD_MODEL_NAME     = "your-model"
+$env:LD_MODEL_API_KEY  = "sk-..."   # 本地免鉴权端点可省略
+$env:LD_MODEL_TIMEOUT_S = "180"
+
+# 真实模型单轮：结构化决策 -> context 注入 -> Runtime 派发 -> 验收
+python scripts/ld_cli.py --ledger $L run-once "实现健康检查" --project <project-id>
+
+# M4-B 有界连续目标：一次目标声明，LD 依次查询/提交/等待/交接/完成，
+# 遇到等待中的任务即返回 waiting；由 Runtime 或下次调用继续推进
+python scripts/ld_cli.py --ledger $L run-goal `
+  "实现功能 A，再在其上实现功能 B，两部分独立提交" `
+  --project <project-id> --max-decisions 10 --max-tasks 3
+
+# 模型把目标停在 needs_human（预算耗尽/模型转人工/停滞）后，
+# 人工处理完阻塞可用 --resume 显式恢复（记录 human_resume 决策）
+python scripts/ld_cli.py --ledger $L run-goal "……" --project <project-id> --resume
 ```
+
+真实模型接入的安全边界：
+
+- 端点、凭据、超时全部显式配置（参数或 `LD_MODEL_*` 环境变量）；
+  未配置时 `model_not_configured`，绝不伪造决策。
+- 模型输出必须通过 `ld/decision.py` 的严格 schema 校验；非法动作、未知字段、
+  命令参数一律拒绝并转人工（fail-closed）。
+- 模型只能看到授权安全域内的项目内容；`get_task_provenance` 的模型视图不含
+  Effective Prompt 与任务原文；项目路径与未授权本地知识永不进入模型输入。
+- 日志与 `describe()` 只记录 host/model/耗时；密钥与完整输入输出永不落盘。
+- `run_goal` 每轮恰好一个可审计转换（决策→动作→持久化→状态迁移），
+  有决策/任务预算与停滞检测；依赖任务由控制平面确定性升级为
+  reachable-checkpoint 交接（Session B merge 前序已验收代码，绝不触碰默认分支）。
 
 `decision.json` 的最小提交决策：
 
@@ -328,13 +360,17 @@ python scripts/controlplane_cli.py approval approve <approval-id>
 ### 6.5 测试
 
 ```powershell
-# M1–M3 新增
+# M1–M4 新增（离线确定性测试）
 python scripts/t27_project_context.py      # 隔离 / 版本 CAS / 来源 / 安全域
 python scripts/t28_project_dispatch.py     # 注入 / 冻结 / 审批绑定 / 阻塞 / 兼容
 python scripts/t29_reliability_edges.py    # PID 三态 / 降级标记 I/O
 python scripts/t30_project_cli.py          # CLI 端到端（README 示例来源）
 python scripts/t31_context_update_loop.py  # 自动回写 / 幂等 / needs_merge / 安全边界
 python scripts/t32_ld_m4a.py               # M4-A 动作 / 作用域 / 幂等 / finish / dry-run
+python scripts/t33_m3_handoff.py           # M3 checkpoint / 迁移 / 并发 / TOCTOU / 投影
+python scripts/t35_m4_fixes.py             # shell 拒绝 / session 一致性 / checkpoint 采集
+python scripts/t36_m4_model.py             # 模型边界 / fail-closed / 模型视图过滤
+python scripts/t37_m4_goal.py              # Goal 生命周期 / 恢复 / 预算 / 租约 / 停滞
 
 # 既有回归
 python scripts/t26_p0_fixes.py
@@ -349,14 +385,17 @@ python scripts/t24_multiprocess_claim.py
 python scripts/t25_cli_queue.py
 ```
 
-M4-A 已运行 T32 本地确定性测试并生成
-`evidence/project/T32-m4a-deterministic.json`；它覆盖七工具白名单、五种动作、
-四类异常门控、命令字段拒绝、项目作用域、模型输入安全域、CLI、dry-run、
-无模型路径、提交签名、跨连接并发冲突及当前目标 finish。下一步是执行
-M1/M2 关键回归并单独验收 M3；真实模型/Worker 集成仍未执行。
+真实集成测试（需先 `python scripts/serve_ctl.py start`；T38 另需 `LD_MODEL_*`）：
 
-真实 Worker 集成测试（`t11_four_agents.py`、`t12`、`t14`、`t08*`）需要先启动
-CodeBuddy 服务；它们不是离线可跑的，脚本会直接报连接错误。
+```powershell
+python scripts/t34_m3_real_worker.py --part all   # M3-01/02 真实 Worker
+python scripts/t38_m4_real_e2e.py --part all      # M4 端到端：双依赖任务/恢复/隔离
+```
+
+T38 的证据 `evidence/project/T38-m4-real-e2e.json` 覆盖：一次目标声明 →
+两个真实依赖任务（Session B merge Session A 的 checkpoint，测试证明代码
+接续）→ 双双 verified → 重启恢复（CLI 子进程续跑同一 Goal，不重派 A）→
+多项目隔离。已知限制见 `docs/KNOWN_ISSUES.md` T38-F01/F02。
 
 ---
 
@@ -374,11 +413,13 @@ controlplane/context_builder.py 【M1】Effective Prompt 构建（预算 / 筛�
 controlplane/context_update.py  【M2】验收后确定性候选回写（幂等 + 冲突保留）
 controlplane/handoff.py         【M3】只读交接准备与 checkpoint 校验
 controlplane/project_service.py 【M1–M4-A】项目确定性查询与提交服务
-ld/tools.py                    【M4-A】受限 LD Tool Facade
+ld/tools.py                    【M4-A/B】受限 LD Tool Facade + 目标交接提交
 ld/decision.py                 【M4-A】结构化决策 Schema 与确定性校验
-ld/coordinator.py              【M4-A】最小可注入模型的单轮协调器
-scripts/ld_cli.py              【M4-A】列表/概况/预览/执行单轮 LD
-docs/KNOWN_ISSUES.md           M3 待验证问题、影响与复现方法
+ld/model.py                    【M4-A】OpenAI-compatible 真实决策模型（无 SDK）
+ld/goal_store.py               【M4-B】持久化 Goal 状态与决策历史（同 Ledger）
+ld/coordinator.py              【M4-A/B】单轮 run_once + 有界连续 run_goal
+scripts/ld_cli.py              【M4-A/B】查询/单轮/run-goal/--resume
+docs/KNOWN_ISSUES.md           已知问题、修复状态与复现方法
 docs/PROJECT_CENTRIC_ROADMAP.md M1–M5 路线图与退出条件
 docs/V0.2_PLAN.md               历史计划（v0.2 阶段，已完成其范围）
 scripts/                        服务管控、测试脚本、CLI、detached 运行器
@@ -396,9 +437,9 @@ sandbox/                        两个一次性 Git 仓库（不入库）
 |---|---|---|
 | M1 | Project Context Foundation | **已完成** |
 | M2 | Project Context Update Loop（验收后回写、候选知识、幂等） | **已完成** |
-| M3 | Session Registry / Handoff（单机多 Session） | **功能已实现，未验证** |
-| M4-A | Minimal LD（受限工具 + 结构化决策 + 单轮协调） | **首轮确定性边界测试通过，未完成验收** |
-| M4-B | LD 多轮推进/经验证的 Handoff 工具 | 未实现 |
+| M3 | Session Registry / Handoff（单机多 Session） | **已完成**（T33 确定性 + T34 真实 Worker；git commit checkpoint 的"worktree 关闭后可达"未覆盖） |
+| M4-A | Minimal LD（受限工具 + 结构化决策 + 单轮协调） | **已完成**（T32/T36 确定性 + T38a 真实模型/Worker 单轮） |
+| M4-B | 有界连续推进（持久化 Goal + 依赖任务确定性交接 + 恢复） | **最小闭环已验证**（T37 确定性 + T38 真实端到端；模型收尾转人工需 `--resume`） |
 | M5 | Distributed Workspace（多节点、远程派工、受控同步） | 未实现 |
 
 历史计划 [docs/V0.2_PLAN.md](docs/V0.2_PLAN.md) 描述的是 v0.2 阶段（本地单用户

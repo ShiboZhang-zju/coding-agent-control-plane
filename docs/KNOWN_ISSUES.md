@@ -13,7 +13,7 @@
 | M4A-R02 | `ld/decision.py::_validate_finish()` / `ld/coordinator.py::_finish()` | 项目历史 `verified >= 1` 不再能单独完成新目标；至少一个 verified WorkItem 必须带当前目标稳定引用。 | 用纯项目计数、旧目标 verified task、无 goal 引用历史 task 分别 finish；均须拒绝；同目标 verified task 才允许。 | 已修复；T32 Pass |
 | M4A-R03 | `ld/tools.py::submit_project_task()` | LD 提交签名绑定 task、实际目标 Workspace、Assertions、标签/前置条件及执行参数；同 key 异请求冲突，Context Version 不入签名。 | 首次提交后更新 Context 并原样重试应 deduplicate；改 Workspace 或 Assertions 应冲突。 | 已修复；T32 Pass |
 | M4A-01 | `ld/coordinator.py::run_once()` | 项目存在异常任务时，只读动作现已允许；但任何新提交仍会被项目内任一 attention flag 阻塞，即使它可能与新任务独立。这是安全但偏保守的写门控。 | 在项目中放一个 `needs_approval` 任务：inspect 应成功，独立 submit 仍应 `request_human`；再评估是否需要显式依赖关系后细化。 | 已知保守策略；T32 覆盖当前行为 |
-| M4B-01 | `ProjectService.get_task_provenance()` / 未来模型工具回馈层 | provenance 包含完整 Effective Prompt。当前 M4-A 单轮不会把工具结果自动回喂模型；M4-B 多轮前必须分离本地操作者视图与按安全域过滤的模型视图。 | 接入任何多轮模型前，用 `local` 项目任务调用 provenance，断言模型可见响应不含 Prompt、路径或未授权内容。 | 未实现；M4-B 阻塞项 |
+| M4B-01 | `ProjectService.get_task_provenance()` / 未来模型工具回馈层 | provenance 包含完整 Effective Prompt。M4-B 多轮前必须分离本地操作者视图与按安全域过滤的模型视图。 | 接入任何多轮模型前，用 `local` 项目任务调用 provenance，断言模型可见响应不含 Prompt、路径或未授权内容。 | 已解决（T36）：`LDTools.get_task_provenance(allowed_security_domains=...)` 模型视图移除 Effective Prompt 与任务原文，context entry 标题仅暴露授权域；coordinator inspect 自动应用 |
 | M4A-V01 | `scripts/t32_ld_m4a.py` | T32 已覆盖七工具、五种动作、四类异常状态、作用域、模型输入安全域、CLI、顺序/并发幂等、finish、dry-run、命令拒绝和无模型路径；M1/M2 关键回归（T26–T31）已于 2026-10-30 在本地复跑全部 Pass（T27/T28/T30 证据已按规则恢复为历史版本，不覆盖）。真实模型或 Worker 集成结论仍缺失。 | 真实 Worker 环境可用后再单独做集成验收，不复用 T32/T33 的 stub 结论。 | 回归已跑；真实集成待验证 |
 
 ## T34 轮新发现（2026-10-30，真实 CodeBuddy Worker）
@@ -21,8 +21,15 @@
 | # | 源码位置 | 影响 / 处理 | 最小复现 / 验证方法 | 状态 |
 |---|---|---|---|---|
 | T34-F01 | `controlplane/plane.py::enqueue()` / `_dispatch_record()` | 裸 `enqueue(workspace_id=...)` 不传 `digest_scope` 时，审批绑定的 digest 与 dispatch 时 `_digest_scope` 重算必然不一致：任务审批通过后永远派发不出去，且 `task_digest` 被改写并记录误导性的 `dispatch_content_changed` 事件。M1 引入的回归。 | `enqueue(..., policy=poc_shell(), project_id=..., workspace_id=...)` → `approve(digest)` → `dispatch_next()`：修复前返回 needs_approval 且 digest 变化；修复后正常派发。 | 已修复；T26–T33 回归全 Pass，T34 M3-01 Pass |
-| T34-F02 | `controlplane/project_service.py::submit_project_task()`；`adapters/codebuddy/adapter.py::dispatch()` | shell 任务执行的是冻结 prompt 本身。`submit_project_task` 注入多行项目上下文后，bash job 把 prompt 首行（`#` 开头的标题行）当命令执行而失败，任务静默变 `rejected`。提交层没有拒绝该组合。 | `submit_project_task(..., policy=poc_shell())` → exec log 首行报 `'#' 不是内部或外部命令`，verdict=rejected；改用裸 `plane.enqueue`（无 context 注入）则正常。 | 已知缺口；未修复（需产品决策：提交时拒绝 shell+context 组合或渲染纯命令 prompt） |
+| T34-F02 | `controlplane/project_service.py::submit_project_task()`；`adapters/codebuddy/adapter.py::dispatch()` | shell 任务执行的是冻结 prompt 本身。`submit_project_task` 注入多行项目上下文后，bash job 把 prompt 首行（`#` 开头的标题行）当命令执行而失败，任务静默变 `rejected`。提交层没有拒绝该组合。 | `submit_project_task(..., policy=poc_shell())` → exec log 首行报 `'#' 不是内部或外部命令`，verdict=rejected；改用裸 `plane.enqueue`（无 context 注入）则正常。 | 已修复（T35）：`submit_project_task` / `submit_handoff` 显式拒绝 shell policy；裸 `plane.enqueue` 的 shell 路径保持可用 |
 | T34-F03 | `scripts/serve_ctl.py::cmd_stop()` | 原 `taskkill /PID <pid> /T /F` 会连带杀掉 serve 进程 fork 的 npm 自动更新子进程，导致全局 npm 安装半损坏（bin shim 丢失、CLI 变 unknown，需 `npm install -g @tencent-ai/codebuddy-code@<版本>` 修复）。 | `serve_ctl.py stop` 后 `codebuddy --version` 报命令不存在。 | 已修复（stop 只杀监听 PID，不带 /T） |
+
+## T38 轮新发现（2026-10-30，真实模型 + 真实 Worker 端到端）
+
+| # | 现象 | 影响 / 处理 | 状态 |
+|---|---|---|---|
+| T38-F01 | 真实模型（GPT-5.5）在目标推进的收尾阶段倾向保守转人工：三次真实运行中两次在应 `finish` 或继续提交时选择 `request_human`（决策本身合法）。 | 目标停在 needs_human；需要 `run-goal --resume` 显式解锁（该动作本身被记录为 `human_resume` 决策）。这不是缺陷而是安全设计内的行为：人工只说"继续"，无需传递任何项目状态或任务内容。`finish` 的确定性校验由 T32/T37 覆盖。 | 已知行为；`--resume` 机制已提供 |
+| T38-F02 | 首次真实运行中模型为任务选择了 `git_clean` 断言，而 agent 完成后未 commit，验收正确判 rejected（Verifier 行为正确）。 | 属于目标文本引导问题而非系统缺陷：在目标中明确要求"完成后 git commit"且建议使用 `file_exists`/`file_contains` 断言后，后续运行任务全部 verified。控制平面的 `capture_source_checkpoint` 仍作为 dirty worktree 的确定性兜底。 | 已通过目标文本引导缓解；Verifier 语义未放宽 |
 
 ## M3 待验证清单
 

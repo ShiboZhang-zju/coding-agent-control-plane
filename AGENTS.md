@@ -88,6 +88,20 @@
   `ProjectService.get_project_progress()` 从 Ledger 派生。
 - 自动回写失败不得回滚或改写已持久化的验收 verdict；记录失败事件，允许显式重放。
 
+### 5.2 LD 决策与 Goal 规则（M4 引入）
+
+- 模型输出只能是五种结构化动作（`ld/decision.py` schema）；未知字段、命令参数一律
+  拒绝。模型永远不直接接触 Worker、SQLite、文件系统或 Shell。
+- 所有派工必须经 `LDTools → ProjectService → ControlPlane`，不绕过审批。
+- 模型端点、凭据、安全域授权必须显式配置；`local` 域内容未授权时不得进入模型输入，
+  `get_task_provenance` 的模型视图不得包含 Effective Prompt 或任务原文。
+- **Goal 状态不是第二份任务真相。** `ld_goals` 只记录目标推进（预算、当前任务、
+  决策历史）；任务成败一律读 Ledger 的 verdict，Goal 不得覆盖或改写验收结论。
+- Goal 推进必须有界（决策/任务预算、停滞检测）且可恢复（确定性 goal_id、追加式
+  决策历史、跨进程租约）；不得实现无限自主循环。
+- 依赖任务的 Session 交接由控制平面确定性执行（`checkpoint_mode=reachable` 的
+  handoff），不是模型决策；未经审核的代码不得自动合入项目默认分支。
+
 ### 5.2 Session 登记与交接规则（M3 引入）
 
 - SessionReference 只能来自含真实 `session_id + worker_job_id` 的 Snapshot；禁止在

@@ -99,6 +99,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--poll-interval-s", type=float, default=None,
         help="poll the in-flight task and keep advancing until it settles")
     goal_cmd.add_argument("--max-wait-s", type=float, default=1800.0)
+    goal_cmd.add_argument(
+        "--resume", action="store_true",
+        help="after human review, lift a needs_human goal back to active")
     _add_model_args(goal_cmd)
     return parser
 
@@ -182,7 +185,8 @@ def main() -> int:
                     max_decisions=args.max_decisions,
                     max_tasks=args.max_tasks,
                     poll_interval_s=args.poll_interval_s,
-                    max_wait_s=args.max_wait_s)
+                    max_wait_s=args.max_wait_s,
+                    resume=args.resume)
             finally:
                 goal_store.close()
             emit(report, compact=args.compact)

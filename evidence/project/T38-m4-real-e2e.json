@@ -1,0 +1,149 @@
+{
+  "test": "T38-m4-real-e2e",
+  "worker_started": true,
+  "model": {
+    "endpoint_host": "qmapi.woa.com",
+    "model": "gpt-5.5",
+    "timeout_s": 180.0,
+    "max_tokens": 4096
+  },
+  "fixture_root": "<REPO>\\sandbox\\m4-e2e-8525913c",
+  "goal_part": {
+    "goal": "在当前项目中实现一个配置模块。第一阶段实现 configlib 包中的 load_config(config_dict) 函数，使预置测试 test_load.py 全部通过；第二阶段实现同包的 validate_config(config_dict) 函数，使预置测试 test_validate.py 全部通过且 test_load.py 不回归。两个阶段必须作为两个独立任务分别提交。每个阶段完成后必须在当前工作分支执行 git commit 提交全部修改（不要 push，不要操作 main/master 分支）。每个任务的验收断言使用 file_exists 或 file_contains（针对 configlib/__init__.py 中的函数定义），不要使用 git_clean。所有测试通过后结束目标。",
+    "fixture": "<REPO>\\sandbox\\m4-e2e-8525913c\\pyproj",
+    "round1": {
+      "status": "waiting",
+      "task_a": "cp-8cf9b5bbef75",
+      "decision_history": [
+        {
+          "step": 1,
+          "action": "submit_task",
+          "next_state": "task_submitted",
+          "task_id": "cp-8cf9b5bbef75"
+        }
+      ]
+    },
+    "task_a": {
+      "state": "succeeded",
+      "verdict": "verified",
+      "worker_session": "4641e752-d6a6-4709-897f-8d032e28e23d",
+      "worktree": "<REPO>\\sandbox\\m4-e2e-8525913c\\pyproj\\.codebuddy\\worktrees\\bg-4641e752",
+      "head_commit_recorded": true,
+      "assertion_results": [
+        {
+          "kind": "file_exists",
+          "target": "configlib/__init__.py",
+          "value": null,
+          "passed": true,
+          "owned": true,
+          "observed": "changed since baseline"
+        },
+        {
+          "kind": "file_contains",
+          "target": "configlib/__init__.py",
+          "value": "def load_config",
+          "passed": true,
+          "owned": true,
+          "observed": "contains value=True, changed_since_baseline=True"
+        }
+      ],
+      "load_tests_pass_in_worktree": true
+    },
+    "round2_cli_exit": 3,
+    "task_b": {
+      "submitted": true,
+      "is_handoff": true,
+      "handoff_source_is_a": true,
+      "prompt_has_merge_instruction": true,
+      "prompt_forbids_default_branch": true,
+      "distinct_session": true,
+      "state": "succeeded",
+      "verdict": "verified",
+      "assertion_results": [
+        {
+          "kind": "file_exists",
+          "target": "configlib/__init__.py",
+          "value": null,
+          "passed": true,
+          "owned": true,
+          "observed": "changed since baseline"
+        },
+        {
+          "kind": "file_contains",
+          "target": "configlib/__init__.py",
+          "value": "def validate_config(config_dict)",
+          "passed": true,
+          "owned": true,
+          "observed": "contains value=True, changed_since_baseline=True"
+        }
+      ]
+    },
+    "goal_summary": {
+      "goal_task_count": 2,
+      "all_goal_tasks_verified": true,
+      "task_ids": [
+        "cp-8cf9b5bbef75",
+        "cp-6cc09fbbedf9"
+      ],
+      "goal_status": "waiting",
+      "verified_tasks_in_report": [
+        {
+          "task_id": "cp-8cf9b5bbef75",
+          "title": "�׶�һ��ʵ�� load_config",
+          "state": "succeeded",
+          "verdict": "verified"
+        }
+      ],
+      "decision_history": [
+        {
+          "step": 1,
+          "action": "submit_task",
+          "next_state": "task_submitted",
+          "task_id": "cp-8cf9b5bbef75"
+        },
+        {
+          "step": 2,
+          "action": "submit_task",
+          "next_state": "task_submitted",
+          "task_id": "cp-6cc09fbbedf9"
+        },
+        {
+          "step": 3,
+          "action": "request_human",
+          "next_state": "human_required",
+          "task_id": null
+        }
+      ]
+    },
+    "session_b_consumes_a": {
+      "all_tests_pass_in_b_worktree": true,
+      "a_checkpoint_is_ancestor_of_b_head": true
+    },
+    "no_automatic_merge_to_main": true
+  },
+  "isolation_part": {
+    "b_task_has_own_knowledge": true,
+    "b_task_lacks_a_knowledge": true,
+    "shareable_view_hides_a_secret": true,
+    "progress_isolated": true
+  },
+  "checks": {
+    "goal.task_a.head_commit_recorded": true,
+    "goal.task_a.load_tests_pass_in_worktree": true,
+    "goal.task_b.submitted": true,
+    "goal.task_b.is_handoff": true,
+    "goal.task_b.handoff_source_is_a": true,
+    "goal.task_b.prompt_has_merge_instruction": true,
+    "goal.task_b.prompt_forbids_default_branch": true,
+    "goal.task_b.distinct_session": true,
+    "goal.goal_summary.all_goal_tasks_verified": true,
+    "goal.session_b_consumes_a.all_tests_pass_in_b_worktree": true,
+    "goal.session_b_consumes_a.a_checkpoint_is_ancestor_of_b_head": true,
+    "goal.no_automatic_merge_to_main": true,
+    "isolation.b_task_has_own_knowledge": true,
+    "isolation.b_task_lacks_a_knowledge": true,
+    "isolation.shareable_view_hides_a_secret": true,
+    "isolation.progress_isolated": true
+  },
+  "result": "Pass"
+}

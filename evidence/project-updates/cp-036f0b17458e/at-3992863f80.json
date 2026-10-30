@@ -1,0 +1,92 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-036f0b17458e",
+    "project_id": "prj-b235f98459",
+    "title": "Phase 1: implement configlib.load_config",
+    "state": "succeeded",
+    "verdict": "rejected",
+    "assertion_results": [
+      {
+        "kind": "git_clean",
+        "target": ".",
+        "value": null,
+        "passed": false,
+        "owned": null,
+        "observed": "M configlib/__init__.py"
+      }
+    ],
+    "warnings": [],
+    "finished_at": 1793334141.402
+  },
+  "attempt": {
+    "id": "at-3992863f80",
+    "worker_job_id": "844648f5",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793334032.9075973,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 1,
+      "work_item_id": "cp-036f0b17458e",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-b235f98459",
+        "workspace_id": "ws-a2c84924cb",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "context_injected": true
+      },
+      "created_at": 1793334030.841895
+    },
+    {
+      "id": 2,
+      "work_item_id": "cp-036f0b17458e",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-b235f98459",
+        "root": "<REPO>\\sandbox\\m4-e2e-4811d708\\pyproj",
+        "cwd": "<REPO>\\sandbox\\m4-e2e-4811d708\\pyproj"
+      },
+      "created_at": 1793334031.9440074
+    },
+    {
+      "id": 3,
+      "work_item_id": "cp-036f0b17458e",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\m4-e2e-4811d708\\pyproj",
+        "attempt_id": "at-3992863f80",
+        "approval_id": null
+      },
+      "created_at": 1793334032.9576268
+    },
+    {
+      "id": 4,
+      "work_item_id": "cp-036f0b17458e",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "844648f5",
+        "http": 200
+      },
+      "created_at": 1793334033.0486367
+    }
+  ]
+}

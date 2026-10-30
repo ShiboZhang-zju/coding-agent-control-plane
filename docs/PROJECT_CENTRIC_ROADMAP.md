@@ -23,13 +23,13 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 | M1 | Project Context Foundation | v0.2 已完成 | **已完成** |
 | M2 | Project Context Update Loop | M1 | **已完成** |
 | **M3** | Session Registry / Handoff | M1（M2 有益但非必需） | **确定性（T33）与真实 Worker（T34）验证通过；git commit checkpoint 路径未覆盖** |
-| **M4-A** | Minimal LD（受限工具、结构化决策、单轮协调） | M1 + M2；不开放 M3 Handoff | **确定性边界测试通过，M1/M2 回归已复跑；真实集成验收未完成** |
-| M4-B | LD 多轮推进与验收后 Handoff | M3 验收 + M4-A | 未实现 |
+| **M4-A** | Minimal LD（受限工具、结构化决策、单轮协调） | M1 + M2 | **已完成**（T32/T36 确定性 + T38a 真实模型与真实 Worker 单轮集成验收） |
+| **M4-B** | 有界连续推进（持久化 Goal + 依赖任务确定性交接 + 恢复） | M3 + M4-A | **最小闭环已验证**（T37 确定性 + T38 真实端到端；真实模型收尾倾向转人工，`--resume` 解锁） |
 | M5 | Distributed Workspace | M1–M4 | 未实现 |
 
-依赖是**功能依赖**而非排期依赖：M4-A 只调用 M1/M2 的确定性查询与
-普通任务提交，因此可在 M3 验收前做功能开发；Handoff 不向 LD 开放。
-M4-B 启用 Handoff 前必须先完成 M3 验收。M5 之前不得宣称支持跨机器协同。
+依赖是**功能依赖**而非排期依赖。M4-B 的依赖任务交接走控制平面确定性
+升级（`checkpoint_mode=reachable`），不把 Handoff 暴露为模型决策。
+M5 之前不得宣称支持跨机器协同。
 
 ---
 
@@ -224,7 +224,7 @@ Handoff 状态机或第二份验收真相。
 
 ---
 
-## M4-A — Minimal LD ⚠️ 首轮确定性边界测试通过，未完成验收
+## M4-A — Minimal LD ✅ 已完成（确定性 + 真实集成验收）
 
 ### 目标
 
@@ -290,11 +290,17 @@ Handoff 状态机或第二份验收真相。
 T32 已在不启动 Worker 的前提下覆盖七工具白名单、五种动作、四类异常门控、
 未知命令字段、项目任务查询作用域、模型输入安全域、CLI、提交请求签名、
 跨连接并发冲突、当前目标 finish、dry-run 与无模型路径，证据为
-`evidence/project/T32-m4a-deterministic.json`。
+`evidence/project/T32-m4a-deterministic.json`。T36
+（`evidence/project/T36-m4-model-boundary.json`）以本地假端点确定性覆盖真实
+模型传输层：错误分类（HTTP/超时/非法响应）、fail-closed、未授权域不调用
+模型、provenance 模型视图过滤（M4B-01 解决）。
 
-**当前退出判定：M4-A 专项确定性条件已由 T32 覆盖，M1/M2 关键回归（T26–T31）
-已于 2026-10-30 本地复跑全部 Pass，但集成验收仍未满足。** 尚未运行真实模型或
-真实 Worker 集成；T32 Pass 不等于 M4 MVP 验收。
+**当前退出判定：M4-A 集成验收已满足。** 真实模型（OpenAI-compatible
+端点，`ld/model.py::OpenAIChatModel`，无 SDK 依赖）+ 真实 CodeBuddy Worker
+的单轮链路已完整执行：结构化 submit_task → context 注入 → Runtime 派发 →
+Verifier 双断言 verified → M2 自动上下文更新，证据为
+`evidence/project/T38a-m4a-real-single-turn.json`。M1/M2 回归（T26–T31）
+复跑全部 Pass。
 
 ### 明确不做
 
@@ -303,6 +309,55 @@ T32 已在不启动 Worker 的前提下覆盖七工具白名单、五种动作�
 - 不做跨项目资源抢占策略（先 FCFS + 优先级）。
 - 不做无限自主循环、复杂 Goal DAG 或引入 Agent Framework。
 - M3 验收前不向 LD 开放 Handoff。
+
+---
+
+## M4-B — 最小连续推进（有界 Goal）✅ 最小闭环已验证
+
+### 目标
+
+Human Owner 只声明一次目标；LD 在有限预算内查询项目、提交任务、等待验收、
+根据真实 verdict 继续派发，最终完成或显式转人工。不做无限自主循环。
+
+### 交付
+
+| 交付物 | 实现位置 | 语义边界 |
+|---|---|---|
+| 持久化 Goal 状态（`ld_goals` + `ld_goal_decisions`） | `ld/goal_store.py` | 确定性 goal_id（project+goal 派生）；状态与 Ledger 验收完全分离；追加式决策历史；跨进程时间盒租约；`resume` 仅限人工恢复 needs_human |
+| 有界连续推进 `run_goal()` | `ld/coordinator.py` | 每轮恰好一个可审计转换；决策/任务预算、停滞检测、模型失败全部转显式 needs_human |
+| 等待与恢复 | 同上 + CLI `run-goal` | 等待中任务让 Goal 停在 waiting，由 Runtime 或下次调用推进；进程重启后从 Ledger 恢复，不重复提交；`--resume` 人工处理阻塞后显式恢复 |
+| 依赖任务确定性交接 | `LDTools.submit_goal_handoff` + `checkpoint_mode=reachable` | 同 Goal 存在 verified 前序时，新任务由控制平面（非模型）升级为 session handoff：merge 前序已验收代码到自己的工作分支，绝不触碰默认分支 |
+| provenance 模型视图 | `LDTools.get_task_provenance(allowed_security_domains=…)` | Effective Prompt 与任务原文永不进入模型可见结果（M4B-01 解决） |
+
+### 退出条件
+
+- 一次目标声明驱动两个存在真实代码依赖的任务，由两个独立 Session 完成，
+  前序验收代码被后继真实消费（merge），全部通过 Verifier 验收。
+- A 完成、B 未派发时重启 LD：恢复同一 Goal，不重派 A，正确继续 B。
+- 多项目隔离：A 的知识不注入 B，未授权模型读不到本地敏感内容。
+- 连续推进全程不绕过审批、不改写验收、不自动合并默认分支。
+
+### 验证状态
+
+**当前退出判定：核心条件已满足（T37 + T38）。**
+
+- T37 确定性验证（无 Worker，18 项全 Pass）：
+  `evidence/project/T37-m4-goal-advancement.json` —— 生命周期（submit A →
+  wait → A verified → B 作为 handoff 提交且 prompt 含 merge 指令 → B
+  verified → finish completed）、重启恢复（不重派 A）、决策预算、并发租约、
+  停滞检测、决策历史追加完整。
+- T38 真实端到端（真实 GPT-5.5 决策 + 真实 CodeBuddy Worker，16 项全
+  Pass）：`evidence/project/T38-m4-real-e2e.json` —— 一次目标声明驱动两个
+  真实依赖任务：Session A 实现 `load_config`（worktree 内预置测试通过、
+  verified）；CLI 子进程（重启的 LD）恢复同一 Goal 提交 Session B —— B 是
+  handoff WorkItem（source=A），prompt 含 merge 指令与"禁止触碰默认分支"，
+  B 的 worktree 中 **A 的 checkpoint 是 HEAD 祖先且全部测试通过**（真实代码
+  接续证明）；main 分支 tip 全程未动；多项目隔离（A 的本地知识不进 B 的
+  prompt、shareable 视图隐藏 local 敏感内容、进度按项目隔离）。
+- 已知限制（`docs/KNOWN_ISSUES.md` T38-F01/F02）：真实模型在收尾阶段倾向
+  保守转人工，需 `run-goal --resume` 显式解锁（人工只说"继续"，不传递任务
+  内容）；首跑中模型选择 `git_clean` 断言 + agent 未 commit 导致正确
+  rejected，已通过目标文本引导（要求 commit、建议 file 断言）缓解。
 
 ---
 

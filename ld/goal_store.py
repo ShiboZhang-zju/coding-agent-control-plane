@@ -184,6 +184,32 @@ class LDGoalStore:
                 f"goal {goal_id} step {step} already has a recorded decision; "
                 "replay must resume from the next step") from exc
 
+    def resume(self, goal_id: str, note: str = "") -> dict:
+        """Explicitly return a needs_human goal to active.
+
+        Only a human decision lifts the pause; this method records who/why as
+        one decision-history entry and refuses anything that is not currently
+        parked on a human.
+        """
+        note = (note or "").strip() or "resumed by human owner"
+        goal = self.get(goal_id) or {}
+        if not goal:
+            raise GoalStoreError(f"no goal {goal_id}")
+        if goal.get("status") != "needs_human":
+            raise GoalStoreError(
+                f"goal {goal_id} is {goal.get('status')!r}, not needs_human; "
+                "only a paused goal can be resumed")
+        step = int(goal.get("decision_count", 0)) + 1
+        self.update_goal(goal_id, status="active",
+                         last_decision={"step": step, "action": "human_resume",
+                                        "reason": note})
+        self.record_decision(goal_id, step,
+                             {"action": "human_resume", "reason": note},
+                             {"action": "human_resume", "next_state": "active",
+                              "task_id": None, "executed": False,
+                              "blocking_reasons": []})
+        return self.get(goal_id) or {}
+
     def update_goal(self, goal_id: str, **fields: Any) -> dict:
         allowed = {"status", "current_task_id", "decision_count", "task_count",
                    "last_decision", "handoff_task_ids"}

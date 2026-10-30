@@ -296,5 +296,21 @@ class LDTools:
                 "LD submission request")
         return record
 
+    def submit_goal_handoff(self, project_id: str, source_work_item_id: str,
+                            task: str, **kwargs: Any) -> dict:
+        """Submit a goal-continuation handoff on the project's real Adapter.
+
+        This is NOT a model-exposed tool: it is the control plane's
+        deterministic upgrade used by ``LDCoordinator.run_goal`` when the next
+        task of a goal must build on a verified prior session.  Routing through
+        the submission service (never the read-only service) keeps the queued
+        WorkItem bound to the project adapter so the Runtime can claim it.
+        """
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise ValueError("project_id must be a non-empty string")
+        service = (self._submission_service_factory(project_id)
+                   if self._submission_service_factory else self._service)
+        return service.submit_handoff(source_work_item_id, task, **kwargs)
+
 
 __all__ = ["LDSubmissionIdempotencyConflict", "LDTools"]
