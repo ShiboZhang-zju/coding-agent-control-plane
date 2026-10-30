@@ -193,8 +193,18 @@ def coordinator_layer(server: ThreadingHTTPServer, tools: LDTools,
     result = LDCoordinator(tools, model_at(server),
                            model_authorized_security_domains=domains
                            ).run_once("goal", project_id=project_id)
+    # A transport failure is still fail-closed: nothing is executed, the LD asks
+    # the owner.  It is classified as ``model_call_failed`` (retryable) rather
+    # than ``invalid_model_decision`` (policy violation) so the goal scheduler
+    # can back off instead of parking the goal on the first HTTP hiccup.  Both
+    # must be "not executed"; only the retryability of the class differs.
     out["transport_error_fails_closed"] = (
-        result["next_state"] == "invalid_model_decision" and not result["executed"])
+        result["next_state"] in ("model_call_failed", "invalid_model_decision")
+        and result.get("model_call_failed") is True
+        and not result["executed"]
+        and "model_call_failed" in (result.get("blocking_reasons") or []))
+    out["transport_error_is_not_policy_violation"] = (
+        result["next_state"] != "invalid_model_decision")
 
     seen_before = len(FakeEndpoint.requests_seen)
     result = LDCoordinator(tools, model_at(server),

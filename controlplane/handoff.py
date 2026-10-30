@@ -78,6 +78,173 @@ def handoff_signature(payload: dict) -> str:
     return hashlib.sha256(encoded).hexdigest()[:32]
 
 
+def checkpoint_ref_name(handoff_task_id: str) -> str:
+    """Private ref that keeps one handoff's checkpoint reachable."""
+    return f"refs/control-plane/handoff/{handoff_task_id}"
+
+
+def _git_checked(root: str, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", "-C", root, *args], check=False,
+                          capture_output=True, text=True, timeout=30)
+
+
+def verify_checkpoint_ref(target_root: str | None, handoff_task_id: str,
+                          commit: str | None) -> dict:
+    """Prove one handoff checkpoint is protected right now.
+
+    "The Git object exists" is NOT the same as "the reference is protected":
+    an unreferenced object is garbage-collectable, and a ref written for
+    another commit does not hand over this checkpoint.  Three facts are
+    checked, and a mismatch is reported — never repaired silently, because a
+    ref that moved after submission is evidence of tampering or a collision,
+    not of readiness.
+
+    This is the guard used *both* at submission time and at the last possible
+    moment before a Worker dispatch; it is a free function so the dispatch path
+    does not need a Ledger or a Context Builder to answer it.
+    """
+    info: dict = {
+        "commit": commit, "ref": checkpoint_ref_name(handoff_task_id),
+        "target_root": target_root, "ref_commit": None,
+        "object_exists": False, "ref_matches": False, "ok": False, "error": None,
+    }
+    if not commit:
+        info["error"] = "no checkpoint commit was recorded for this handoff"
+        return info
+    if not target_root or not Path(target_root).is_dir():
+        info["error"] = f"target workspace root is not a directory: {target_root}"
+        return info
+    try:
+        exists = _git_checked(target_root, "cat-file", "-e", f"{commit}^{{commit}}")
+        info["object_exists"] = exists.returncode == 0
+        if not info["object_exists"]:
+            info["error"] = f"checkpoint object {commit} is not reachable in the target"
+            return info
+        ref = _git_checked(target_root, "rev-parse", "--verify", "--quiet",
+                           info["ref"])
+        if ref.returncode == 0:
+            info["ref_commit"] = ref.stdout.strip()
+        info["ref_matches"] = info["ref_commit"] == commit
+        if not info["ref_matches"]:
+            info["error"] = (
+                f"ref {info['ref']} points at {info['ref_commit']}, "
+                f"not the protected checkpoint {commit}")
+            return info
+    except (OSError, subprocess.SubprocessError) as exc:
+        info["error"] = f"checkpoint verification failed: {type(exc).__name__}: {exc}"
+        return info
+    info["ok"] = True
+    return info
+
+
+def reconcile_handoff_checkpoint(store: TaskStore, task_id: str) -> dict:
+    """Drive *one* handoff's checkpoint towards readiness (idempotent).
+
+    Used by the submit path so a fresh WorkItem is judged on its own facts and
+    does not depend on (or get starved by) other handoffs in the same ledger.
+    """
+    released: list[dict] = []
+    blocked: list[dict] = []
+    task = store.get(task_id)
+    if not task:
+        return {"ok": False, "checked": 0, "released": [], "blocked": [
+            {"task_id": task_id, "error": "no such work item"}],
+            "already_ready": [], "released_count": 0, "blocked_count": 1}
+    metadata = task.get("metadata") or {}
+    commit = metadata.get("checkpoint_ref")
+    status = task.get("queue_status")
+    if (not metadata.get("handoff") or not commit
+            or status not in ("checkpoint_unprotected", "ready")):
+        return {"ok": True, "checked": 0, "released": [], "blocked": [],
+                "already_ready": [], "released_count": 0, "blocked_count": 0}
+    info = verify_checkpoint_ref(task.get("cwd"), task_id, commit)
+    if not info["ok"] and info["object_exists"] and info["ref_commit"] is None:
+        written = _git_checked(task.get("cwd") or "", "update-ref",
+                               info["ref"], commit)
+        info = verify_checkpoint_ref(task.get("cwd"), task_id, commit)
+        if not info["ok"] and written.returncode != 0:
+            info["error"] = (info["error"]
+                             or f"git update-ref failed: {written.stderr.strip()}")
+    if not info["ok"]:
+        if status != "checkpoint_unprotected":
+            store.update(task_id, queue_status="checkpoint_unprotected",
+                         dispatch_claim_owner=None, dispatch_claimed_at=None,
+                         warnings=list(task.get("warnings") or []) + [
+                             f"CHECKPOINT_NOT_PROTECTED:{info['error']}"])
+        store.append_event(task_id, "handoff_checkpoint_blocked", {
+            "checkpoint_ref": commit, "error": info["error"],
+            "object_exists": info["object_exists"],
+            "ref_commit": info["ref_commit"]})
+        blocked.append({"task_id": task_id, "checkpoint_ref": commit,
+                        "error": info["error"]})
+        return {"ok": False, "checked": 1, "released": [], "blocked": blocked,
+                "released_count": 0, "blocked_count": 1}
+    if status != "checkpoint_unprotected":
+        # Already protected and already dispatchable: verified, not "released".
+        # Reporting it as a release would make repeated sweeps look like repeated
+        # state changes, which is exactly what the caller must not conclude.
+        return {"ok": True, "checked": 1, "released": [], "blocked": [],
+                "already_ready": [{"task_id": task_id, "checkpoint_ref": commit}],
+                "released_count": 0, "blocked_count": 0}
+    if not store.promote_deferred_queue(task_id, "checkpoint_unprotected"):
+        # Another process won the promotion (or the row already moved on: it may
+        # already be claimed and running).  Its outcome is authoritative — an
+        # unconditional write here would rewrite a running row back to 'ready'
+        # and let a second Worker start the same task.
+        return {"ok": True, "checked": 1, "released": [], "blocked": [],
+                "already_ready": [{"task_id": task_id,
+                                   "checkpoint_ref": commit,
+                                   "queue_status": (store.get(task_id)
+                                                    or {}).get("queue_status")}],
+                "released_count": 0, "blocked_count": 0}
+    store.append_event(task_id, "handoff_checkpoint_released", {
+        "checkpoint_ref": commit, "ref": info["ref"]})
+    released.append({"task_id": task_id, "checkpoint_ref": commit, "was": status})
+    return {"ok": True, "checked": 1, "released": released, "blocked": [],
+            "already_ready": [], "released_count": 1, "blocked_count": 0}
+
+
+def reconcile_handoff_checkpoints(store: TaskStore, *, limit: int = 50) -> dict:
+    """Drive every unprotected handoff checkpoint towards readiness.
+
+    One deterministic sweep, safe to run from any number of processes:
+
+    * a WorkItem whose checkpoint is already protected is promoted to ``ready``
+      (idempotent; the row is only written when the status still differs);
+    * an unprotected one gets the ref written and re-verified — this is the
+      restart-recovery path, since everything needed (task id, checkpoint SHA,
+      target root) lives in the WorkItem's own metadata;
+    * a checkpoint that cannot be proven (object unreachable, ref points
+      elsewhere) stays deferred and records why.  It is never guessed ready.
+
+    Nothing here touches a frozen Effective Prompt, a handoff signature, an
+    approval or a branch.
+    """
+    released: list[dict] = []
+    blocked: list[dict] = []
+    already_ready: list[dict] = []
+    checked = 0
+    for task in store.all():
+        metadata = task.get("metadata") or {}
+        if not metadata.get("handoff"):
+            continue
+        commit = metadata.get("checkpoint_ref")
+        if not commit:
+            continue
+        if task.get("queue_status") not in ("checkpoint_unprotected", "ready"):
+            continue
+        outcome = reconcile_handoff_checkpoint(store, task["task_id"])
+        checked += outcome["checked"]
+        released.extend(outcome["released"])
+        blocked.extend(outcome["blocked"])
+        already_ready.extend(outcome.get("already_ready") or [])
+        if len(released) + len(blocked) >= limit:
+            break
+    return {"ok": not blocked, "checked": checked, "released": released,
+            "blocked": blocked, "already_ready": already_ready,
+            "released_count": len(released), "blocked_count": len(blocked)}
+
+
 @dataclass
 class PreparedHandoff:
     ready: bool
@@ -588,8 +755,28 @@ class HandoffPlanner:
         ``refs/heads`` and never moves any branch.
         """
         proc = self._git(target_root, "update-ref",
-                         f"refs/control-plane/handoff/{handoff_task_id}", commit)
+                         checkpoint_ref_name(handoff_task_id), commit)
         return proc.returncode == 0
+
+    def protect_checkpoint_verified(self, target_root: str, handoff_task_id: str,
+                                    commit: str) -> dict:
+        """Write the protective ref, then *prove* it (idempotent).
+
+        Re-running for the same ``(task, commit)`` converges: ``update-ref``
+        writes the same value, and verification decides readiness.  A ref that
+        already points at a different commit is never overwritten — such a
+        mismatch is evidence of tampering, not something to paper over.
+        """
+        before = verify_checkpoint_ref(target_root, handoff_task_id, commit)
+        if before["ok"] or not before["object_exists"]:
+            return {**before, "written": False}
+        if before["ref_commit"] not in (None, commit):
+            return {**before, "written": False}
+        written = self.protect_checkpoint(target_root, handoff_task_id, commit)
+        after = verify_checkpoint_ref(target_root, handoff_task_id, commit)
+        if not after["ok"] and not after["error"]:
+            after["error"] = "git update-ref did not make the checkpoint ref match"
+        return {**after, "written": written}
 
     @staticmethod
     def _render_prompt(base_prompt: str, source: dict,

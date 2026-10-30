@@ -376,6 +376,88 @@ Human Owner 只声明一次目标；LD 在有限预算内查询项目、提交�
 
 ---
 
+## M4-C — 自动唤醒与运行时可靠性收口 ✅ 真实黑盒闭环通过（T43/T44）
+
+### 目标
+
+Human Owner 只提交一次 Goal，系统自动完成
+`LD 决策 → 派发 → Worker → Verifier → Project Context → 唤醒 LD → 下一次决策`
+直到 `completed`，**不需要人工反复执行 `ld run-goal`，也不需要测试脚本推动 LD**。
+
+### 交付
+
+| 能力 | 实现位置 |
+|---|---|
+| 确定性 Goal 调度器（不是第二个 Agent） | `ld/goal_runner.py` — `LDGoalRunner` |
+| 调度簿记（last_signature / 退避 / 失败与停滞计数） | `ld/goal_runner.py` — `GoalRunnerStore` |
+| Runtime 内嵌推进（独立线程，共享 Ledger） | `controlplane/runtime.py` — `goal_runner=…` + `--advance-goals` |
+| 独立调度进程（Control Plane 不导入模型客户端时） | `scripts/run_ld_goal_runner.py` |
+| Handoff Checkpoint 引用保护 | `controlplane/handoff.py`、`controlplane/plane.py` |
+| 模型输出瑕疵 vs 策略违规分离 | `ld/decision.py` — `DecisionPolicyError`；`ld/coordinator.py` |
+
+### 调度语义（本轮核心契约）
+
+| Goal 状态 | Runner 行为 |
+|---|---|
+| `active` | 无其他执行者时推进 |
+| `waiting` + WorkItem 在跑 | 不调用模型（`wait`），只记 skip |
+| `waiting` + WorkItem 已验收 | 自动唤醒 LD，进入下一次决策 |
+| `waiting` + 任务异常门控 | 交给既有异常门控（`needs_approval` / `suspected_lost` / …）转人工 |
+| `needs_human` | 不自动恢复、不调用模型 |
+| `completed` | 不再推进 |
+| `failed` | 不自动重启 |
+
+- **只在观测状态确实变化时调用模型。** `goal_wake_signature` 由 Goal 行、当前
+  WorkItem 的 state/verdict/queue_status 与决策计数共同决定；签名相同即 skip。
+  Pending Step 例外：它是未完成的工作，签名里不含它，崩溃不能被当成"没变化"。
+- **失败可查询、有限退避、最终转人工。** 模型传输失败/输出结构不完整按
+  `base * 2^(n-1)` 退避（上限 `max_backoff_s`），达到
+  `max_model_failures` 后 `stop_goal(needs_human)` 并停止调用。
+- **不自动忽略 `request_human`。** 模型自己说转人工，Goal 就停在
+  `needs_human`；重复 inspect 无进展也会停滞转人工。
+- **进度没有第二份真相。** Runner 只写调度簿记；任务成败一律读 Ledger，
+  `ld_goals` 只记目标推进。
+
+### Checkpoint 引用保护（任务 A）
+
+`submit_handoff()` 现在先把 WorkItem 持久化为 `checkpoint_unprotected`（一个
+`claim_next_ready` 永不领取的状态），再尝试 `update-ref`。因此
+"行已提交、引用未写入"的崩溃窗口不再可派发；只有 CAS
+（`promote_deferred_queue`）成功才翻到 `ready`。派发路径 `plane._dispatch_record`
+在创建 attempt、抓 baseline、扣并发槽**之前**再复核一次引用，任何不一致
+（引用被删、对象不可达、引用指向别的 commit）都退回
+`checkpoint_unprotected` 并记录事件。重启后 `reconcile_handoff_checkpoints`
+用 WorkItem 自带的 `(task_id, checkpoint_ref, cwd)` 幂等恢复。
+
+### 验证状态
+
+- T41 `evidence/project/T41-handoff-checkpoint-gate.json`：A1–A8 全 Pass ——
+  `update-ref` 真实失败、对象不存在、保护前崩溃、重复恢复、引用被删、
+  引用指向他处、两进程并发恢复、正常交接不受影响。所有失败场景断言
+  `worker_not_started=true` / `no_dispatch_attempt=true` /
+  `checkpoint_not_ready=true`。
+- T42 `evidence/project/T42-ld-goal-auto-wakeup.json`：B1–B6 全 Pass ——
+  零手工调用闭环、Runtime 集成、终态 Goal 不唤醒、失败退避与转人工、
+  Pending Step 不调模型对账、模型输出瑕疵可重试但策略违规永久关闭。
+- T43 `evidence/project/T43-m4c-autonomous-e2e.json`：**真实模型 + 真实
+  CodeBuddy Worker** 黑盒验收。Goal 提交 1 次、手工 `run-goal` 0 次、
+  手工提交任务 0 次；1 个 WorkItem verified，worktree 内 `pytest` 3 passed，
+  LD 自动 `finish` → `completed`。
+- T44 `evidence/project/T44-m4c-dual-project.json`：**双项目并行独立运行**。
+  两个 Goal 同时在一个 Runtime 上推进，各自 1 个任务、全部 verified、
+  worktree 在各自仓库、`pytest` 各自全绿、main 未动；任一项目的 local
+  秘密条目既不出现在另一项目的 Effective Prompt，也不出现在其 model view /
+  progress 投影里。
+
+### 明确不做
+
+- 不做无限自主循环（预算、停滞检测、失败转人工仍在）。
+- 不做 M5 跨机器执行；`node_id != 'local'` 依旧阻塞。
+- 不做第二套自动唤醒实现：Runtime 内嵌与独立进程共用同一个 `LDGoalRunner`。
+- 不做 Goal DAG / 多 LD 协商 / Feature-Issue / Dashboard。
+
+---
+
 ## M5 — Distributed Workspace
 
 ### 目标

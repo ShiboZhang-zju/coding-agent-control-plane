@@ -15,6 +15,7 @@ import time
 from typing import Any, Protocol
 
 from ld.decision import (
+    DecisionPolicyError,
     DecisionValidationError,
     LDAction,
     LDDecision,
@@ -133,6 +134,9 @@ class LDCoordinator:
             model_progress = self._tools.get_project_progress(
                 selected_id, allowed_security_domains=self._model_domains)
 
+        model_call_error: Exception | None = None
+        model_output_error: Exception | None = None
+        decision = None
         try:
             if replay_decision is not None:
                 raw = replay_decision
@@ -140,13 +144,41 @@ class LDCoordinator:
                 model_input = self._decision_input(
                     normalized_goal, projects, selected_id, brief, model_progress,
                     goal_context=goal_context)
-                raw = (self._model.decide(model_input)
-                       if hasattr(self._model, "decide") else self._model(model_input))
-            if not isinstance(raw, Mapping):
-                raise DecisionValidationError("model output must be one structured object")
-            decision = LDDecision.from_mapping(raw)
-            decision = self._resolve_decision_project(decision, projects, selected_id)
-            self._validate_decision_scope(decision, selected_id)
+                try:
+                    raw = (self._model.decide(model_input)
+                           if hasattr(self._model, "decide") else self._model(model_input))
+                except Exception as exc:  # noqa: BLE001 - transport boundary
+                    # A *transport* failure (timeout, HTTP, malformed payload) is
+                    # not a decision and not a policy event: it is retryable.
+                    # Marking it separately lets the goal runner back off instead
+                    # of parking the goal in needs_human on the first hiccup,
+                    # while still never fabricating a decision.
+                    model_call_error = exc
+                    raw = None
+            if model_call_error is None:
+                if not isinstance(raw, Mapping):
+                    raise DecisionValidationError(
+                        "model output must be one structured object")
+                # Schema/shape errors are a *generation* defect: the model tried
+                # to answer but produced something incomplete (e.g. an assertion
+                # without ``target``).  That is retryable, and it is materially
+                # different from proposing a forbidden action or reaching outside
+                # the authorized project — those are policy violations and must
+                # stay permanently closed.  Keeping the two apart is what stops a
+                # perfectly healthy goal from being parked forever because one
+                # sample omitted a field, without ever loosening the policy gate.
+                try:
+                    decision = LDDecision.from_mapping(raw)
+                except DecisionPolicyError:
+                    # Forbidden action / invented field: fail closed, permanently.
+                    raise
+                except DecisionValidationError as exc:
+                    model_output_error = exc
+                    decision = None
+                if decision is not None:
+                    decision = self._resolve_decision_project(
+                        decision, projects, selected_id)
+                    self._validate_decision_scope(decision, selected_id)
         except Exception as exc:  # model/validation boundary must fail closed
             return self._human_result(
                 project_id=selected_id,
@@ -157,6 +189,35 @@ class LDCoordinator:
                 source="decision_validator",
                 dry_run=dry_run,
             )
+        if model_call_error is not None:
+            result = self._human_result(
+                project_id=selected_id,
+                reason=(f"model call failed: {type(model_call_error).__name__}: "
+                        f"{model_call_error}"),
+                next_state="model_call_failed",
+                blocking_reasons=["model_call_failed"],
+                evidence_refs=[],
+                source="model_boundary",
+                dry_run=dry_run,
+            )
+            result["model_call_failed"] = True
+            return result
+        if decision is None:
+            result = self._human_result(
+                project_id=selected_id,
+                reason=(f"model output rejected: "
+                        f"{type(model_output_error).__name__}: {model_output_error}"),
+                next_state="model_output_invalid",
+                blocking_reasons=["model_output_invalid"],
+                evidence_refs=[],
+                source="decision_validator",
+                dry_run=dry_run,
+            )
+            # Same retry contract as a transport failure: no decision was made,
+            # so the caller may retry the *same* step after a bounded backoff.
+            result["model_call_failed"] = True
+            result["model_output_invalid"] = True
+            return result
 
         target_progress = full_progress
         target_brief = brief
@@ -749,6 +810,7 @@ class LDCoordinator:
         resume: bool = False,
         resume_note: str = "",
         heartbeat: bool = True,
+        budget_is_per_call: bool = False,
     ) -> dict[str, Any]:
         """Advance one persistent goal by one auditable transition at a time.
 
@@ -779,6 +841,17 @@ class LDCoordinator:
         selected_id = self._resolve_project_id(self._tools.list_projects(), project_id)
         goal_id, goal_ref = goal_identity(normalized_goal, selected_id)
         goal_store.get_or_create(goal_id, selected_id, normalized_goal, goal_ref)
+        if budget_is_per_call:
+            # Default (``False``) keeps the documented M4-B contract: the budgets
+            # are absolute for the whole goal, so an Owner re-running ``run-goal``
+            # cannot silently exceed the limit by asking again.  A scheduler that
+            # advances the same goal many times (``LDGoalRunner``) grants one
+            # decision per wake-up instead, so it opts in here and the *overall*
+            # bound stays with the runner's own escalation policy.
+            existing = goal_store.get(goal_id) or {}
+            max_decisions = (int(existing.get("model_decision_count") or 0)
+                             + max_decisions)
+            max_tasks = int(existing.get("task_count") or 0) + max_tasks
         owner = lease_owner or goal_store.default_owner()
         leased = goal_store.acquire_lease(goal_id, owner)
         lease = _GoalLease(goal_store, goal_id, owner, int(leased["lease_token"]))
@@ -848,6 +921,15 @@ class LDCoordinator:
                         project_id=project_id, goal_ref=goal_ref, goal=goal,
                         max_tasks=max_tasks, goal_id=goal_id, step=step,
                         goal_store=goal_store, lease=lease, replay=False))
+                if result.get("model_call_failed"):
+                    # Transport failure: no decision was made, so no step is
+                    # opened or committed.  The goal keeps its status and the
+                    # next holder retries the *same* step number; backoff and
+                    # escalation belong to the caller (LDGoalRunner), and the
+                    # failure text stays queryable there.
+                    return self._goal_report(
+                        goal_id, project_id, goal_ref, goal_store, result,
+                        reason="model_call_failed")
                 opened = goal_store.pending_step(goal_id)
                 transition = self._commit_goal_step(
                     goal_store, goal_id, goal, result, step, lease,

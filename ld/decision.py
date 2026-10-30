@@ -17,6 +17,17 @@ class DecisionValidationError(ValueError):
     """A model decision is not in the deterministic M4-A schema."""
 
 
+class DecisionPolicyError(DecisionValidationError):
+    """The decision violates the *policy* contract, not just its shape.
+
+    Raised for an unknown/forbidden action and for unknown fields.  These are
+    never retried: a model that proposes ``rm -rf /`` (or invents a field) must
+    be answered deterministically, not re-asked until it happens to comply.
+    Missing/incomplete fields stay plain ``DecisionValidationError`` because they
+    are generation defects that a retry may fix.
+    """
+
+
 class LDAction(str, Enum):
     INSPECT = "inspect"
     SUBMIT_TASK = "submit_task"
@@ -59,7 +70,9 @@ def _object(value: Any, field: str) -> dict[str, Any]:
 def _reject_unknown(value: Mapping[str, Any], allowed: set[str], field: str) -> None:
     unknown = set(value) - allowed
     if unknown:
-        raise DecisionValidationError(
+        # An invented field is an attempt to extend the contract: policy, not
+        # shape.  Never retried (see DecisionPolicyError).
+        raise DecisionPolicyError(
             f"{field} has unsupported fields: " + ", ".join(sorted(unknown)))
 
 
@@ -145,21 +158,21 @@ def _validate_inspect(project_id: str | None, parameters: dict[str, Any]) -> dic
     _require(parameters, {"tool"}, "parameters")
     tool = _nonempty_string(parameters["tool"], "parameters.tool")
     if tool not in _READ_TOOLS:
-        raise DecisionValidationError(f"inspect tool is not allowed: {tool}")
+        raise DecisionPolicyError(f"inspect tool is not allowed: {tool}")
     out: dict[str, Any] = {"tool": tool}
     if tool == "list_projects":
         if project_id is not None:
-            raise DecisionValidationError("list_projects requires project_id=null")
+            raise DecisionPolicyError("list_projects requires project_id=null")
         if set(parameters) != {"tool"}:
-            raise DecisionValidationError("list_projects accepts no parameters besides tool")
+            raise DecisionPolicyError("list_projects accepts no parameters besides tool")
     elif tool in _PROJECT_READ_TOOLS:
         if project_id is None:
-            raise DecisionValidationError(f"{tool} requires project_id")
+            raise DecisionPolicyError(f"{tool} requires project_id")
         if "task_id" in parameters:
-            raise DecisionValidationError(f"{tool} does not accept task_id")
+            raise DecisionPolicyError(f"{tool} does not accept task_id")
         if "limit" in parameters:
             if tool != "get_project_tasks":
-                raise DecisionValidationError(f"{tool} does not accept limit")
+                raise DecisionPolicyError(f"{tool} does not accept limit")
             out["limit"] = _integer(parameters["limit"], "parameters.limit",
                                     minimum=1, maximum=200)
     else:
@@ -231,7 +244,7 @@ def _validate_finish(project_id: str | None, evidence_refs: list[str],
     _reject_unknown(
         parameters, {"verified_task_ids", "completion_conditions"}, "parameters")
     if not evidence_refs:
-        raise DecisionValidationError("finish requires non-empty evidence_refs")
+        raise DecisionPolicyError("finish requires non-empty evidence_refs")
     verified_task_ids = _string_list(
         parameters.get("verified_task_ids", []), "parameters.verified_task_ids")
     raw_conditions = parameters.get("completion_conditions", [])
@@ -264,7 +277,7 @@ def _validate_finish(project_id: str | None, evidence_refs: list[str],
             })
         elif kind == "project_count":
             if project_id is None:
-                raise DecisionValidationError("project_count requires project_id")
+                raise DecisionPolicyError("project_count requires project_id")
             _reject_unknown(
                 condition, {"kind", "field", "operator", "value"},
                 f"parameters.completion_conditions[{index}]")
@@ -277,9 +290,9 @@ def _validate_finish(project_id: str | None, evidence_refs: list[str],
                 condition["operator"],
                 f"parameters.completion_conditions[{index}].operator")
             if field not in _PROJECT_COUNT_FIELDS:
-                raise DecisionValidationError(f"unsupported project_count field: {field}")
+                raise DecisionPolicyError(f"unsupported project_count field: {field}")
             if operator not in _COUNT_OPERATORS:
-                raise DecisionValidationError(f"unsupported project_count operator: {operator}")
+                raise DecisionPolicyError(f"unsupported project_count operator: {operator}")
             conditions.append({
                 "kind": kind,
                 "field": field,
@@ -289,11 +302,11 @@ def _validate_finish(project_id: str | None, evidence_refs: list[str],
                     f"parameters.completion_conditions[{index}].value", minimum=0),
             })
         else:
-            raise DecisionValidationError(f"unsupported completion condition: {kind}")
+            raise DecisionPolicyError(f"unsupported completion condition: {kind}")
     has_verified_task_condition = any(
         condition["kind"] == "task_verdict" for condition in conditions)
     if not verified_task_ids and not has_verified_task_condition:
-        raise DecisionValidationError(
+        raise DecisionPolicyError(
             "finish requires at least one explicit verified task; project counts "
             "may only be auxiliary conditions")
     return {
@@ -318,7 +331,8 @@ class LDDecision:
         try:
             action = LDAction(_nonempty_string(value["action"], "decision.action"))
         except ValueError as exc:
-            raise DecisionValidationError(
+            # Unknown action == forbidden action: policy violation, never retried.
+            raise DecisionPolicyError(
                 f"decision.action is not allowed: {value.get('action')!r}") from exc
         project_id = _optional_string(value["project_id"], "decision.project_id")
         reason = _nonempty_string(value["reason"], "decision.reason")

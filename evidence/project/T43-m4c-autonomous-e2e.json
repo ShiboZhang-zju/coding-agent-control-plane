@@ -1,0 +1,329 @@
+{
+  "test": "T43-m4c-autonomous-e2e",
+  "worker_started": true,
+  "note": "one Owner goal submission; all advancement by the runtime's goal scheduler. The script never calls run-goal and never submits a task.",
+  "goal": "在当前项目中实现一个简单的地理模块 geo。只做一步：创建 geo/__init__.py，在其中实现 distance_km(lat1, lon1, lat2, lon2) 函数，使用 haversine 公式返回两点间公里数（保留 float）。必须让预置测试 test_geo.py 全部通过。完成后在工作分支执行 git commit 提交修改（不要 push，不要操作 main）。验收断言使用 file_contains（针对 geo/__init__.py 中的 def distance_km）。测试通过后结束目标。",
+  "fixture": "<REPO>\\sandbox\\m4c-e2e-fb4e992e\\geoproj",
+  "cycles": 15,
+  "owner_actions": {
+    "goal_submissions": 1,
+    "manual_run_goal_calls": 0,
+    "manual_task_submissions": 0,
+    "manual_verdict_writes": 0
+  },
+  "runtime_verdicts": [
+    {
+      "task_id": "cp-ef4c862e618e",
+      "state": "succeeded",
+      "verdict": "verified",
+      "assertion_results": [
+        {
+          "kind": "file_contains",
+          "target": "geo/__init__.py",
+          "value": "def distance_km",
+          "passed": true,
+          "owned": true,
+          "observed": "contains value=True, changed_since_baseline=True"
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "cp-ef4c862e618e",
+      "state": "succeeded",
+      "verdict": "verified",
+      "worker_job_id": "df784d2f",
+      "session_id": "df784d2f-d0fb-44de-a335-f1ddef4a0f73",
+      "idempotency_key": "ldg-goal-e7e3e95c12ca-s1",
+      "assertion_results": [
+        {
+          "kind": "file_contains",
+          "target": "geo/__init__.py",
+          "value": "def distance_km",
+          "passed": true,
+          "owned": true,
+          "observed": "contains value=True, changed_since_baseline=True"
+        }
+      ]
+    }
+  ],
+  "pytest": {
+    "cp-ef4c862e618e": {
+      "pytest_exit": 0,
+      "tail": "...                                                                      [100%]\n3 passed in 0.01s\n"
+    }
+  },
+  "decision_history": [
+    {
+      "id": 1,
+      "goal_id": "goal-e7e3e95c12ca",
+      "step": 1,
+      "state": "committed",
+      "decision": {
+        "action": "submit_task",
+        "project_id": "prj-01c496dd79",
+        "reason": "实现目标要求的单步 geo 模块，并提交到工作分支",
+        "evidence_refs": [],
+        "parameters": {
+          "task": "在当前工作分支创建 geo/__init__.py，实现 distance_km(lat1, lon1, lat2, lon2)，使用 haversine 公式返回两点间公里数（float）。运行预置测试 test_geo.py 确保全部通过，然后仅在工作分支执行 git commit 提交修改；不要 push，不要操作 main。",
+          "idempotency_key": "goal-step-1",
+          "assertions": [
+            {
+              "kind": "file_contains",
+              "target": "geo/__init__.py",
+              "value": "def distance_km"
+            }
+          ],
+          "title": "实现 geo.distance_km 并提交"
+        }
+      },
+      "outcome": {
+        "action": "submit_task",
+        "next_state": "task_submitted",
+        "task_id": "cp-ef4c862e618e",
+        "executed": true,
+        "blocking_reasons": [],
+        "recovered": null,
+        "decision_source": "model",
+        "reason": "实现目标要求的单步 geo 模块，并提交到工作分支"
+      },
+      "lease_token": "<redacted>",
+      "created_at": 1793360004.233872
+    },
+    {
+      "id": 2,
+      "goal_id": "goal-e7e3e95c12ca",
+      "step": 2,
+      "state": "committed",
+      "decision": {
+        "action": "finish",
+        "project_id": "prj-01c496dd79",
+        "reason": "目标要求的单步任务（创建 geo/__init__.py 并实现 distance_km、提交到工作分支）已由任务 cp-ef4c862e618e 完成并通过控制面独立验收（verdict=verified），目标各组成部分均已覆盖，无需再提交新任务。",
+        "evidence_refs": [
+          "task:cp-ef4c862e618e"
+        ],
+        "parameters": {
+          "verified_task_ids": [
+            "cp-ef4c862e618e"
+          ],
+          "completion_conditions": [
+            {
+              "kind": "task_verdict",
+              "task_id": "cp-ef4c862e618e",
+              "expected_verdict": "verified"
+            }
+          ]
+        }
+      },
+      "outcome": {
+        "action": "finish",
+        "next_state": "finished",
+        "task_id": null,
+        "executed": true,
+        "blocking_reasons": [],
+        "recovered": null,
+        "decision_source": "model",
+        "reason": "目标要求的单步任务（创建 geo/__init__.py 并实现 distance_km、提交到工作分支）已由任务 cp-ef4c862e618e 完成并通过控制面独立验收（verdict=verified），目标各组成部分均已覆盖，无需再提交新任务。"
+      },
+      "lease_token": "<redacted>",
+      "created_at": 1793360116.7509117
+    }
+  ],
+  "scheduler": {
+    "goals": [
+      {
+        "goal_id": "goal-e7e3e95c12ca",
+        "project_id": "prj-01c496dd79",
+        "status": "completed",
+        "decision_count": 2,
+        "task_count": 1,
+        "current_task_id": "cp-ef4c862e618e",
+        "runs": 2,
+        "advances": 2,
+        "consecutive_failures": 0,
+        "consecutive_no_progress": 0,
+        "next_attempt_at": 0.0,
+        "last_error": null,
+        "last_outcome": "completed:finish"
+      }
+    ],
+    "count": 1,
+    "advanceable": 0
+  },
+  "runtime": {
+    "cycles": 15,
+    "goal_runner_enabled": true,
+    "dispatch_queue": {
+      "runs": 15,
+      "consecutive_errors": 0,
+      "last_started_at": 1793360110.9622283,
+      "last_finished_at": 1793360110.9622283,
+      "last_duration_ms": 0.0,
+      "last_result": {
+        "ok": true,
+        "dispatched": 0,
+        "active": 1,
+        "items": [],
+        "checkpoints": {
+          "ok": true,
+          "checked": 0,
+          "released": 0,
+          "blocked": 0,
+          "blocked_items": []
+        }
+      },
+      "last_error": null,
+      "next_in_s": 0.0
+    },
+    "goal_advancement": {
+      "runs": 15,
+      "consecutive_errors": 0,
+      "last_started_at": 1793360114.482563,
+      "last_finished_at": 1793360116.827313,
+      "last_duration_ms": 2359.0,
+      "last_result": {
+        "ok": true,
+        "checked": 1,
+        "advanced": 1,
+        "waiting": 0,
+        "skipped": 0,
+        "failures": 0,
+        "items": [
+          {
+            "goal_id": "goal-e7e3e95c12ca",
+            "action": "advanced",
+            "reason": "LD advanced the goal",
+            "plan_reason": "state changed",
+            "goal_status": "completed",
+            "decision_action": "finish",
+            "next_state": "finished",
+            "task_id": null,
+            "escalated_to_human": null,
+            "signature": "6ba29113f60870ff28438c1518579f9c"
+          }
+        ],
+        "errors": []
+      },
+      "last_error": null,
+      "next_in_s": 0.0
+    }
+  },
+  "goal_final": {
+    "status": "completed",
+    "decision_count": 2,
+    "task_count": 1,
+    "last_decision": {
+      "step": 2,
+      "action": "finish",
+      "next_state": "finished",
+      "task_id": null,
+      "recovered": null
+    }
+  },
+  "timeline_tail": [
+    {
+      "cycle": 10,
+      "goal_status": "waiting",
+      "decision_count": 1,
+      "task_count": 1,
+      "tasks": [
+        {
+          "id": "cp-ef4c862e618e",
+          "state": "running",
+          "verdict": "pending",
+          "idempotency_key": "ldg-goal-e7e3e95c12ca-s1"
+        }
+      ]
+    },
+    {
+      "cycle": 11,
+      "goal_status": "waiting",
+      "decision_count": 1,
+      "task_count": 1,
+      "tasks": [
+        {
+          "id": "cp-ef4c862e618e",
+          "state": "running",
+          "verdict": "pending",
+          "idempotency_key": "ldg-goal-e7e3e95c12ca-s1"
+        }
+      ]
+    },
+    {
+      "cycle": 12,
+      "goal_status": "waiting",
+      "decision_count": 1,
+      "task_count": 1,
+      "tasks": [
+        {
+          "id": "cp-ef4c862e618e",
+          "state": "running",
+          "verdict": "pending",
+          "idempotency_key": "ldg-goal-e7e3e95c12ca-s1"
+        }
+      ]
+    },
+    {
+      "cycle": 13,
+      "goal_status": "waiting",
+      "decision_count": 1,
+      "task_count": 1,
+      "tasks": [
+        {
+          "id": "cp-ef4c862e618e",
+          "state": "running",
+          "verdict": "pending",
+          "idempotency_key": "ldg-goal-e7e3e95c12ca-s1"
+        }
+      ]
+    },
+    {
+      "cycle": 14,
+      "goal_status": "waiting",
+      "decision_count": 1,
+      "task_count": 1,
+      "tasks": [
+        {
+          "id": "cp-ef4c862e618e",
+          "state": "running",
+          "verdict": "pending",
+          "idempotency_key": "ldg-goal-e7e3e95c12ca-s1"
+        }
+      ]
+    },
+    {
+      "cycle": 15,
+      "goal_status": "completed",
+      "decision_count": 2,
+      "task_count": 1,
+      "tasks": [
+        {
+          "id": "cp-ef4c862e618e",
+          "state": "succeeded",
+          "verdict": "verified",
+          "idempotency_key": "ldg-goal-e7e3e95c12ca-s1"
+        }
+      ]
+    }
+  ],
+  "checks": {
+    "goal_completed": true,
+    "exactly_one_workitem": true,
+    "no_duplicate_submission": true,
+    "worker_really_ran": true,
+    "task_verified": true,
+    "pytest_passes_in_worktree": true,
+    "assertions_present": true,
+    "ld_finished_without_manual_call": true,
+    "decision_history_contiguous": true,
+    "no_human_resume_needed": true,
+    "scheduler_never_escalated": true,
+    "goal_runner_enabled": true,
+    "goal_path_ran": true,
+    "dispatch_path_ran": true,
+    "main_untouched": true,
+    "worktree_differs_from_main": true
+  },
+  "result": "Pass"
+}

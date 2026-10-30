@@ -1,0 +1,102 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-0a68296b715f",
+    "project_id": "prj-8b2611e9e3",
+    "title": "Create beta_lib/__init__.py implementing double(n) that retu",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "beta_lib/__init__.py",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "changed since baseline"
+      },
+      {
+        "kind": "file_contains",
+        "target": "beta_lib/__init__.py",
+        "value": "def double",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      }
+    ],
+    "warnings": [],
+    "finished_at": 1793361507.954
+  },
+  "attempt": {
+    "id": "at-314bac7df0",
+    "worker_job_id": "87209271",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793361420.619471,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 5,
+      "work_item_id": "cp-0a68296b715f",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-8b2611e9e3",
+        "workspace_id": "ws-ad54939191",
+        "context_version": 1,
+        "context_entry_refs": [
+          "ctx-e7c9249d14fe"
+        ],
+        "context_injected": true
+      },
+      "created_at": 1793361414.0225465
+    },
+    {
+      "id": 6,
+      "work_item_id": "cp-0a68296b715f",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-8b2611e9e3",
+        "root": "<REPO>\\sandbox\\m4c-dual-7cfc48d8\\beta",
+        "cwd": "<REPO>\\sandbox\\m4c-dual-7cfc48d8\\beta"
+      },
+      "created_at": 1793361419.3562167
+    },
+    {
+      "id": 7,
+      "work_item_id": "cp-0a68296b715f",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\m4c-dual-7cfc48d8\\beta",
+        "attempt_id": "at-314bac7df0",
+        "approval_id": null
+      },
+      "created_at": 1793361420.6689231
+    },
+    {
+      "id": 8,
+      "work_item_id": "cp-0a68296b715f",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "87209271",
+        "http": 200
+      },
+      "created_at": 1793361420.8026288
+    }
+  ]
+}

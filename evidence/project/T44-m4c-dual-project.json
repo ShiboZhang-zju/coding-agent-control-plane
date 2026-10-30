@@ -1,0 +1,101 @@
+{
+  "test": "T44-m4c-dual-project",
+  "worker_started": true,
+  "note": "two projects, two goals, one Ledger, one runtime; each goal advances autonomously and neither sees the other's knowledge, workspace or tasks.",
+  "fixture": "<REPO>\\sandbox\\m4c-dual-7cfc48d8",
+  "cycles": 12,
+  "knowledge_isolation": {
+    "a_secret_absent_from_b_prompt": true,
+    "b_has_own_secret": true,
+    "a_secret_absent_from_b_progress": true,
+    "a_secret_absent_from_b_model_view": true,
+    "progress_counts_separate": true
+  },
+  "projects": {
+    "alpha": {
+      "goal_status": "completed",
+      "task_count": 1,
+      "task_ids": [
+        "cp-3ff3efd23fee"
+      ],
+      "states": [
+        "succeeded"
+      ],
+      "verdicts": [
+        "verified"
+      ],
+      "own_project_only": true,
+      "own_workspace": true,
+      "prompt_has_own_secret": true,
+      "prompt_lacks_other_secret": true,
+      "assertions_verified": true,
+      "pytest": {
+        "pytest_exit": 0,
+        "tail": "..                                                                       [100%]\n2 passed in 0.02s\n"
+      },
+      "main_untouched": true,
+      "worktree_in_own_repo": true
+    },
+    "beta": {
+      "goal_status": "completed",
+      "task_count": 1,
+      "task_ids": [
+        "cp-0a68296b715f"
+      ],
+      "states": [
+        "succeeded"
+      ],
+      "verdicts": [
+        "verified"
+      ],
+      "own_project_only": true,
+      "own_workspace": true,
+      "prompt_has_own_secret": true,
+      "prompt_lacks_other_secret": true,
+      "assertions_verified": true,
+      "pytest": {
+        "pytest_exit": 0,
+        "tail": "..                                                                       [100%]\n2 passed in 0.01s\n"
+      },
+      "main_untouched": true,
+      "worktree_in_own_repo": true
+    }
+  },
+  "goal_summary": {
+    "alpha": {
+      "status": "completed",
+      "decisions": 2,
+      "tasks": 1
+    },
+    "beta": {
+      "status": "completed",
+      "decisions": 2,
+      "tasks": 1
+    }
+  },
+  "ledger_tasks_total": 2,
+  "runtime_status": {
+    "goal_runner_enabled": true,
+    "goal_runs": 12,
+    "dispatch_runs": 12
+  },
+  "checks": {
+    "both_goals_completed": true,
+    "one_task_per_project": true,
+    "no_cross_project_task": true,
+    "no_cross_project_workspace": true,
+    "worktrees_in_own_repo": true,
+    "all_tasks_verified": true,
+    "all_assertions_passed": true,
+    "tests_pass_in_own_worktree": true,
+    "prompts_isolated": true,
+    "mains_untouched": true,
+    "ledger_has_exactly_two_tasks": true,
+    "single_runtime_paths_ran": true,
+    "a_secret_absent_from_b_prompt": true,
+    "b_has_own_secret": true,
+    "a_secret_absent_from_b_progress": true,
+    "a_secret_absent_from_b_model_view": true,
+    "progress_counts_separate": true
+  }
+}

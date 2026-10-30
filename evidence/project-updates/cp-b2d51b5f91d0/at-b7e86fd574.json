@@ -1,0 +1,94 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-b2d51b5f91d0",
+    "project_id": "prj-087be13911",
+    "title": "在当前项目 t44-beta 中创建 beta_lib/__init__.py，实现 double(n) 返回 2 * ",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertion_results": [
+      {
+        "kind": "file_contains",
+        "target": "beta_lib/__init__.py",
+        "value": "def double",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      }
+    ],
+    "warnings": [],
+    "finished_at": 1793360454.451
+  },
+  "attempt": {
+    "id": "at-b7e86fd574",
+    "worker_job_id": "6afe8e2f",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793360332.8927383,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 1,
+      "work_item_id": "cp-b2d51b5f91d0",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-087be13911",
+        "workspace_id": "ws-6defaa31d4",
+        "context_version": 1,
+        "context_entry_refs": [
+          "ctx-fdc886d368dc"
+        ],
+        "context_injected": true
+      },
+      "created_at": 1793360326.783804
+    },
+    {
+      "id": 2,
+      "work_item_id": "cp-b2d51b5f91d0",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-087be13911",
+        "root": "<REPO>\\sandbox\\m4c-dual-5cbed0fa\\beta",
+        "cwd": "<REPO>\\sandbox\\m4c-dual-5cbed0fa\\beta"
+      },
+      "created_at": 1793360331.9898276
+    },
+    {
+      "id": 3,
+      "work_item_id": "cp-b2d51b5f91d0",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\m4c-dual-5cbed0fa\\beta",
+        "attempt_id": "at-b7e86fd574",
+        "approval_id": null
+      },
+      "created_at": 1793360332.9777567
+    },
+    {
+      "id": 4,
+      "work_item_id": "cp-b2d51b5f91d0",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "6afe8e2f",
+        "http": 200
+      },
+      "created_at": 1793360334.131039
+    }
+  ]
+}

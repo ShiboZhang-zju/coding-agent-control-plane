@@ -17,6 +17,7 @@
     "coordinator": {
       "illegal_action_fails_closed": true,
       "transport_error_fails_closed": true,
+      "transport_error_is_not_policy_violation": true,
       "unauthorized_domain_skips_model": true,
       "model_view_has_no_prompt": true,
       "model_view_keeps_facts": true,
@@ -37,6 +38,7 @@
     "model.from_env_configures": true,
     "coordinator.illegal_action_fails_closed": true,
     "coordinator.transport_error_fails_closed": true,
+    "coordinator.transport_error_is_not_policy_violation": true,
     "coordinator.unauthorized_domain_skips_model": true,
     "coordinator.model_view_has_no_prompt": true,
     "coordinator.model_view_keeps_facts": true,

@@ -1,0 +1,92 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-ef4c862e618e",
+    "project_id": "prj-01c496dd79",
+    "title": "实现 geo.distance_km 并提交",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertion_results": [
+      {
+        "kind": "file_contains",
+        "target": "geo/__init__.py",
+        "value": "def distance_km",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      }
+    ],
+    "warnings": [],
+    "finished_at": 1793360104.066
+  },
+  "attempt": {
+    "id": "at-4222e1a964",
+    "worker_job_id": "df784d2f",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793360010.082741,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 1,
+      "work_item_id": "cp-ef4c862e618e",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-01c496dd79",
+        "workspace_id": "ws-bab7b76092",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "context_injected": true
+      },
+      "created_at": 1793360004.3160348
+    },
+    {
+      "id": 2,
+      "work_item_id": "cp-ef4c862e618e",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-01c496dd79",
+        "root": "<REPO>\\sandbox\\m4c-e2e-fb4e992e\\geoproj",
+        "cwd": "<REPO>\\sandbox\\m4c-e2e-fb4e992e\\geoproj"
+      },
+      "created_at": 1793360009.4407723
+    },
+    {
+      "id": 3,
+      "work_item_id": "cp-ef4c862e618e",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\m4c-e2e-fb4e992e\\geoproj",
+        "attempt_id": "at-4222e1a964",
+        "approval_id": null
+      },
+      "created_at": 1793360010.1332593
+    },
+    {
+      "id": 4,
+      "work_item_id": "cp-ef4c862e618e",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "df784d2f",
+        "http": 200
+      },
+      "created_at": 1793360010.2162356
+    }
+  ]
+}

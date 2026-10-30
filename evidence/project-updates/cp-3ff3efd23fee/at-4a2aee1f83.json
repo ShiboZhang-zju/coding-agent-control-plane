@@ -1,0 +1,102 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-3ff3efd23fee",
+    "project_id": "prj-5f78b6794c",
+    "title": "Implement alpha_lib and commit on work branch",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "alpha_lib/__init__.py",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "changed since baseline"
+      },
+      {
+        "kind": "file_contains",
+        "target": "alpha_lib/__init__.py",
+        "value": "def greet",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      }
+    ],
+    "warnings": [],
+    "finished_at": 1793361461.996
+  },
+  "attempt": {
+    "id": "at-4a2aee1f83",
+    "worker_job_id": "367cb038",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793361366.0140471,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 1,
+      "work_item_id": "cp-3ff3efd23fee",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-5f78b6794c",
+        "workspace_id": "ws-0635985731",
+        "context_version": 1,
+        "context_entry_refs": [
+          "ctx-bad7189ea1d9"
+        ],
+        "context_injected": true
+      },
+      "created_at": 1793361357.580935
+    },
+    {
+      "id": 2,
+      "work_item_id": "cp-3ff3efd23fee",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-5f78b6794c",
+        "root": "<REPO>\\sandbox\\m4c-dual-7cfc48d8\\alpha",
+        "cwd": "<REPO>\\sandbox\\m4c-dual-7cfc48d8\\alpha"
+      },
+      "created_at": 1793361365.0894182
+    },
+    {
+      "id": 3,
+      "work_item_id": "cp-3ff3efd23fee",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\m4c-dual-7cfc48d8\\alpha",
+        "attempt_id": "at-4a2aee1f83",
+        "approval_id": null
+      },
+      "created_at": 1793361366.0727682
+    },
+    {
+      "id": 4,
+      "work_item_id": "cp-3ff3efd23fee",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "367cb038",
+        "http": 200
+      },
+      "created_at": 1793361366.172028
+    }
+  ]
+}

@@ -141,6 +141,7 @@ class LDGoalStore:
         self._lease_s = float(lease_s)
         self._fault_hook = fault_hook
         self._lock = threading.RLock()
+        self.path = str(ledger_path)
         self._conn = sqlite3.connect(str(ledger_path), timeout=15,
                                      check_same_thread=False,
                                      isolation_level=None)
@@ -209,6 +210,20 @@ class LDGoalStore:
                 "SELECT * FROM ld_goals WHERE project_id=? ORDER BY updated_at DESC",
                 (project_id,)).fetchall()
         return [self._row_to_goal(row) for row in rows]
+
+    def all_goals(self) -> list[dict]:
+        """Every goal row, oldest first (deterministic scheduling order)."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM ld_goals ORDER BY created_at ASC, goal_id ASC"
+            ).fetchall()
+        return [self._row_to_goal(row) for row in rows]
+
+    def statuses(self) -> dict[str, str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT goal_id, status FROM ld_goals").fetchall()
+        return {row["goal_id"]: row["status"] for row in rows}
 
     # ------------------------------------------------------------------ #
     # lease (cross-process advancement claim with fencing token)

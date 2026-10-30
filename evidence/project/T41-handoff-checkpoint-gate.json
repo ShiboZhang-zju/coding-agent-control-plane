@@ -1,0 +1,208 @@
+{
+  "test": "T41-handoff-checkpoint-gate",
+  "worker_started": false,
+  "note": "stub adapter refuses to dispatch; every negative case asserts worker_started=false, task_dispatch_count=0, checkpoint_ready=false",
+  "sections": {
+    "A1_update_ref_failure": {
+      "submit_created_workitem": true,
+      "ref_protection_failed": true,
+      "dispatch_blocked": true,
+      "worker_not_started": true,
+      "no_dispatch_attempt": true,
+      "checkpoint_not_ready": true,
+      "queue_status_after_block": true,
+      "blocked_event_recorded": true,
+      "blocked_reason_queryable": true,
+      "submit_reports_checkpoint_not_ready": true
+    },
+    "A2_missing_object": {
+      "object_missing": true,
+      "dispatch_blocked": true,
+      "worker_not_started": true,
+      "no_dispatch_attempt": true,
+      "checkpoint_not_ready": true,
+      "blocked_reason_queryable": true
+    },
+    "A3_crash_before_protection": {
+      "before_recovery_blocked": true,
+      "before_worker_not_started": true,
+      "before_dispatch_count": 0,
+      "before_checkpoint_not_ready": true,
+      "recovery_released": true,
+      "ref_written_on_recovery": true,
+      "ref_matches_checkpoint": true,
+      "checkpoint_ready_after_recovery": true,
+      "after_recovery_claimable": true
+    },
+    "A4_repeated_recovery": {
+      "idempotent_second_submit": true,
+      "same_task_id": true,
+      "no_extra_workitem": true,
+      "no_extra_ref": true,
+      "repeated_sweeps_keep_ready": true,
+      "sweeps_never_block_this_task": true,
+      "sweeps_report_already_ready": true,
+      "sweeps_never_double_release": true,
+      "checkpoint_ready": true
+    },
+    "A5_ref_deleted_after_protection": {
+      "was_ready_before_deletion": true,
+      "ref_gone": true,
+      "dispatch_blocked": true,
+      "worker_not_started": true,
+      "no_dispatch_attempt": true,
+      "checkpoint_not_ready": true
+    },
+    "A6_workspace_drift": {
+      "ref_points_elsewhere": true,
+      "ref_not_silently_repaired": true,
+      "dispatch_blocked": true,
+      "worker_not_started": true,
+      "no_dispatch_attempt": true,
+      "checkpoint_not_ready": true,
+      "reported_ref_commit": "24f3c2f13d75d256b1cb55cae6f59631337c6b4c",
+      "reason_queryable": true
+    },
+    "A7_concurrent_recovery": {
+      "phase1_children_ok": true,
+      "phase1_both_blocked": true,
+      "phase1_no_dispatch": true,
+      "phase1_no_release": true,
+      "phase2_children_ok": true,
+      "phase2_single_dispatch": true,
+      "no_double_attempt": true,
+      "single_workitem": true,
+      "parent_never_dispatched_it": true,
+      "checkpoint_ready": true,
+      "phase1_outputs": [
+        {
+          "sweep_blocked": [
+            "cp-e4fb42441dd7"
+          ],
+          "sweep_released": [],
+          "claimed": [
+            "cp-b0a5fc7f2775"
+          ],
+          "dispatched_target": 0,
+          "worker_calls": 1,
+          "attempts": 0,
+          "queue_status": "checkpoint_unprotected"
+        },
+        {
+          "sweep_blocked": [
+            "cp-e4fb42441dd7"
+          ],
+          "sweep_released": [],
+          "claimed": [],
+          "dispatched_target": 0,
+          "worker_calls": 0,
+          "attempts": 0,
+          "queue_status": "checkpoint_unprotected"
+        }
+      ],
+      "phase2_outputs": [
+        {
+          "sweep_blocked": [],
+          "sweep_released": [
+            "cp-e4fb42441dd7"
+          ],
+          "claimed": [
+            "cp-e4fb42441dd7"
+          ],
+          "dispatched_target": 1,
+          "worker_calls": 1,
+          "attempts": 1,
+          "queue_status": "running"
+        },
+        {
+          "sweep_blocked": [],
+          "sweep_released": [],
+          "claimed": [],
+          "dispatched_target": 0,
+          "worker_calls": 0,
+          "attempts": 0,
+          "queue_status": "dispatching"
+        }
+      ],
+      "final_queue_status": "running",
+      "attempt_count": 1
+    },
+    "A8_normal_handoff": {
+      "checkpoint_ready": true,
+      "queue_status_ready": true,
+      "dispatched": true,
+      "worker_started_once": true,
+      "effective_prompt_unchanged": true,
+      "handoff_signature_unchanged": true,
+      "digest_unchanged": true,
+      "digest_recomputed_once": true
+    }
+  },
+  "checks": {
+    "A1_update_ref_failure.submit_created_workitem": true,
+    "A1_update_ref_failure.ref_protection_failed": true,
+    "A1_update_ref_failure.dispatch_blocked": true,
+    "A1_update_ref_failure.worker_not_started": true,
+    "A1_update_ref_failure.no_dispatch_attempt": true,
+    "A1_update_ref_failure.checkpoint_not_ready": true,
+    "A1_update_ref_failure.queue_status_after_block": true,
+    "A1_update_ref_failure.blocked_event_recorded": true,
+    "A1_update_ref_failure.blocked_reason_queryable": true,
+    "A1_update_ref_failure.submit_reports_checkpoint_not_ready": true,
+    "A2_missing_object.object_missing": true,
+    "A2_missing_object.dispatch_blocked": true,
+    "A2_missing_object.worker_not_started": true,
+    "A2_missing_object.no_dispatch_attempt": true,
+    "A2_missing_object.checkpoint_not_ready": true,
+    "A2_missing_object.blocked_reason_queryable": true,
+    "A3_crash_before_protection.before_recovery_blocked": true,
+    "A3_crash_before_protection.before_worker_not_started": true,
+    "A3_crash_before_protection.before_checkpoint_not_ready": true,
+    "A3_crash_before_protection.recovery_released": true,
+    "A3_crash_before_protection.ref_written_on_recovery": true,
+    "A3_crash_before_protection.ref_matches_checkpoint": true,
+    "A3_crash_before_protection.checkpoint_ready_after_recovery": true,
+    "A3_crash_before_protection.after_recovery_claimable": true,
+    "A4_repeated_recovery.idempotent_second_submit": true,
+    "A4_repeated_recovery.same_task_id": true,
+    "A4_repeated_recovery.no_extra_workitem": true,
+    "A4_repeated_recovery.no_extra_ref": true,
+    "A4_repeated_recovery.repeated_sweeps_keep_ready": true,
+    "A4_repeated_recovery.sweeps_never_block_this_task": true,
+    "A4_repeated_recovery.sweeps_report_already_ready": true,
+    "A4_repeated_recovery.sweeps_never_double_release": true,
+    "A4_repeated_recovery.checkpoint_ready": true,
+    "A5_ref_deleted_after_protection.was_ready_before_deletion": true,
+    "A5_ref_deleted_after_protection.ref_gone": true,
+    "A5_ref_deleted_after_protection.dispatch_blocked": true,
+    "A5_ref_deleted_after_protection.worker_not_started": true,
+    "A5_ref_deleted_after_protection.no_dispatch_attempt": true,
+    "A5_ref_deleted_after_protection.checkpoint_not_ready": true,
+    "A6_workspace_drift.ref_points_elsewhere": true,
+    "A6_workspace_drift.ref_not_silently_repaired": true,
+    "A6_workspace_drift.dispatch_blocked": true,
+    "A6_workspace_drift.worker_not_started": true,
+    "A6_workspace_drift.no_dispatch_attempt": true,
+    "A6_workspace_drift.checkpoint_not_ready": true,
+    "A6_workspace_drift.reason_queryable": true,
+    "A7_concurrent_recovery.phase1_children_ok": true,
+    "A7_concurrent_recovery.phase1_both_blocked": true,
+    "A7_concurrent_recovery.phase1_no_dispatch": true,
+    "A7_concurrent_recovery.phase1_no_release": true,
+    "A7_concurrent_recovery.phase2_children_ok": true,
+    "A7_concurrent_recovery.phase2_single_dispatch": true,
+    "A7_concurrent_recovery.no_double_attempt": true,
+    "A7_concurrent_recovery.single_workitem": true,
+    "A7_concurrent_recovery.parent_never_dispatched_it": true,
+    "A7_concurrent_recovery.checkpoint_ready": true,
+    "A8_normal_handoff.checkpoint_ready": true,
+    "A8_normal_handoff.queue_status_ready": true,
+    "A8_normal_handoff.dispatched": true,
+    "A8_normal_handoff.worker_started_once": true,
+    "A8_normal_handoff.effective_prompt_unchanged": true,
+    "A8_normal_handoff.handoff_signature_unchanged": true,
+    "A8_normal_handoff.digest_unchanged": true,
+    "A8_normal_handoff.digest_recomputed_once": true
+  },
+  "result": "Pass"
+}

@@ -142,7 +142,7 @@ M4-A 只把 T32 实际覆盖的确定性边界标为 Pass，整体仍未完成�
 | Handoff 只读准备（来源/Session/checkpoint/Workspace/context） | 已实现，未验证 | 无新证据 |
 | Handoff 提交（普通 WorkItem + 原子来源 metadata + 签名幂等） | 已实现，未验证 | 无新证据 |
 
-### 4.3 Minimal LD（M4-A 已完成集成验收；M4-B 最小连续推进已真实验证）
+### 4.3 Minimal LD（M4-A / M4-B 已验收；M4-C 自动唤醒已真实闭环）
 
 | 能力 | 实现位置 | 状态 |
 |---|---|---|
@@ -154,6 +154,11 @@ M4-A 只把 T32 实际覆盖的确定性边界标为 Pass，整体仍未完成�
 | provenance 模型视图（M4B-01：Prompt/原文不进模型输入） | `ld/tools.py` | T36 Pass |
 | 持久化 Goal 状态（确定性 goal_id、追加式决策历史、跨进程租约 + fencing token） | `ld/goal_store.py` | T37/T39 Pass |
 | 有界连续推进 `run_goal()` + 依赖任务确定性 handoff 交接 | `ld/coordinator.py` | T37/T39 确定性 Pass；T38b 真实严格闭环 25/25 Pass（completed，Owner 介入 0 次）；T38c 真实故障恢复/副作用拒绝 Pass |
+| 自动唤醒调度器 `LDGoalRunner`（状态变化才调模型、有限退避、失败转人工） | `ld/goal_runner.py` | T42 确定性 Pass（B1–B5） |
+| Runtime 内嵌 Goal 推进（`--advance-goals`，独立线程 + 同一 Ledger） | `controlplane/runtime.py`、`scripts/run_controlplane.py` | T42 B2 Pass；T43 真实闭环 Pass |
+| 独立 Goal Scheduler 进程（Control Plane 不导入模型客户端时） | `scripts/run_ld_goal_runner.py` | T42/T43 同源实现 |
+| Handoff Checkpoint 引用保护（排队期阻断 + 派发前复核 + 重启恢复） | `controlplane/handoff.py`、`controlplane/plane.py` | T41 A1–A8 Pass |
+| 双项目并行独立运行 | `controlplane/plane.py`（项目作用域） | T44 Pass |
 | 同 Ledger CLI（查询/单轮/run-goal/--resume） | `scripts/ld_cli.py` | T32/T38 Pass |
 
 M4 未引入任何 Agent Framework。模型输出必须通过严格 schema 校验，模型永远
@@ -162,14 +167,26 @@ M4 未引入任何 Agent Framework。模型输出必须通过严格 schema 校�
 `local` 域处理，模型未获得 `local` 授权时协调器不会调用它。已知限制：真实
 模型在收尾阶段倾向保守转人工（T38-F01），由 `run-goal --resume` 显式解锁。
 
+**M4-C：一次提交目标，自动推进到完成。** Human Owner 只声明一次 Goal
+（`LDGoalStore.get_or_create`），之后由 Runtime 的 Goal 推进路径自动完成
+"派发 → Worker → Verifier → Project Context → 唤醒 LD → 下一次决策"。
+它不是第二个 Agent：`LDGoalRunner` 是确定性调度组件，只在观测状态**确实变化**
+时才调用 `LDCoordinator.run_goal()`，否则只记 skip。终态 Goal
+（`needs_human` / `completed` / `failed`）永不被自动唤醒；模型连续失败按
+指数退避重试，超过阈值转人工并停止调用；崩溃遗留的 Pending Step 先从 Ledger
+对账（不调模型）再继续。T43 黑盒验收：Goal 提交 1 次、手工 `run-goal` 0 次、
+手工提交任务 0 次，真实 CodeBuddy Worker 完成并 `pytest` 全绿后 LD 自动
+`finish`（`completed`）。
+
 ---
 
 ## 5. 当前未实现能力
 
 **明确未实现，不要假设存在：**
 
-- **无限自主的完整 LD Agent。** M4-B 是有界推进（决策/任务预算、停滞检测、
-  人工恢复），不是无人值守的自主循环；真实模型收尾阶段可能转人工。
+- **无限自主的完整 LD Agent。** M4-B/M4-C 是有界推进（决策/任务预算、停滞检测、
+  失败退避与转人工），不是无人值守的自主循环；真实模型收尾阶段仍可能转人工。
+- **M5 跨机器执行 / 分布式 Runtime。** 本轮明确不做；`node_id != 'local'` 仍然阻塞。
 - **可靠跨机器远程执行。** `workspaces.node_id` 字段已存在，但非 `local` 节点会被
   `ContextBuilder` 判为阻塞缺口并拒绝派发。不存在"看起来能远程、实际本地跑"的假实现。
 - **跨机器原生 Session 迁移。** 未实现，也不承诺。
@@ -200,6 +217,32 @@ python scripts/run_controlplane.py
 # 结束时停服务，不留后台进程
 python scripts/serve_ctl.py stop
 ```
+
+**M4-C 自动推进目标（推荐部署形态）：** 加 `--advance-goals` 即可。Human
+Owner 之后只需提交一次 Goal，不需要再反复执行 `ld run-goal`。
+
+```powershell
+$env:LD_MODEL_BASE_URL = "https://your-endpoint/v1/chat/completions"
+$env:LD_MODEL_NAME     = "your-model"
+$env:LD_MODEL_API_KEY  = "..."            # 端点需要时
+python scripts/run_controlplane.py --advance-goals --model-domains local,shareable `
+    --goal-interval 5 --goal-max-decisions 1 --goal-max-tasks 1 `
+    --goal-max-model-failures 3 --goal-base-backoff 5 --goal-max-backoff 300
+```
+
+如果 Control Plane 所在机器不应导入任何模型客户端，可改由独立进程推进（同一
+Ledger、同一 `LDGoalRunner`，只有一套实现）：
+
+```powershell
+python scripts/run_ld_goal_runner.py --interval 5 --model-domains local,shareable
+python scripts/run_ld_goal_runner.py --once       # 一次 sweep，便于排障
+python scripts/run_ld_goal_runner.py --status     # 每个 Goal 的调度视图
+```
+
+调度语义（`ld/goal_runner.py`）：只有观测状态**确实变化**或存在可恢复的
+Pending Step 时才调用模型；`needs_human` / `completed` / `failed` 永不自动唤醒；
+模型连续失败按指数退避（上限 `--goal-max-backoff`），超过
+`--goal-max-model-failures` 转人工并停止调用。
 
 ### 6.2 最小可运行的 Project Context 示例
 

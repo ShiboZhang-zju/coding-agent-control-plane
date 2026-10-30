@@ -27,6 +27,7 @@ from adapters.base import (
     Verdict,
 )
 from controlplane.context_update import ProjectContextUpdateLoop
+from controlplane.handoff import verify_checkpoint_ref
 from controlplane.store import SessionBindingError, TaskStore
 from controlplane.verify import (capture_baseline, check_all, side_effects,
                                  verdict_for, worktree_fingerprint)
@@ -40,6 +41,16 @@ class ApprovalRequired(RuntimeError):
 #: runtime) is trusted before a recovering runtime may treat it as a crash
 #: leftover (review P1: multi-runtime startup race).
 DISPATCH_CLAIM_LEASE_S = 300.0
+
+#: Queue statuses that are deliberately NOT eligible for dispatch.
+#:
+#: ``ready`` is the only status ``claim_next_ready`` ever claims, so anything
+#: else is already ineligible.  These names exist so a caller can persist an
+#: intent *safely*: a WorkItem that must still pass a precondition (e.g. a
+#: handoff checkpoint that needs a protective Git ref) is enqueued in one of
+#: these states, so no Runtime can claim it in the window between "row exists"
+#: and "precondition proven".  Flipping to ``ready`` is then the single gate.
+DEFERRED_QUEUE_STATUSES = frozenset({"checkpoint_unprotected"})
 
 
 def task_digest(prompt: str, policy: DispatchPolicy,
@@ -238,13 +249,21 @@ class ControlPlane:
                 original_task: str | None = None,
                 context_version: int | None = None,
                 context_entry_refs: list[str] | None = None,
-                digest_scope: dict | None = None) -> dict:
+                digest_scope: dict | None = None,
+                deferred_queue_status: str | None = None) -> dict:
         """Persist work for automatic Runtime dispatch without calling a Worker.
 
         The ``workspace_id`` / ``original_task`` / ``context_*`` / ``digest_scope``
         arguments are the project-centric seam (M1). They are all optional: a
         caller that omits them gets exactly the pre-M1 behaviour, including an
         unchanged ``task_digest``.
+
+        ``deferred_queue_status`` persists the row in a status the dispatcher
+        never claims (see :data:`DEFERRED_QUEUE_STATUSES`).  It exists for the
+        single crash window where a WorkItem must be durable before a
+        precondition can be proven (handoff checkpoint ref): without it the row
+        is claimable the instant it is committed, so a failing precondition
+        would still reach a Worker.
         """
         self.store.assert_writable("enqueue")
         assertions = assertions or []
@@ -273,6 +292,17 @@ class ControlPlane:
         approval = (self.store.valid_approval_by_digest(digest)
                     if policy.requires_approval() else None)
         queue_status = "ready" if (not policy.requires_approval() or approval) else "needs_approval"
+        deferred_applied = False
+        if deferred_queue_status is not None:
+            if deferred_queue_status not in DEFERRED_QUEUE_STATUSES:
+                raise ValueError(
+                    f"unknown deferred queue status {deferred_queue_status!r}; "
+                    "allowed: " + ", ".join(sorted(DEFERRED_QUEUE_STATUSES)))
+            # Approval-gated work is already unclaimable; only a would-be
+            # dispatchable row needs deferring.
+            if queue_status == "ready":
+                queue_status = deferred_queue_status
+                deferred_applied = True
         record = self._new_record(
             self.store.new_task_id(), prompt, cwd, assertions, policy, title,
             idempotency_key, {**(metadata or {}), "timeout_s": timeout_s}, risks,
@@ -310,7 +340,34 @@ class ControlPlane:
                 "digest": digest, "risk": policy.effective_risk(), "cwd": str(cwd)})
         out = dict(self.store.get(task_id) or record)
         out["approval_required"] = queue_status == "needs_approval"
+        out["deferred_queue_status"] = (deferred_queue_status
+                                       if deferred_applied else None)
         return out
+
+    def release_deferred(self, task_id: str) -> dict:
+        """Promote a deferred WorkItem to ``ready`` once its precondition holds.
+
+        This is the only transition that makes such a row claimable, and it
+        re-checks the approval gate: a row was deferred because a *different*
+        precondition was unproven, not to skip approval.  It never edits the
+        frozen Effective Prompt or the task digest.
+        """
+        self.store.assert_writable("release_deferred")
+        record = self.store.get(task_id)
+        if not record:
+            raise KeyError(f"no work item {task_id}")
+        if record.get("queue_status") not in DEFERRED_QUEUE_STATUSES:
+            return record
+        policy = DispatchPolicy(**(record.get("policy") or {}))
+        if policy.requires_approval() and not self.store.valid_approval_by_digest(
+                record.get("task_digest") or ""):
+            self.store.append_event(task_id, "deferred_release_blocked", {
+                "reason": "approval required before release"})
+            return self.store.update(task_id, queue_status="needs_approval")
+        released = self.store.update(task_id, queue_status="ready")
+        self.store.append_event(task_id, "deferred_released", {
+            "from": record.get("queue_status"), "to": "ready"})
+        return released
 
     def dispatch_next(self, owner: str, concurrency_limit: int = 4) -> dict | None:
         """Atomically claim and dispatch one queued item for this Adapter."""
@@ -413,6 +470,29 @@ class ControlPlane:
             f"digest matches this exact task ({digest}). Call approve(digest=...) first; "
             "changing the prompt/policy/assertions invalidates the approval.")
 
+    def _handoff_checkpoint_problem(self, record: dict) -> dict | None:
+        """Last-moment proof that a handoff's checkpoint is still protected.
+
+        The submit path already refused to hand a Worker an unprotected
+        checkpoint, but the dispatch path is the only place that can close the
+        remaining windows: the ref may have been deleted between enqueue and
+        claim, the target workspace may have been re-pointed, or the row may
+        have been made ready by an older process.  Git object existence alone is
+        never accepted (see :func:`controlplane.handoff.verify_checkpoint_ref`).
+        """
+        metadata = record.get("metadata") or {}
+        if not metadata.get("handoff"):
+            return None
+        if (metadata.get("handoff_context") or {}).get("checkpoint") is None:
+            return None
+        if not metadata.get("checkpoint_ref"):
+            return None
+        info = verify_checkpoint_ref(record.get("cwd"), record["task_id"],
+                                     metadata.get("checkpoint_ref"))
+        if info["ok"]:
+            return None
+        return info
+
     def _dispatch_record(self, record: dict, *, approval: dict | None,
                          timeout_s: int) -> dict:
         """Perform one Worker dispatch with a pre-POST approval reservation."""
@@ -438,6 +518,22 @@ class ControlPlane:
                 raise ValueError(
                     f"workspace {workspace['id']} is on node "
                     f"{workspace.get('node_id')!r}; remote dispatch is not implemented")
+        # Checkpoint readiness is re-proven here, before any attempt is created
+        # or a baseline is captured, so a failing precondition cannot reach a
+        # Worker and cannot hold a concurrency slot.
+        checkpoint_problem = self._handoff_checkpoint_problem(record)
+        if checkpoint_problem is not None:
+            self.store.append_event(task_id, "dispatch_blocked_checkpoint", {
+                "checkpoint_ref": (record.get("metadata") or {}).get("checkpoint_ref"),
+                "error": checkpoint_problem.get("error"),
+                "object_exists": checkpoint_problem.get("object_exists"),
+                "ref_commit": checkpoint_problem.get("ref_commit")})
+            return self.store.update(
+                task_id, queue_status="checkpoint_unprotected",
+                dispatch_claim_owner=None, dispatch_claimed_at=None,
+                warnings=list(record.get("warnings") or []) + [
+                    "CHECKPOINT_NOT_PROTECTED:"
+                    + str(checkpoint_problem.get("error"))])
         policy = DispatchPolicy(**(record.get("policy") or {}))
         assertions = [ArtifactAssertion(**a) for a in record.get("assertions") or []]
         # Recompute the digest from what is *actually* about to run, including the
@@ -779,6 +875,17 @@ class ControlPlane:
     def reconcile_project_context_updates(self, *, limit: int = 100) -> dict:
         """Retry terminal tasks left between verdict commit and M2 receipt commit."""
         return self.context_updates.reconcile_pending(limit=limit)
+
+    def reconcile_handoff_checkpoints(self, *, limit: int = 50) -> dict:
+        """Retry/verify protective checkpoint refs of queued handoffs.
+
+        The recovery half of the checkpoint readiness gate: everything needed
+        (WorkItem id, checkpoint SHA, target root) is in the durable row, so a
+        process that died between "row written" and "ref written" converges on
+        the next sweep instead of leaving an unreachable handoff behind.
+        """
+        from controlplane.handoff import reconcile_handoff_checkpoints
+        return reconcile_handoff_checkpoints(self.store, limit=limit)
 
     def _sync_project_context(self, task: dict) -> dict:
         if not task.get("project_id"):

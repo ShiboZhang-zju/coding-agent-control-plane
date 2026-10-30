@@ -1313,6 +1313,27 @@ class TaskStore:
             raise
 
     @_synchronized
+    def promote_deferred_queue(self, task_id: str, from_status: str,
+                               to_status: str = "ready") -> bool:
+        """Compare-and-set promotion of a deferred WorkItem.
+
+        Unconditional promotion is a corruption bug, not a harmless retry: if a
+        row was already released and claimed by another process (``running``),
+        a late second sweep would rewrite it back to ``ready`` and a *second*
+        Worker would start the same task.  Only the transition
+        ``from_status -> to_status`` is allowed, and the row count reports
+        whether this caller won it.
+        """
+        self.assert_writable("promote_deferred_queue")
+        cur = self._conn.execute(
+            "UPDATE work_items SET queue_status=?, dispatch_claim_owner=NULL,"
+            " dispatch_claimed_at=NULL, updated_at=? "
+            "WHERE id=? AND queue_status=?",
+            (to_status, time.time(), task_id, from_status))
+        self._conn.commit()
+        return cur.rowcount == 1
+
+    @_synchronized
     def release_approved_queue(self, digest: str) -> int:
         """Make approved, content-bound queued work eligible for dispatch."""
         cur = self._conn.execute(

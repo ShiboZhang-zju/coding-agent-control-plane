@@ -42,6 +42,9 @@ from controlplane.handoff import (
     HandoffPlanner,
     HandoffStale,
     handoff_signature,
+    reconcile_handoff_checkpoint,
+    reconcile_handoff_checkpoints,
+    verify_checkpoint_ref,
 )
 from controlplane.plane import ControlPlane
 from controlplane.project_context import ProjectContextStore
@@ -52,6 +55,11 @@ from controlplane.store import TaskStore
 _ACTIVE_STATES = (TaskState.QUEUED.value, TaskState.STARTING.value,
                   TaskState.RUNNING.value, TaskState.WAITING_FOR_APPROVAL.value)
 _NEEDS_HUMAN_STATES = (TaskState.DISPATCH_UNKNOWN.value, TaskState.UNKNOWN.value)
+
+#: Queue status of a handoff whose Git checkpoint is not (yet) kept alive by a
+#: private ref.  It is deliberately NOT ``ready``: the dispatcher only ever
+#: claims ``ready`` work, so an unprotected checkpoint can never reach a Worker.
+CHECKPOINT_BLOCKED_QUEUE = "checkpoint_unprotected"
 
 
 def _has_warning(task: dict, prefix: str) -> bool:
@@ -602,6 +610,14 @@ class ProjectService:
             "handoff_signature": submission_signature,
             "handoff_context": compact_context,
         }
+        # A reachable handoff is enqueued *deferred*: the row must be durable
+        # before the protective ref is written (a rejected submission leaves no
+        # ref), but it must not be claimable in that window either.  The
+        # dispatcher only claims 'ready', so a failing ``git update-ref`` can no
+        # longer reach a Worker — the row stays visible and blocked instead.
+        needs_protection = bool(
+            checkpoint_mode == "reachable" and prepared.checkpoint_ref
+            and prepared.target_workspace_root)
         record = self.plane.enqueue(
             prepared.effective_prompt, prepared.target_workspace_root or "",
             assertions=assertion_objs, policy=effective_policy,
@@ -616,7 +632,9 @@ class ProjectService:
                 "workspace_id": prepared.target_workspace_id,
                 "context_version": prepared.context_version,
                 "handoff_signature": submission_signature,
-            })
+            },
+            deferred_queue_status=(
+                CHECKPOINT_BLOCKED_QUEUE if needs_protection else None))
 
         # create_work_item() is the cross-process race boundary.  A loser must
         # verify the winning row instead of trusting ControlPlane's generic
@@ -626,13 +644,25 @@ class ProjectService:
             raise HandoffIdempotencyConflict(
                 f"idempotency key {idempotency_key!r} was concurrently claimed by "
                 f"handoff signature {stored_signature!r}")
+        protection = {"ok": True, "written": False, "error": None}
         if not record.get("deduplicated"):
-            protected = None
-            if (checkpoint_mode == "reachable" and prepared.checkpoint_ref
-                    and prepared.target_workspace_root):
-                protected = self.handoffs.protect_checkpoint(
+            if needs_protection:
+                protection = self.handoffs.protect_checkpoint_verified(
                     prepared.target_workspace_root, record["task_id"],
                     prepared.checkpoint_ref)
+                self.store.append_event(
+                    record["task_id"],
+                    "handoff_checkpoint_protected" if protection["ok"]
+                    else "handoff_checkpoint_unprotected", {
+                        "checkpoint_ref": prepared.checkpoint_ref,
+                        "ref": protection.get("ref"),
+                        "ref_commit": protection.get("ref_commit"),
+                        "written": protection.get("written"),
+                        "error": protection.get("error")})
+                # Readiness is granted only by the deterministic reconciler,
+                # which re-proves the same three facts inside the dispatch path.
+                reconcile_handoff_checkpoint(self.store, record["task_id"])
+                record = self.store.get(record["task_id"]) or record
             self.store.append_event(record["task_id"], "handoff_submitted", {
                 "source_work_item_id": prepared.source_work_item_id,
                 "source_attempt_id": prepared.source_attempt_id,
@@ -640,12 +670,43 @@ class ProjectService:
                     prepared.source_session_reference or {}).get("id"),
                 "checkpoint_ref": prepared.checkpoint_ref,
                 "checkpoint_capture": (prepared.checkpoint or {}).get("capture"),
-                "checkpoint_ref_protected": protected,
+                "checkpoint_protected": bool(protection["ok"]),
+                "checkpoint_ref_protected": bool(protection["ok"]),
+                "checkpoint_ready": record.get("queue_status") == "ready",
                 "handoff_signature": submission_signature,
             })
         out = dict(record)
         out["handoff_context"] = prepared_dict
+        out["checkpoint_ready"] = record.get("queue_status") == "ready"
         return out
+
+    def reconcile_handoff_checkpoints(self, *, limit: int = 50) -> dict:
+        """Retry/verify protective checkpoint refs and release ready handoffs."""
+        return reconcile_handoff_checkpoints(self.store, limit=limit)
+
+    def handoff_checkpoint_status(self, task_id: str) -> dict:
+        """Queryable readiness of one handoff's checkpoint (never a guess)."""
+        task = self.store.get(task_id)
+        if not task:
+            raise KeyError(f"no task {task_id}")
+        metadata = task.get("metadata") or {}
+        if not metadata.get("handoff"):
+            return {"task_id": task_id, "handoff": False,
+                    "checkpoint_ready": False,
+                    "reason": "task is not a handoff"}
+        verified = verify_checkpoint_ref(
+            task.get("cwd"), task_id, metadata.get("checkpoint_ref"))
+        return {
+            "task_id": task_id,
+            "handoff": True,
+            "queue_status": task.get("queue_status"),
+            "checkpoint_ref": metadata.get("checkpoint_ref"),
+            "checkpoint_ready": verified["ok"],
+            "ref": verified["ref"],
+            "ref_commit": verified["ref_commit"],
+            "object_exists": verified["object_exists"],
+            "reason": verified["error"],
+        }
 
     # ------------------------------------------------------------------ #
     # workspaces

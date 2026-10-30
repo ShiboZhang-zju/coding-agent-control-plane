@@ -9,6 +9,18 @@ completed，零人工介入）**；故障恢复与副作用拒绝路径另由 T3
 **"任务执行与交接成功"与"Goal 自动闭环完成"是两个不同的验收结论**，本文档分开
 记录。决策模型端点与模型 id 属于环境配置，不出现在任何代码默认值、日志或证据中。
 
+## M4-C 轮新发现与处理（2026-10-30，自动唤醒 + 双项目）
+
+| # | 源码位置 | 影响 / 处理 | 最小复现 / 验证方法 | 状态 |
+|---|---|---|---|---|
+| M4C-01 | `controlplane/handoff.py::reconcile_handoff_checkpoint()` | 原实现无条件 `store.update(queue_status='ready')`。一旦某进程已释放并 claim（`running`），另一进程的迟到 sweep 会把该行**改回 `ready`**，第二个 Worker 会重复启动同一任务。现改为 CAS `store.promote_deferred_queue(task_id, 'checkpoint_unprotected')`，只有赢得 `checkpoint_unprotected → ready` 转换的进程算释放；重复 sweep 报 `already_ready` 而非 `released`。 | T41 A7：两进程在 ref 不可写时并发 sweep（均 blocked、零 dispatch），解除阻塞后再并发 sweep + claim，断言恰好 1 次 dispatch、attempt ≤ 1。 | 已修复；T41 A4/A7 Pass |
+| M4C-02 | `ld/goal_runner.py::GoalRunnerStore.record_failure()` | 原来失败时也写入 `last_signature`，使下一次 sweep 判定为"观测无变化"而 skip，**退避重试策略形同失效**（模型失败一次后永不重试）。现失败只写 `last_observed_at` / `next_attempt_at` / 失败计数，不动 `last_signature`。 | T42 B4：连续 3 次失败须记录 1→2→3 且退避递增，第三次升级为 `needs_human` 并停止调用模型。 | 已修复；T42 B4 Pass |
+| M4C-03 | `ld/goal_runner.py::advance_due()` | "观测无变化"去重会吞掉 Pending Step（崩溃遗留的未完成步），导致该步永不 reconcile。现 Pending Step 显式豁免去重（签名本身不含 pending，崩溃不等于没变化）。 | T42 B5：把已提交步改回 `pending` 后 sweep，断言不调用模型、恰好 1 个 WorkItem、adopt 既有任务。 | 已修复；T42 B5 Pass |
+| M4C-04 | `ld/coordinator.py::run_goal()` / `LDGoalRunner._advance_one()` | 单次调用预算与 Goal 累计预算语义混用：调度器每轮只给 1 次决策，若直接叠加在累计计数上会立刻"预算耗尽"。新增显式 `budget_is_per_call`（默认 False 保持 M4-B 契约），仅调度器分享用。 | T37 budget 用例（Owner 重复 `run-goal` 仍受绝对预算约束）必须继续 Pass；T42 B1 多次唤醒须能推进。 | 已修复；T37 + T42 同时 Pass |
+| M4C-05 | `ld/decision.py`、`ld/coordinator.py::run_once()` | 真实模型偶发输出**结构不完整**决策（如 assertion 缺 `target`），原逻辑等同策略违规，直接把 Goal 永久停在 `needs_human`（T44 首跑真实复现）。现拆分为：`DecisionPolicyError`（未知动作/未知字段/越权工具/`finish` 无 verified 证据 → 永久 fail-closed、不重试）与普通 `DecisionValidationError`（缺字段/类型错 → `next_state=model_output_invalid`、`model_call_failed=True`、按同一步重试）。 | T42 B6：首个样本缺字段须可重试并最终提交 1 个任务；同进程的 `rm -rf /` 仍必须 `invalid_model_decision`、`executed=false`、不被标记可重试。T32/T36 全部旧断言须保持。 | 已修复；T32/T36/T42 全 Pass |
+| M4C-R01 | 剩余风险：Goal 调度簿记（`ld_goal_runner`）与 Ledger 仍分属不同 SQLite 连接，`last_signature` 的写入不是与 WorkItem 终态同一事务 | 依赖"签名只由可查询的 Ledger 事实派生"来收敛：即使多写/漏写一次签名，下一轮 observe 会重新算出相同或不同签名，最坏多一次模型调用，不会丢任务也不会重复提交（幂等键绑定 goal+step）。 | T42 B2/B5 覆盖进程内与重启后两种路径 | 设计如此，已验证 |
+| M4C-R02 | 剩余风险：自动推进仍受单个 Goal 预算与失败阈值约束，长目标可能多次触发 `needs_human` | 属有界自主的**预期行为**，不是缺陷；`--resume` 或新的 Human Owner 决策显式解锁。调度器永不自行放宽预算。 | — | 已知行为 |
+
 ## M4 可靠性收口（评审 ee539ee 的处理，2026-10-30）
 
 | # | 问题 | 处理 | 验证 | 状态 |

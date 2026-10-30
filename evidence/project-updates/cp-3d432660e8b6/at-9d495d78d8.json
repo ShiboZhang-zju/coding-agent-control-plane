@@ -1,0 +1,41 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-3d432660e8b6",
+    "project_id": "prj-323222afc5",
+    "title": "实现 feature-a 并让测试通过",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertion_results": [],
+    "warnings": [],
+    "finished_at": 1700000000.0
+  },
+  "attempt": {
+    "id": "at-9d495d78d8",
+    "worker_job_id": "job-cp-3d432660e8b6",
+    "state": null,
+    "reason": "state-change",
+    "created_at": 1793357783.0691414,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 1,
+      "work_item_id": "cp-3d432660e8b6",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "stub",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-323222afc5",
+        "workspace_id": "ws-6816926474",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "context_injected": true
+      },
+      "created_at": 1793357782.9347563
+    }
+  ]
+}

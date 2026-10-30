@@ -148,6 +148,29 @@
   复杂 Goal DAG 或 Agent 协商。只有实际被专项证据覆盖的边界可标为 Pass；
   局部确定性测试通过不得写成 M4 MVP 已通过验收。
 
+### 5.4 自动推进边界（M4-C 引入）
+
+- **只有一个自动唤醒实现。** `LDGoalRunner`（`ld/goal_runner.py`）是确定性
+  调度组件，不是 LLM Agent。Runtime 内嵌（`--advance-goals`）与独立进程
+  （`scripts/run_ld_goal_runner.py`）必须共用它，不得出现第二套唤醒逻辑。
+- **只在观测状态确实变化时调用模型。** 相同 `goal_wake_signature` 必须跳过；
+  Pending Step 例外（未完成的工作不是"没变化"）。不得为了刷完成率而缩短去重。
+- **终态 Goal 不得被自动唤醒**：`needs_human` / `completed` / `failed`
+  不调用模型、不自动恢复。模型自述的 `request_human` 不得被调度器忽略。
+- **失败必须有界。** 模型失败按退避重试，超过阈值写 `needs_human` 并停止
+  调用；失败原因必须可查询。不得实现无限重试或无限轮询。
+- **调度簿记不是第二份真相。** `ld_goal_runner` 只存 last_signature / 退避 /
+  计数；任务成败一律读 Ledger，`ld_goals` 只记目标推进。
+- **模型输出瑕疵与策略违规必须分开。** 缺字段/类型错是可重试的
+  `model_output_invalid`；未知动作、未知字段、越权工具、`finish` 缺 verified
+  证据是 `DecisionPolicyError`，永久 fail-closed，不得因重试而放宽。
+- **Checkpoint 引用保护先于可派发。** 需要 Git checkpoint 的 Handoff
+  WorkItem 在引用未获证明前必须落在 `checkpoint_unprotected`（`ready` 之外的
+  非可领取状态）；翻转为 `ready` 只能通过 CAS，派发路径还必须再复核一次。
+  不得把 Git 对象存在等同于引用已保护，也不得让恢复 sweep 无条件覆盖
+  `running` 行。
+- 自动推进不得改写已冻结的 Effective Prompt、`handoff_signature` 或既有审批。
+
 ## 6. 派发与审批规则（M1 补充）
 
 - 入队即冻结 Effective Prompt。已入队任务的内容不得因上下文更新而改变。
