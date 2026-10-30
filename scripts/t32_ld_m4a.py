@@ -120,6 +120,21 @@ def finish(project_id: str, task_id: str) -> dict[str, Any]:
 def fresh() -> None:
     for stale in [LEDGER, *LEDGER.parent.glob(LEDGER.name + ".*")]:
         stale.unlink(missing_ok=True)
+    for repo in [REPO_A, REPO_B]:
+        if not (repo / ".git").exists():
+            shutil.rmtree(repo, ignore_errors=True)
+            repo.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True,
+                           capture_output=True, timeout=30)
+            subprocess.run(["git", "config", "user.email", "t32@example.invalid"],
+                           cwd=repo, check=True, capture_output=True, timeout=30)
+            subprocess.run(["git", "config", "user.name", "T32"], cwd=repo,
+                           check=True, capture_output=True, timeout=30)
+            (repo / "seed.txt").write_text("seed\n", encoding="utf-8")
+            subprocess.run(["git", "add", "seed.txt"], cwd=repo, check=True,
+                           capture_output=True, timeout=30)
+            subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=repo,
+                           check=True, capture_output=True, timeout=30)
     shutil.rmtree(WORKSPACE_TWO, ignore_errors=True)
     WORKSPACE_TWO.mkdir(parents=True)
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import sys
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -29,9 +30,14 @@ from controlplane.project_context import (
     ProjectContextStore,
 )
 from controlplane.store import TaskStore
-from scripts.sanitize_evidence import sanitize_text, write_evidence
 
 ROOT = Path(__file__).resolve().parent.parent
+try:
+    from scripts.sanitize_evidence import sanitize_text, write_evidence
+except ModuleNotFoundError:  # pragma: no cover - environment-dependent fallback
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from sanitize_evidence import sanitize_text, write_evidence
+
 TERMINAL_VERDICTS = {
     Verdict.VERIFIED.value,
     Verdict.REJECTED.value,

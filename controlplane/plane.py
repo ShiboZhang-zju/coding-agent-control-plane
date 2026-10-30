@@ -257,7 +257,18 @@ class ControlPlane:
                 out["deduplicated"] = True
                 return out
 
-        digest = task_digest(prompt, policy, assertions, cwd, extra_scope=digest_scope)
+        # The digest must be computed over the same execution facts that
+        # ``_dispatch_record`` will re-derive at dispatch time (workspace,
+        # context version, handoff signature). Without this, an approval
+        # granted for the enqueue-time digest never matches the dispatch-time
+        # recomputation and the task can never be dispatched.
+        effective_scope = digest_scope or self._digest_scope({
+            "workspace_id": workspace_id,
+            "context_version": context_version,
+            "metadata": metadata,
+        })
+        digest = task_digest(prompt, policy, assertions, cwd,
+                             extra_scope=effective_scope)
         approval = (self.store.valid_approval_by_digest(digest)
                     if policy.requires_approval() else None)
         queue_status = "ready" if (not policy.requires_approval() or approval) else "needs_approval"

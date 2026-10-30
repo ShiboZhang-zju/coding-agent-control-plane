@@ -137,7 +137,11 @@ def cmd_stop(port: int) -> int:
     if not pid:
         print(json.dumps({"result": "no_listener", "port": port}))
         return 0
-    winproc.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True)
+    # Kill ONLY the listener PID. Never use /T here: the serve process forks an
+    # npm auto-update child, and killing the tree leaves the global install
+    # half-broken (bin shims vanish, `codebuddy` becomes "unknown"; repaired by
+    # re-running `npm install -g @tencent-ai/codebuddy-code@<version>`).
+    winproc.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, text=True)
     deadline = time.time() + 20
     while time.time() < deadline and port_listening(port):
         time.sleep(0.5)
