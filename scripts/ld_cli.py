@@ -1,14 +1,20 @@
-"""Minimal local CLI for the single-turn LD coordinator (M4-A, unverified).
+"""Minimal local CLI for the LD coordinator (M4-A single turn, M4-B goals).
 
 The CLI shares the Runtime's SQLite ledger.  It never imports a Worker Adapter,
 never dispatches directly, and cannot approve/deny work.  ``--decision-json``
 injects structured data for local development; it does not load Python code or
 shell commands and still passes through the strict decision validator.
+
+A real model can be attached with ``--model-base-url/--model-name/--model-api-key``
+or the ``LD_MODEL_BASE_URL`` / ``LD_MODEL_NAME`` / ``LD_MODEL_API_KEY``
+environment variables.  Without either, the coordinator reports
+``model_not_configured`` and executes nothing.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -21,6 +27,7 @@ from controlplane.plane import ControlPlane  # noqa: E402
 from controlplane.project_service import ProjectService  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 from ld.coordinator import LDCoordinator  # noqa: E402
+from ld.model import OpenAIChatModel  # noqa: E402
 from ld.tools import LDTools  # noqa: E402
 
 
@@ -80,7 +87,27 @@ def build_parser() -> argparse.ArgumentParser:
             "--decision-json", default=None, metavar="PATH",
             help=("local structured decision file; use '-' for stdin. If omitted, "
                   "the coordinator reports model_not_configured"))
+        _add_model_args(command)
     return parser
+
+
+def _add_model_args(command: argparse.ArgumentParser) -> None:
+    command.add_argument(
+        "--model-base-url", default=None,
+        help="OpenAI-compatible endpoint (or LD_MODEL_BASE_URL)")
+    command.add_argument(
+        "--model-name", default=None,
+        help="model id at the endpoint (or LD_MODEL_NAME)")
+    command.add_argument(
+        "--model-api-key", default=None,
+        help="endpoint API key; never logged (or LD_MODEL_API_KEY)")
+    command.add_argument(
+        "--model-timeout-s", type=float, default=None,
+        help="model call deadline in seconds (or LD_MODEL_TIMEOUT_S)")
+    command.add_argument(
+        "--model-domains", default=None,
+        help="comma-separated security domains the model may see "
+             "(default: local,shareable when a real model is configured)")
 
 
 def main() -> int:
@@ -110,8 +137,21 @@ def main() -> int:
             return 0
 
         model = load_decision(args.decision_json)
-        # A JSON decision is read locally and does not transmit project content.
-        domains = ("local", "shareable") if model else ()
+        if model is None:
+            base_url = args.model_base_url or os.environ.get("LD_MODEL_BASE_URL", "")
+            model_name = args.model_name or os.environ.get("LD_MODEL_NAME", "")
+            if base_url.strip() and model_name.strip():
+                model = OpenAIChatModel(
+                    base_url=base_url,
+                    model=model_name,
+                    api_key=args.model_api_key or os.environ.get("LD_MODEL_API_KEY"),
+                    timeout_s=(args.model_timeout_s
+                               or float(os.environ.get("LD_MODEL_TIMEOUT_S", "60"))))
+        # A JSON decision is local and a real endpoint is explicit configuration;
+        # both authorize the same bounded view of project context.
+        domains = tuple(
+            item.strip() for item in (args.model_domains or "local,shareable").split(",")
+            if item.strip()) if model else ()
         coordinator = LDCoordinator(
             tools, model, model_authorized_security_domains=domains)
         result = coordinator.run_once(

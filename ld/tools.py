@@ -129,8 +129,42 @@ class LDTools:
     def get_task_status(self, task_id: str) -> dict:
         return self._service.get_task_status(task_id)
 
-    def get_task_provenance(self, task_id: str) -> dict:
-        return self._service.get_task_provenance(task_id)
+    def get_task_provenance(self, task_id: str, *,
+                            allowed_security_domains: Iterable[str] | None = None
+                            ) -> dict:
+        """Task provenance, optionally filtered to a model-safe view.
+
+        ``None`` keeps the full local operator view (including the frozen
+        Effective Prompt).  An explicit domain set returns the model view
+        (M4B-01): no Effective Prompt, no original task text, and context
+        entry titles only from authorized security domains.
+        """
+        provenance = self._service.get_task_provenance(task_id)
+        if allowed_security_domains is None:
+            return provenance
+        allowed = {str(item) for item in allowed_security_domains}
+        filtered_entries = []
+        for entry in provenance.get("context_entries") or []:
+            full = self._service.store.get_context_entry(entry.get("id"))
+            if full and full.get("security_domain") in allowed:
+                filtered_entries.append(entry)
+        return {
+            "task_id": provenance.get("task_id"),
+            "project_id": provenance.get("project_id"),
+            "workspace_id": provenance.get("workspace_id"),
+            "context_version": provenance.get("context_version"),
+            "context_entry_refs": provenance.get("context_entry_refs") or [],
+            "context_entries": filtered_entries,
+            "task_digest": provenance.get("task_digest"),
+            "state": provenance.get("state"),
+            "verdict": provenance.get("verdict"),
+            "ld_goal_ref": provenance.get("ld_goal_ref"),
+            "ld_submission_signature": provenance.get("ld_submission_signature"),
+            "handoff": provenance.get("handoff"),
+            "handoff_source": provenance.get("handoff_source") or {},
+            "effective_prompt_omitted": True,
+            "original_task_omitted": True,
+        }
 
     def submit_project_task(
         self,

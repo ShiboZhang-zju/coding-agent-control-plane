@@ -508,10 +508,14 @@ class LDCoordinator:
             result = self._tools.get_task_status(decision.parameters["task_id"])
         else:
             # Provenance contains the frozen Effective Prompt.  Check the
-            # low-sensitivity status projection before retrieving that payload.
+            # low-sensitivity status projection first, then retrieve the
+            # model-filtered view (M4B-01): prompts and unauthorized context
+            # never enter model-visible results.
             status = self._tools.get_task_status(decision.parameters["task_id"])
             self._require_task_project(status, decision.project_id)
-            result = self._tools.get_task_provenance(decision.parameters["task_id"])
+            result = self._tools.get_task_provenance(
+                decision.parameters["task_id"],
+                allowed_security_domains=self._model_domains)
         self._require_task_project(result, decision.project_id)
         return result
 

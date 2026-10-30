@@ -42,9 +42,9 @@ class CountingTools(LDTools):
         super().__init__(service)
         self.provenance_calls = 0
 
-    def get_task_provenance(self, task_id: str) -> dict:
+    def get_task_provenance(self, task_id: str, **kwargs) -> dict:
         self.provenance_calls += 1
-        return super().get_task_provenance(task_id)
+        return super().get_task_provenance(task_id, **kwargs)
 
 
 def static(decision: dict[str, Any]):

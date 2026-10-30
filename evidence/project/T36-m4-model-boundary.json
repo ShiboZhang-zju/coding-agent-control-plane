@@ -1,0 +1,45 @@
+{
+  "test": "T36-m4-model-boundary",
+  "worker_started": false,
+  "sections": {
+    "model": {
+      "bare_json_parses": true,
+      "fenced_json_stripped": true,
+      "http_error_typed": true,
+      "bad_payload_typed": true,
+      "non_object_rejected": true,
+      "timeout_typed": true,
+      "describe_hides_secret": true,
+      "from_env_absent_is_none": true,
+      "from_env_configures": true
+    },
+    "coordinator": {
+      "illegal_action_fails_closed": true,
+      "transport_error_fails_closed": true,
+      "unauthorized_domain_skips_model": true,
+      "model_view_has_no_prompt": true,
+      "model_view_keeps_facts": true,
+      "operator_view_keeps_prompt": true,
+      "inspect_returns_filtered_view": true
+    }
+  },
+  "checks": {
+    "model.bare_json_parses": true,
+    "model.fenced_json_stripped": true,
+    "model.http_error_typed": true,
+    "model.bad_payload_typed": true,
+    "model.non_object_rejected": true,
+    "model.timeout_typed": true,
+    "model.describe_hides_secret": true,
+    "model.from_env_absent_is_none": true,
+    "model.from_env_configures": true,
+    "coordinator.illegal_action_fails_closed": true,
+    "coordinator.transport_error_fails_closed": true,
+    "coordinator.unauthorized_domain_skips_model": true,
+    "coordinator.model_view_has_no_prompt": true,
+    "coordinator.model_view_keeps_facts": true,
+    "coordinator.operator_view_keeps_prompt": true,
+    "coordinator.inspect_returns_filtered_view": true
+  },
+  "result": "Pass"
+}

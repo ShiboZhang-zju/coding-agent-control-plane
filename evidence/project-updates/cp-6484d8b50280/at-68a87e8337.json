@@ -1,0 +1,100 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-6484d8b50280",
+    "project_id": "prj-239d5e4158",
+    "title": "在当前项目默认工作区中创建文件 real-model.txt，内容为一行文本：single-turn-ok。除 real",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "real-model.txt",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "changed since baseline"
+      },
+      {
+        "kind": "file_contains",
+        "target": "real-model.txt",
+        "value": "single-turn-ok",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      }
+    ],
+    "warnings": [],
+    "finished_at": 1793332571.626
+  },
+  "attempt": {
+    "id": "at-68a87e8337",
+    "worker_job_id": "f9acbf4f",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793332492.0454917,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 1,
+      "work_item_id": "cp-6484d8b50280",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-239d5e4158",
+        "workspace_id": "ws-bca476f2ad",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "context_injected": true
+      },
+      "created_at": 1793332488.828662
+    },
+    {
+      "id": 2,
+      "work_item_id": "cp-6484d8b50280",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-239d5e4158",
+        "root": "<REPO>\\sandbox\\m4-real-single-16fb319a\\repo-a",
+        "cwd": "<REPO>\\sandbox\\m4-real-single-16fb319a\\repo-a"
+      },
+      "created_at": 1793332488.8958812
+    },
+    {
+      "id": 3,
+      "work_item_id": "cp-6484d8b50280",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\m4-real-single-16fb319a\\repo-a",
+        "attempt_id": "at-68a87e8337",
+        "approval_id": null
+      },
+      "created_at": 1793332492.1134925
+    },
+    {
+      "id": 4,
+      "work_item_id": "cp-6484d8b50280",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "f9acbf4f",
+        "http": 200
+      },
+      "created_at": 1793332492.438986
+    }
+  ]
+}

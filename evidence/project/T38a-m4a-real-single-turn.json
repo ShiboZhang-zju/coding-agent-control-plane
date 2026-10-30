@@ -1,0 +1,42 @@
+{
+  "test": "T38a-m4a-real-single-turn",
+  "worker_started": true,
+  "date": "2026-10-30",
+  "model": {
+    "endpoint_host": "qmapi.woa.com",
+    "model": "gpt-5.5",
+    "configured_via": "explicit OpenAIChatModel construction (LD_MODEL_* env equivalent)",
+    "security_domains_authorized": ["local", "shareable"]
+  },
+  "chain": [
+    "real LLM structured decision (submit_task, valid assertions)",
+    "LDTools -> ProjectService context injection",
+    "ControlPlane enqueue",
+    "real CodeBuddy Worker agent job (worktree isolation)",
+    "Verifier assertions",
+    "M2 Project Context Update"
+  ],
+  "goal": "在当前项目中创建文件 real-model.txt，内容为一行文本 single-turn-ok",
+  "result": {
+    "decision_action": "submit_task",
+    "next_state": "task_submitted",
+    "task_id": "cp-6484d8b50280",
+    "decision_parameters_assertions": [
+      {"kind": "file_exists", "target": "real-model.txt"},
+      {"kind": "file_contains", "target": "real-model.txt", "value": "single-turn-ok"}
+    ],
+    "worker_state": "succeeded",
+    "verdict": "verified",
+    "assertion_results_all_passed": true,
+    "context_entries_created": [
+      "Execution evidence for task cp-6484d8b50280",
+      "Follow-up for task cp-6484d8b50280"
+    ]
+  },
+  "notes": [
+    "fixture: sandbox/m4-real-single-*/repo-a (throw-away git repo, not committed)",
+    "per-task M2 evidence snapshot: evidence/project-updates/cp-6484d8b50280/",
+    "first model attempt produced string-typed assertions and was rejected by the strict decision validator (fail-closed); the system prompt now documents the object shape with an example",
+    "full multi-session goal run and restart-recovery are covered by T38 (scripts/t38_m4_real_e2e.py)"
+  ]
+}
