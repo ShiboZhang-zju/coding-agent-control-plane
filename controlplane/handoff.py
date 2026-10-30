@@ -33,6 +33,9 @@ class HandoffNotReady(HandoffError):
         self.prepared = prepared or {}
 
 
+CHECKPOINT_MODES = {"integrated", "reachable"}
+
+
 class HandoffIdempotencyConflict(HandoffError):
     """An idempotency key already names different handoff content."""
 
@@ -110,10 +113,14 @@ class HandoffPlanner:
                 prerequisites: Iterable[str] = (),
                 require_verified_constraints: bool = False,
                 extra_references: Iterable[str] = (),
-                require_checkpoint: bool = True) -> PreparedHandoff:
+                require_checkpoint: bool = True,
+                checkpoint_mode: str = "integrated") -> PreparedHandoff:
         source = self.store.get(source_work_item_id)
         if not source:
             raise KeyError(f"no work item {source_work_item_id}")
+        if checkpoint_mode not in CHECKPOINT_MODES:
+            raise HandoffError(
+                f"checkpoint_mode must be one of {sorted(CHECKPOINT_MODES)}")
         project_id = source.get("project_id")
         if not project_id:
             raise HandoffError(
@@ -193,7 +200,9 @@ class HandoffPlanner:
 
         checkpoint_ref = source.get("head_commit")
         checkpoint = self._checkpoint(
-            checkpoint_ref, target_root, source.get("worktree"), require_checkpoint)
+            checkpoint_ref, target_root, source.get("worktree"), require_checkpoint,
+            mode=checkpoint_mode)
+        checkpoint["mode"] = checkpoint_mode
         blockers.extend(checkpoint.pop("blockers"))
         unresolved.extend(source.get("warnings") or [])
         if source.get("verdict") != Verdict.VERIFIED.value:
@@ -245,7 +254,7 @@ class HandoffPlanner:
             effective_prompt = self._render_prompt(
                 built.effective_prompt, source, attempt_id, session_ref,
                 checkpoint_ref, target["id"] if target else None,
-                source_facts)
+                source_facts, checkpoint_mode=checkpoint_mode)
 
         # Stable de-duplication while preserving the order of the first reason.
         blockers = list(dict.fromkeys(blockers))
@@ -341,9 +350,10 @@ class HandoffPlanner:
 
     def _checkpoint(self, checkpoint_ref: str | None,
                     target_root: str | None, source_worktree: str | None,
-                    required: bool) -> dict:
+                    required: bool, *, mode: str = "integrated") -> dict:
         result = {
             "kind": "git_commit" if checkpoint_ref else "context_only",
+            "mode": mode,
             "source_worktree": source_worktree,
             "source_head": None,
             "source_checkpoint": None,
@@ -399,18 +409,62 @@ class HandoffPlanner:
         if not result["available"]:
             result["blockers"].append(
                 f"checkpoint {checkpoint_ref} is not available in target workspace")
-        elif not result["integrated"]:
+        elif mode == "integrated" and not result["integrated"]:
             result["blockers"].append(
                 f"checkpoint {checkpoint_ref} is not contained in target workspace HEAD; "
                 "merge it or select a compatible workspace explicitly")
         return result
+
+    def capture_source_checkpoint(self, source_work_item_id: str) -> str | None:
+        """Deterministically turn the source session's worktree into a commit.
+
+        The control plane — not the Worker and not a model — creates the
+        checkpoint: uncommitted changes in the source worktree are committed on
+        that worktree's own isolation branch, and the resulting HEAD is stored
+        as the source's ``head_commit``.  This never touches the project's
+        default branch.  Returns the checkpoint commit, or None when there is
+        no usable worktree (context-only handoff).
+        """
+        source = self.store.get(source_work_item_id)
+        if not source:
+            raise KeyError(f"no work item {source_work_item_id}")
+        worktree = source.get("worktree")
+        if not worktree or not Path(worktree).is_dir():
+            return source.get("head_commit")
+        try:
+            status = self._git(worktree, "status", "--porcelain")
+            head = self._git(worktree, "rev-parse", "HEAD")
+        except (OSError, subprocess.SubprocessError):
+            return source.get("head_commit")
+        if status.returncode != 0 or head.returncode != 0:
+            return source.get("head_commit")
+        checkpoint = head.stdout.strip()
+        if status.stdout.strip():
+            args = ["-c", "user.name=control-plane",
+                    "-c", "user.email=control-plane@handoff.local",
+                    "commit", "-q", "-m",
+                    f"control-plane handoff checkpoint for {source_work_item_id}"]
+            for step in (["add", "-A"], args):
+                proc = self._git(worktree, *step)
+                if proc.returncode != 0:
+                    raise HandoffError(
+                        f"cannot capture handoff checkpoint in {worktree}: "
+                        f"git {step[:2]} failed: {proc.stderr.strip()}")
+            new_head = self._git(worktree, "rev-parse", "HEAD")
+            if new_head.returncode != 0:
+                raise HandoffError(
+                    f"cannot read checkpoint HEAD in {worktree}: "
+                    f"{new_head.stderr.strip()}")
+            checkpoint = new_head.stdout.strip()
+        self.store.update(source_work_item_id, head_commit=checkpoint)
+        return checkpoint
 
     @staticmethod
     def _render_prompt(base_prompt: str, source: dict,
                        attempt_id: str | None, session_ref: dict | None,
                        checkpoint_ref: str | None,
                        target_workspace_id: str | None,
-                       source_facts: dict) -> str:
+                       source_facts: dict, *, checkpoint_mode: str = "integrated") -> str:
         lines = [base_prompt.rstrip(), "", "# SESSION HANDOFF",
                  "- Start a new Session; do not resume or depend on the old chat transcript.",
                  f"- Source WorkItem: {source['task_id']}",
@@ -421,9 +475,16 @@ class HandoffPlanner:
                  "- Source assertion results: "
                  + json.dumps(source_facts.get("assertion_results") or [],
                               ensure_ascii=False, sort_keys=True, separators=(",", ":")),
-                 f"- Git checkpoint: {checkpoint_ref or 'context-only (explicit)'}",
+                 f"- Git checkpoint: {checkpoint_ref or 'context-only (explicit)'}"
+                 + (f" (mode: {checkpoint_mode})" if checkpoint_ref else ""),
                  f"- Target Workspace: {target_workspace_id or 'missing'}",
                  "- The Ledger verdict and Project Context are authoritative; "
                  "candidate/unverified entries remain non-authoritative.",
                  "- If the checkpoint or stated context is unavailable, stop and report the gap."]
+        if checkpoint_ref and checkpoint_mode == "reachable":
+            lines.append(
+                f"- Before starting, run `git merge {checkpoint_ref}` in your working "
+                "branch so the previously accepted code from the source session is "
+                "available. Resolve conflicts conservatively and report them if you "
+                "cannot. Never push or merge into the project's default branch.")
         return "\n".join(lines).rstrip() + "\n"

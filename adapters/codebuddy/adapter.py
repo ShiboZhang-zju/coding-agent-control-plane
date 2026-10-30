@@ -79,6 +79,7 @@ class CodeBuddyAdapter:
             self.api.login()
         self._jobs: dict[str, dict] = {}        # worker_job_id -> last raw job
         self._meta: dict[str, dict] = {}        # worker_job_id -> dispatch metadata
+        self._worktree_heads: dict[str, str] = {}  # worker_job_id -> settled worktree HEAD
 
     # ------------------------------------------------------------------ #
     # capabilities
@@ -248,6 +249,7 @@ class CodeBuddyAdapter:
             session_id=job.get("sessionId"),
             worktree=job.get("worktree") or job.get("worktreePath"),
             branch=job.get("branch"),
+            commit=self._worktree_head(job, state),
             started_at=(started / 1000.0) if started else None,
             finished_at=(finished / 1000.0) if finished else None,
             detail=job.get("detail") or "",
@@ -264,6 +266,33 @@ class CodeBuddyAdapter:
         if req:
             snap.artifacts = [a.target for a in req.assertions]
         return snap
+
+    def _worktree_head(self, job: dict, state: TaskState) -> str | None:
+        """The current HEAD of the job's worktree, when the worker exposes one.
+
+        The CodeBuddy job record has no commit field, but an isolated agent job
+        works in a linked worktree of the target repository, so the worktree
+        HEAD is the honest git checkpoint of whatever the session committed.
+        Terminal states cache the value: a worktree HEAD cannot legitimately
+        move after the job settled, and the lookup is a subprocess call.
+        """
+        worktree = job.get("worktree") or job.get("worktreePath")
+        if not worktree:
+            return None
+        job_id = job.get("id")
+        cached = self._worktree_heads.get(job_id)
+        if cached is not None:
+            return cached
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+                check=False, capture_output=True, text=True, timeout=10)
+            head = proc.stdout.strip() if proc.returncode == 0 else None
+        except (OSError, subprocess.SubprocessError):
+            head = None
+        if head and state.terminal:
+            self._worktree_heads[job_id] = head
+        return head
 
     def get_task(self, task_id_or_job: str, timeout_s: float = 30.0) -> TaskSnapshot:
         job = self.api.job(task_id_or_job, timeout=timeout_s)

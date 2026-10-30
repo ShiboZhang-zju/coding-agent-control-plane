@@ -1,0 +1,59 @@
+{
+  "test": "T35-m4-reliability-fixes",
+  "worker_started": false,
+  "sections": {
+    "A1": {
+      "submit_project_task_refuses_shell": true,
+      "submit_handoff_refuses_shell": true,
+      "refusal_names_reason": true,
+      "raw_enqueue_shell_still_works": true
+    },
+    "A2": {
+      "work_item_keeps_first_session": true,
+      "work_item_matches_registry": true,
+      "conflict_escalated": true,
+      "registry_immutable": true,
+      "event_names_source_attempt": true
+    },
+    "A3": {
+      "capture_creates_commit": true,
+      "capture_updates_head_commit": true,
+      "capture_leaves_worktree_clean": true,
+      "capture_message_is_auditable": true,
+      "capture_never_touches_main": true,
+      "reachable_mode_ready": true,
+      "reachable_checkpoint_available": true,
+      "reachable_not_claiming_integrated": true,
+      "integrated_mode_still_blocks": true,
+      "reachable_prompt_has_merge_instruction": true,
+      "context_only_still_labelled": true,
+      "submit_reachable_succeeds": true,
+      "submitted_prompt_has_merge_instruction": true
+    }
+  },
+  "checks": {
+    "A1.submit_project_task_refuses_shell": true,
+    "A1.submit_handoff_refuses_shell": true,
+    "A1.refusal_names_reason": true,
+    "A1.raw_enqueue_shell_still_works": true,
+    "A2.work_item_keeps_first_session": true,
+    "A2.work_item_matches_registry": true,
+    "A2.conflict_escalated": true,
+    "A2.registry_immutable": true,
+    "A2.event_names_source_attempt": true,
+    "A3.capture_creates_commit": true,
+    "A3.capture_updates_head_commit": true,
+    "A3.capture_leaves_worktree_clean": true,
+    "A3.capture_message_is_auditable": true,
+    "A3.capture_never_touches_main": true,
+    "A3.reachable_mode_ready": true,
+    "A3.reachable_checkpoint_available": true,
+    "A3.reachable_not_claiming_integrated": true,
+    "A3.integrated_mode_still_blocks": true,
+    "A3.reachable_prompt_has_merge_instruction": true,
+    "A3.context_only_still_labelled": true,
+    "A3.submit_reachable_succeeds": true,
+    "A3.submitted_prompt_has_merge_instruction": true
+  },
+  "result": "Pass"
+}

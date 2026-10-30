@@ -339,9 +339,16 @@ def m06_snapshot_conflict_consistency(store: TaskStore, plane: ControlPlane,
     seed = git(REPO_A, "rev-parse", "HEAD")
     task = make_source(store=store, plane=plane, project_id=project_a,
                        repo=REPO_A, head_commit=seed,
-                       worktree=str(REPO_A / "wt-06"), session="sess-D1")
+                       worktree=str(REPO_A / "wt-06"), session="sess-D1",
+                       job="job-d1")
     attempt_id = store.get(task)["current_attempt_id"]
     first = store.session_reference_for_attempt(attempt_id)
+    # The real write path persists the first (winning) snapshot through the
+    # same helper, which is what puts session_id on the WorkItem at all.
+    plane._save_snapshot(task, TaskSnapshot(
+        task_id=task, worker_job_id="job-d1", state=TaskState.RUNNING,
+        session_id="sess-D1"), patch={"state": TaskState.RUNNING.value,
+                                      "session_id": "sess-D1"})
 
     snap = TaskSnapshot(task_id=task, worker_job_id="job-d1",
                         state=TaskState.SUCCEEDED, session_id="sess-D2")
@@ -357,10 +364,9 @@ def m06_snapshot_conflict_consistency(store: TaskStore, plane: ControlPlane,
                                for w in saved.get("warnings") or []),
         "first_binding_immutable": (
             registry is not None and registry["session_id"] == "sess-D1"),
-        # Known atomicity window (M3-06): the WorkItem's session_id is the
-        # conflicting snapshot's, the immutable registry keeps the first one.
-        "work_item_session_id": saved.get("session_id"),
-        "registry_session_id": (registry or {}).get("session_id"),
+        # Since the A2 fix the conflicting session_id never lands on the
+        # WorkItem: it keeps the registry-immutable first binding.
+        "work_item_matches_registry": saved.get("session_id") == "sess-D1",
         "registry_first_created_before": (
             first is not None and registry is not None
             and first["id"] == registry["id"]),
@@ -378,6 +384,11 @@ def m07_late_snapshot_attempt_association(store: TaskStore, plane: ControlPlane,
     current_attempt = store.get(task)["current_attempt_id"]
     old_attempt = [a for a in store.attempts(task)
                    if a["worker_job_id"] == "job-e1"][0]["id"]
+    # First winning snapshot puts sess-E1 on the WorkItem, like the real path.
+    plane._save_snapshot(task, TaskSnapshot(
+        task_id=task, worker_job_id="job-e1", state=TaskState.RUNNING,
+        session_id="sess-E1"), patch={"state": TaskState.RUNNING.value,
+                                      "session_id": "sess-E1"})
 
     snap = TaskSnapshot(task_id=task, worker_job_id="job-e1",
                         state=TaskState.SUCCEEDED, session_id="sess-E2")
@@ -392,11 +403,14 @@ def m07_late_snapshot_attempt_association(store: TaskStore, plane: ControlPlane,
         "work_item_needs_human": saved.get("queue_status") == "needs_human",
         "old_attempt_binding_unchanged": (
             old_binding is not None and old_binding["session_id"] == "sess-E1"),
-        # Known association window (M3-07): the event is filed under the
-        # current attempt, not the late snapshot's own older attempt.
-        "event_attempt_is_current": event_attempt_ids == [current_attempt],
-        "late_snapshot_attempt": old_attempt,
-        "event_attempt_ids": event_attempt_ids,
+        # Since the A2 fix the event is attributed to the Attempt the late
+        # Snapshot actually came from (resolved via worker_job_id), not to the
+        # currently active attempt.
+        "event_attempt_is_source": event_attempt_ids == [old_attempt],
+        "event_reports_source_attempt_id": (
+            events and events[0].get("payload", {}).get("source_attempt_id")
+            == old_attempt),
+        "work_item_session_matches_registry": saved.get("session_id") == "sess-E1",
     }
 
 

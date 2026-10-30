@@ -228,7 +228,8 @@ def _run_project_command(args, plane: ControlPlane, store: TaskStore) -> int:
             target_workspace_id=args.workspace,
             tags=args.tag, prerequisites=args.prerequisite,
             require_verified_constraints=args.require_verified_constraints,
-            require_checkpoint=not args.allow_context_only),
+            require_checkpoint=not args.allow_context_only,
+            checkpoint_mode=args.checkpoint_mode),
             compact=args.compact)
     elif cmd == "handoff-submit":
         rec = service.submit_handoff(
@@ -240,6 +241,7 @@ def _run_project_command(args, plane: ControlPlane, store: TaskStore) -> int:
             tags=args.tag, prerequisites=args.prerequisite,
             require_verified_constraints=args.require_verified_constraints,
             require_checkpoint=not args.allow_context_only,
+            checkpoint_mode=args.checkpoint_mode,
             expected_handoff_signature=args.expected_signature)
         emit({**item_view(rec),
               "deduplicated": rec.get("deduplicated", False),
@@ -396,6 +398,11 @@ def build_parser() -> argparse.ArgumentParser:
     handoff_prepare.add_argument(
         "--allow-context-only", action="store_true",
         help="explicitly allow a handoff with no recorded Git checkpoint")
+    handoff_prepare.add_argument(
+        "--checkpoint-mode", choices=["integrated", "reachable"],
+        default="integrated",
+        help="integrated: checkpoint must already be in target HEAD; "
+             "reachable: checkpoint object must be reachable, Session B merges it")
 
     handoff_submit = project_sub.add_parser(
         "handoff-submit", help="enqueue a prepared handoff as a normal WorkItem")
@@ -407,6 +414,11 @@ def build_parser() -> argparse.ArgumentParser:
     handoff_submit.add_argument("--prerequisite", action="append", default=[])
     handoff_submit.add_argument("--require-verified-constraints", action="store_true")
     handoff_submit.add_argument("--allow-context-only", action="store_true")
+    handoff_submit.add_argument(
+        "--checkpoint-mode", choices=["integrated", "reachable"],
+        default="integrated",
+        help="reachable commits the source worktree first and lets Session B "
+             "merge the checkpoint in its own working branch")
     handoff_submit.add_argument(
         "--expected-signature", default=None,
         help="prepared handoff signature; submit fails if context/checkpoint drifted")

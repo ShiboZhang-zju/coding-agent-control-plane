@@ -1112,11 +1112,19 @@ class ControlPlane:
         All Snapshot write paths go through this helper so restart recovery,
         refresh, cancel and resume cannot update ``work_items.session_id`` while
         leaving the project Session Registry stale.
+
+        The registry binding is attempted *before* the WorkItem write.  On
+        success both stores agree on the session identity.  On conflict the
+        WorkItem keeps its previously persisted session_id (which matches the
+        immutable registry binding), so the two views never diverge; the
+        conflict is escalated to ``needs_human`` and the event is attributed to
+        the Attempt the Snapshot actually came from.
         """
-        saved = self.store.update(
-            task_id, **(patch if patch is not None else self._snapshot_patch(task_id, snap)))
-        if not saved.get("project_id") or not snap.session_id:
-            return saved
+        rec = self.store.get(task_id) or {}
+        patch = patch if patch is not None else self._snapshot_patch(task_id, snap)
+        if not rec.get("project_id") or not snap.session_id:
+            return self.store.update(task_id, **patch)
+
         try:
             self.store.observe_session_reference(
                 work_item_id=task_id,
@@ -1126,18 +1134,26 @@ class ControlPlane:
                 adapter=self.adapter.name,
                 session_id=snap.session_id)
         except SessionBindingError as exc:
-            # The WorkItem snapshot remains durable, but registry ambiguity is a
-            # human-visible integrity problem.  Never overwrite the first binding.
+            # Never let a conflicting snapshot's session_id overwrite the
+            # WorkItem identity: drop it from the patch so the WorkItem keeps
+            # the registry-immutable first binding.
+            patch = {key: value for key, value in patch.items()
+                     if key != "session_id"}
+            saved = self.store.update(task_id, **patch)
+            source = self.store.attempt_for_worker_job(snap.worker_job_id or "")
             self.store.append_event(task_id, "session_binding_conflict", {
                 "worker_job_id": snap.worker_job_id,
                 "session_id": snap.session_id,
                 "error": f"{type(exc).__name__}: {exc}",
-            }, attempt_id=saved.get("current_attempt_id"))
-            saved = self.store.update(
+                "source_attempt_id": source["id"] if source else None,
+                "source_attempt_resolved": bool(source),
+            }, attempt_id=(source["id"] if source
+                           else saved.get("current_attempt_id")))
+            return self.store.update(
                 task_id, queue_status="needs_human",
                 warnings=list(saved.get("warnings") or []) + [
                     f"SESSION_BINDING_CONFLICT:{type(exc).__name__}:{exc}"])
-        return saved
+        return self.store.update(task_id, **patch)
 
     @staticmethod
     def _queue_status_for(state: TaskState) -> str:

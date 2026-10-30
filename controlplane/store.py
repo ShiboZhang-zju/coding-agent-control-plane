@@ -1038,6 +1038,20 @@ class TaskStore:
         return dict(row) if row else None
 
     @_synchronized
+    def attempt_for_worker_job(self, worker_job_id: str) -> dict | None:
+        """The most recent Attempt bound to one Worker job (read-only lookup).
+
+        Used to attribute a late Snapshot to the Attempt it actually belongs
+        to, instead of whatever attempt happens to be current now.
+        """
+        if not worker_job_id:
+            return None
+        row = self._conn.execute(
+            "SELECT * FROM attempts WHERE worker_job_id=? "
+            "ORDER BY created_at DESC LIMIT 1", (worker_job_id,)).fetchone()
+        return dict(row) if row else None
+
+    @_synchronized
     def session_references(self, project_id: str, limit: int = 50) -> list[dict]:
         rows = self._conn.execute(
             "SELECT sr.*, p.id AS linked_project, w.project_id AS workspace_project, "

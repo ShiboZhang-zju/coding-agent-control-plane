@@ -432,6 +432,16 @@ class ProjectService:
             for a in assertions]
         if isinstance(policy, dict):
             policy = DispatchPolicy(**policy)
+        # T34-F02: a shell Worker executes the *frozen prompt itself*.  Context
+        # injection builds a multi-line structured prompt whose first lines are
+        # not valid shell, so this combination can only produce a rejected task.
+        # Refuse it at submission time instead of letting it fail silently.
+        if policy is not None and policy.mode == "shell":
+            raise ValueError(
+                "submit_project_task refuses shell policy: the context-injected "
+                "multi-line effective prompt would be executed as a shell script "
+                "and fail; use ControlPlane.enqueue with a raw command for shell "
+                "jobs without project context injection")
 
         scope = {"workspace_id": built.workspace_id,
                  "context_version": built.context_version}
@@ -469,7 +479,11 @@ class ProjectService:
     # M3 handoff: prepare is read-only; submit creates a normal WorkItem
     # ------------------------------------------------------------------ #
     def prepare_handoff(self, source_work_item_id: str, task: str, **kwargs) -> dict:
-        """Preview a new-Session handoff without writing or calling a Worker."""
+        """Preview a new-Session handoff without writing or calling a Worker.
+
+        This is read-only by design: unlike ``submit_handoff``, it never
+        captures a checkpoint (which commits the source worktree).
+        """
         return self.handoffs.prepare(source_work_item_id, task, **kwargs).to_dict()
 
     def submit_handoff(self, source_work_item_id: str, task: str, *,
@@ -483,6 +497,7 @@ class ProjectService:
                        target_workspace_id: str | None = None,
                        extra_references: Iterable[str] = (),
                        require_checkpoint: bool = True,
+                       checkpoint_mode: str = "integrated",
                        expected_handoff_signature: str | None = None,
                        policy: DispatchPolicy | dict | None = None,
                        timeout_s: int = 900,
@@ -492,14 +507,26 @@ class ProjectService:
         The readiness checks are rerun here to close the prepare/submit gap.  The
         handoff source and checkpoint live in WorkItem metadata at insert time;
         the audit event is useful history, never the recovery source of truth.
+
+        ``checkpoint_mode='reachable'`` additionally captures a deterministic
+        git checkpoint of the source session's worktree (committing uncommitted
+        changes on the worktree's own isolation branch) so Session B can merge
+        the previously accepted code.  ``'integrated'`` keeps the strict M3
+        semantics: the checkpoint must already be contained in the target
+        workspace HEAD.
         """
+        if checkpoint_mode == "reachable":
+            # Deterministic capture *before* prepare so the readiness checks and
+            # the frozen prompt see the real code state, never a dirty worktree.
+            self.handoffs.capture_source_checkpoint(source_work_item_id)
         prepared = self.handoffs.prepare(
             source_work_item_id, task,
             target_workspace_id=target_workspace_id,
             tags=tags, prerequisites=prerequisites,
             require_verified_constraints=require_verified_constraints,
             extra_references=extra_references,
-            require_checkpoint=require_checkpoint)
+            require_checkpoint=require_checkpoint,
+            checkpoint_mode=checkpoint_mode)
         prepared_dict = prepared.to_dict()
         if not prepared.ready:
             raise HandoffNotReady(prepared.blockers, prepared_dict)
@@ -514,6 +541,13 @@ class ProjectService:
             for item in assertions]
         if isinstance(policy, dict):
             policy = DispatchPolicy(**policy)
+        # Same refusal as submit_project_task: a handoff prompt is a multi-line
+        # context-injected document, never a valid shell script.
+        if policy is not None and policy.mode == "shell":
+            raise ValueError(
+                "submit_handoff refuses shell policy: the context-injected "
+                "multi-line handoff prompt would be executed as a shell script "
+                "and fail")
         project = self.store.get_project(prepared.project_id) or {}
         effective_policy = (policy
                             or (DispatchPolicy(**project["policy"])

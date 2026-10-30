@@ -40,7 +40,9 @@ from sanitize_evidence import write_evidence  # noqa: E402
 
 REPO_A = str(ROOT / "sandbox" / "repo-a")
 LOW = DispatchPolicy(mode="agent", isolation="worktree")
-HIGH = DispatchPolicy(mode="shell", isolation="none", allow_unisolated_shell=True)
+# Declared high risk via an agent policy: shell mode is refused for context-
+# injected submissions since T35 (the multi-line prompt would run as a script).
+HIGH = DispatchPolicy(mode="agent", isolation="worktree", risk="high")
 
 
 class StubAdapter:
