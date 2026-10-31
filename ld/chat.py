@@ -113,14 +113,18 @@ _LOCAL_CONTENT_MARKERS = (
 
 
 def _looks_like_local_content(message: str) -> bool:
-    """Heuristic gate: might this sentence carry local-domain content?
+    """Extra tripwire: does this sentence obviously quote local content?
 
-    Deliberately over-inclusive.  A false positive costs one keyword-routed turn
-    (the answer is still correct, just less flexible); a false negative ships
-    a secret to a third-party endpoint.  The caller decides what to do — this
-    function never edits the text, because "auto-redaction" of a sentence whose
-    meaning depends on the redacted span produces an answer that is confidently
-    wrong, and worse, hides from the operator that nothing was sent.
+    This is **not** the authorization boundary, and must never be used as one.
+    Sensitivity cannot be proven by a word list: "t53 的客户内部代号是蓝鲸七号"
+    carries internal information and matches nothing here.  The boundary is the
+    model's explicit ``local`` authorization (see
+    :meth:`LDChat._classify`); this function only adds a second check on top of
+    it, for the case where an operator deliberately opted into raw sharing.
+
+    It never edits the text: "auto-redaction" of a sentence whose meaning
+    depends on the redacted span produces a confidently wrong answer *and* hides
+    from the operator that nothing was sent.
     """
     text = (message or "").lower()
     if not text:
@@ -223,9 +227,19 @@ class HeuristicIntentRouter:
     #: Quoting or meta-discussion of a verb ("“实现”是什么意思", 'the word implement').
     _QUOTE_MARKS = ("“", "”", "「", "」", "‘", "’", '"', "'", "的意思", "是什么意思",
                     "quote", "quoted", "word ")
-    #: Negation / deferral right before an imperative verb.
-    _NEGATIONS = ("不要", "不用", "别", "先别", "暂不", "暂时不", "不需要", "不必",
-                  "停止", "取消", "don't", "do not", "not now", "never", "stop")
+    #: Negation / deferral / prohibition words.  This list cannot be exhaustive
+    #: (暂缓/请勿/禁止 were all missing), which is why :meth:`is_negated` also
+    #: applies the structural rules below.  Treat this as the fast path, not as
+    #: the definition.
+    _NEGATIONS = ("不要", "不用", "别", "先别", "暂不", "暂时不", "暂缓", "暂缓推进",
+                  "不需要", "不必", "请勿", "勿要", "勿", "禁止", "严禁", "不得",
+                  "不准", "不许", "停止", "取消", "暂停", "搁置", "搁",
+                  "don't", "do not", "not now", "never", "stop", "hold off",
+                  "on hold", "defer")
+    #: Structural prohibition stems: a prohibition character standing directly in
+    #: front of a submit verb ("禁止推进", "请勿继续推进", "暂缓推进", "搁置实现")
+    #: is caught even when the exact wording is not in ``_NEGATIONS``.
+    _PROHIBITION_STEMS = ("禁", "勿", "缓", "停", "搁置", "搁", "免", "罢")
     #: Phrases that make a sentence a new instruction rather than a question
     #: about an existing goal (imperative voice).
     _IMPERATIVE_EN = ("please ", "go ahead", "let's ", "lets ")
@@ -273,8 +287,23 @@ class HeuristicIntentRouter:
         if task_id:
             return self._intent("task_status", project_id=project_id,
                                 task_id=task_id, reason="keyword: task id")
-        # 3. A verb only becomes an instruction after the guards above.
-        if mentions_verb and project_id and not self.is_negated(message):
+        # 3. A verb only becomes an instruction after the guards above.  A verb
+        #    wrapped in a negation or a condition is neither an instruction nor
+        #    a question: ask which it is instead of guessing either way.  Note
+        #    that the refusal is *not* silently downgraded to a status read —
+        #    "先不要在未审批通过前继续推进" is about starting work, so answering
+        #    "here is the project status" would misread the intent.
+        if mentions_verb and project_id:
+            if self.is_negated(message) or self.is_conditional(message):
+                return self._intent(
+                    "clarify", project_id=project_id,
+                    reason="instruction with a negation or a condition",
+                    parameters={"question": (
+                        "This sounds like it both mentions advancing the project "
+                        "and qualifies it (a negation or a precondition), so I did "
+                        "not start anything. If you want work to start, say it "
+                        "directly ('推进 <项目>：<目标>'); if you want it held, say "
+                        "'先不要推进'.")})
             return self._intent("submit_goal", project_id=project_id,
                                 reason="keyword: advance the project",
                                 parameters={"goal": self._objective(message)})
@@ -308,48 +337,83 @@ class HeuristicIntentRouter:
         lowered = text.lower()
         return any(f'"{word}"' in lowered for word in cls._SUBMIT)
 
-    #: How far after a negation the verb may appear and still be "the negated
-    #: instruction".  "先不要推进" negates 推进 (2 chars apart); "…，不要用
-    #: git_clean" negates a *different* verb and says nothing about the request.
-    _NEGATION_WINDOW = 6
+    #: Conditions/permissions attached to an instruction.  "先不要在未审批通过前
+    #: 继续推进" is not a refusal *and* not an unconditional request: it depends
+    #: on an approval that has not happened.  Such a sentence must not create
+    #: work on its own.
+    _CONDITIONAL = ("如果", "假如", "若", "待", "等", "在未", "在……之前", "之前",
+                    "审批", "批准", "通过后", "确认后", "unless", "if ", "after ",
+                    "before ", "once ", "pending")
+
+    @staticmethod
+    def _directive_part(message: str) -> str:
+        """The part of the sentence that *issues* the instruction.
+
+        "在 t53chat 完成这件事：…，不要用 git_clean" has a directive head and an
+        objective body; a negation inside the body constrains *how* the work is
+        done, it does not refuse the work.  Splitting them is what lets the
+        strict negation rule below coexist with well-specified requests.
+        """
+        text = (message or "").strip()
+        for separator in ("：", ":"):
+            head, _, tail = text.partition(separator)
+            if head.strip() and tail.strip():
+                return head
+        return text
 
     @classmethod
     def is_negated(cls, message: str) -> bool:
-        """True when the *instruction* is negated or deferred.
+        """True when the *directive* is negated or prohibited.
 
-        Not "the sentence contains 不要": a perfectly normal goal statement ends
-        with constraints ("…，不要用 git_clean"), and treating that as a refusal
-        forced a needless confirmation on every well-specified request
-        (observed in T53's first real run).  A negation only counts when the
-        submit verb follows it within a short window, i.e. when it negates *the
-        request* rather than some later verb.
+        This used to be a proximity window after a negation word (6 chars), which
+        was fragile in exactly the way the re-audit predicted: "先不要在未审批
+        通过前继续推进 t53 项目" puts 继续推进 more than six characters after 不要
+        and would have become a real Goal.  Widening the window only moves the
+        counterexample, so the rule is inverted: **any** negation/prohibition in
+        the directive means "not an unconditional instruction", regardless of
+        where the verb sits.
+
+        Deliberately asymmetric: a false positive asks the human once, a false
+        negative advances a project nobody asked to advance.
         """
-        lowered = (message or "").lower()
-        for negation in cls._NEGATIONS:
-            start = lowered.find(negation)
-            while start != -1:
-                window = lowered[start + len(negation):
-                                 start + len(negation) + cls._NEGATION_WINDOW]
-                if any(word in window for word in cls._SUBMIT):
+        directive = cls._directive_part(message)
+        lowered = directive.lower()
+        if any(word in lowered for word in cls._NEGATIONS):
+            return True
+        # Structural fallback: "禁止推进" / "暂缓推进" / "请勿继续推进" — a
+        # prohibition stem sitting immediately before the submit verb.  This is
+        # what keeps the check from being a race between us and the vocabulary.
+        for verb in cls._SUBMIT:
+            index = lowered.find(verb)
+            while index != -1:
+                prefix = lowered[max(0, index - 4):index]
+                if any(stem in prefix for stem in cls._PROHIBITION_STEMS):
                     return True
-                start = lowered.find(negation, start + 1)
+                index = lowered.find(verb, index + 1)
         return False
+
+    @classmethod
+    def is_conditional(cls, message: str) -> bool:
+        """True when the *directive* is gated on something that has not happened."""
+        lowered = cls._directive_part(message).lower()
+        return any(word in lowered for word in cls._CONDITIONAL)
 
     @classmethod
     def is_imperative_submission(cls, message: str) -> bool:
         """Deterministic second opinion for a *model-proposed* ``submit_goal``.
 
         Returns True only when the sentence is unambiguously an instruction to
-        do work: it names a submit verb, is not a question, not a quoted term
-        and not negated.  Anything else is staged for human confirmation rather
-        than applied, so a model that over-eagerly reads a question as a request
-        cannot create work on its own.
+        do work: it names a submit verb, is not a question, not a quoted term,
+        not negated and not conditional.  Anything else is staged for human
+        confirmation rather than applied, so neither a model that over-eagerly
+        reads a question as a request, nor a sentence with an ambiguous
+        negation, can create work on its own.
         """
         text = message or ""
         lowered = text.lower()
         if cls.is_question(text) or cls.is_quoted_reference(text):
             return False
-        if cls.is_negated(text):
+        if cls.is_negated(text) or cls.is_conditional(text):
             return False
         if any(word in lowered for word in cls._IMPERATIVE_EN):
             return True
@@ -527,13 +591,28 @@ class LDChat:
         # 为什么这样设计?" forwarded the secret verbatim to an endpoint that was
         # never authorized for ``local``.
         #
-        # Policy: a model that is not authorized for ``local`` does not get to
-        # see an unvetted message that may contain local content.  We do not
-        # guess a redaction (that would answer a mangled question, and hide the
-        # fact that nothing left the machine); the turn is routed locally by the
-        # deterministic router instead, which needs no endpoint at all.
-        local_gated = "local" not in self._domains
-        withheld = local_gated and _looks_like_local_content(message)
+        # Policy is authorization-based, NOT detection-based (second re-audit
+        # P0-1).  Detection cannot establish that a sentence is safe: "t53 的
+        # 客户内部代号是蓝鲸七号" is internal information and matches no marker,
+        # so "withhold only when a keyword fires" is equivalent to "send
+        # everything that does not look like a password".  So:
+        #
+        #   * model authorized for ``local``  -> the message may be sent (plus an
+        #     extra tripwire, which only ever withholds more);
+        #   * model not authorized for local  -> the raw message is NOT sent,
+        #     regardless of what it looks like.  The turn is answered by the
+        #     in-process router, which needs no endpoint.  Sharing raw text with
+        #     such a model requires deliberately granting ``local``, i.e. an
+        #     explicit decision by the operator rather than a guess.
+        #
+        # We do not redact instead of withholding: a mangled question gets a
+        # confidently wrong answer, and the operator cannot tell that nothing
+        # left the machine.
+        local_authorized = "local" in self._domains
+        withheld = (not local_authorized) or _looks_like_local_content(message)
+        withhold_reason = (
+            "model_not_authorized_for_local" if not local_authorized
+            else "local_content_markers")
         known_task_ids = self._recent_task_ids(project_id)
         chat_input = {
             "schema_version": "m4-d.v1",
@@ -557,12 +636,15 @@ class LDChat:
                 "authorized_context_domains": list(self._domains),
                 "project_names_included": "local" in self._domains,
                 "message_withheld": withheld,
+                "message_withheld_reason": withhold_reason if withheld else None,
                 "note": ("Project roots, Effective Prompts, task text, the LD's "
                          "own answer text and unapproved security domains are "
                          "excluded. recent_turns carries the owner's words plus "
                          "intent labels and ids only. message_withheld=true means "
-                         "the current message was not sent at all because this "
-                         "model is not authorized for local-domain content."),
+                         "the current message was not sent at all: either this "
+                         "model is not authorized for local-domain content "
+                         "(the default), or an extra tripwire matched obvious "
+                         "credentials in it."),
             },
             "rules": [
                 "Return exactly one structured intent; never return code or commands.",

@@ -6,12 +6,11 @@
     "A_history_projection": {
       "knowledge_answer_really_contains_local_body": true,
       "secret_absent_from_next_model_input": true,
-      "secret_title_absent_from_history": true,
+      "secret_body_absent_from_history": true,
       "ld_answer_prose_not_forwarded": true,
       "ld_answer_keeps_intent_label": true,
       "history_is_bounded": true,
       "user_turn_still_present": true,
-      "project_names_excluded_without_local": true,
       "declared_domains_match": true,
       "local_domain_also_omits_prose": true,
       "note_is_explicit": true

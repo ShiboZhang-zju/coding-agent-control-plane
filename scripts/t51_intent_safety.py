@@ -66,9 +66,25 @@ QUESTIONS = (
     "谁负责推进 t51 的下一步？",
     "t51 为什么还没完成？",
 )
+#: Negated, prohibited, deferred or conditional instructions.  Second re-audit
+#: P0-2: the previous proximity window (6 chars after a negation) let
+#: "先不要在未审批通过前继续推进 t51 项目" through, because 继续推进 sat further
+#: away from 不要.  Widening the window only moves the counterexample, so the
+#: router now refuses *any* directive that carries a negation/condition, and
+#: asks instead of submitting.  Everything below must therefore stay read-only.
 NEGATIONS = (
     "先不要推进 t51 项目",
     "别实现新功能，t51 现在什么状态？",
+    "先不要在未审批通过前继续推进 t51 项目。",
+    "暂缓推进 t51 项目",
+    "请勿继续推进 t51 项目",
+    "禁止推进 t51 项目",
+    "严禁实现新功能",
+    "不得推进 t51",
+    "搁置 t51 的推进计划",
+    "如果测试还没过就继续推进 t51 项目",
+    "在未审批通过前继续推进 t51",
+    "待审批通过后再推进 t51 项目",
 )
 
 
@@ -225,6 +241,20 @@ def a_questions_never_submit() -> dict:
             "no_goal_created_by_questions": goals_after_questions == goals_before,
             "no_goal_created_by_negations":
                 goals_after_negations == goals_before,
+            # A negated/conditional *instruction* is not a status question
+            # either: answering "here is the project status" would misread it,
+            # so the router must ask which was meant.
+            "negations_are_asked_about_not_answered_sideways":
+                all(router.classify({**base, "message": text})["intent"]
+                    in ("clarify", "goal_status", "project_status")
+                    for text in NEGATIONS),
+            "negations_containing_a_submit_verb_are_clarified":
+                all(router.classify({**base, "message": text})["intent"]
+                    == "clarify"
+                    for text in NEGATIONS
+                    if any(v in text.lower()
+                           for v in HeuristicIntentRouter._SUBMIT)
+                    and not router.is_question(text)),
             "routed_intents": {text: intent for text, intent in results},
         }
     finally:

@@ -4,8 +4,8 @@
     "service": {
       "result": "started",
       "port": 8787,
-      "pid": 46316,
-      "launcher_pid": 46316,
+      "pid": 37740,
+      "launcher_pid": 37740,
       "bind": "127.0.0.1:8787",
       "auth": "password"
     },
@@ -23,7 +23,7 @@
       "intent": "list_projects",
       "intent_source": "model",
       "requires_confirmation": false,
-      "answer_head": "Current projects (all figures derived from the ledger):\n\n- t53chat (prj-bda4d46459): 0 tasks, 0 verified, 0 rejected, 0 needing attention",
+      "answer_head": "Current projects (all figures derived from the ledger):\n\n- t53chat (prj-e12fe1d629): 0 tasks, 0 verified, 0 rejected, 0 needing attention",
       "goal_ids": [],
       "staged": false,
       "work_items_seen_before": 0
@@ -33,7 +33,7 @@
       "intent": "project_status",
       "intent_source": "model",
       "requires_confirmation": false,
-      "answer_head": "Project t53chat (prj-bda4d46459)\n\nTasks: 0 total, 0 active, 0 verified, 0 rejected, 0 inconclusive, 0 awaiting approval.",
+      "answer_head": "Project t53chat (prj-e12fe1d629)\n\nTasks: 0 total, 0 active, 0 verified, 0 rejected, 0 inconclusive, 0 awaiting approval.",
       "goal_ids": [],
       "staged": false,
       "work_items_seen_before": 0
@@ -43,9 +43,9 @@
       "intent": "submit_goal",
       "intent_source": "model",
       "requires_confirmation": false,
-      "answer_head": "Goal goal-a5d5004aa8cc created for project prj-bda4d46459: 在 t53chat 完成这件事：实现 configlib 包中的 load_config(config_dict) 函数，使预置测试 test_load.py 全部通过。验收断言用 file_contains 检查 configlib/__init__.py 中 load_config 的定义，不要用 git_clean。\n\nThe LD goal runner will advance it automatically, one bounded decision at a time, whenever the observed state changes. Progress and verdicts come from the ledger; ask me again l",
+      "answer_head": "Goal goal-301c90faab36 created for project prj-e12fe1d629: 在 t53chat 完成这件事：实现 configlib 包中的 load_config(config_dict) 函数，使预置测试 test_load.py 全部通过。验收断言用 file_contains 检查 configlib/__init__.py 中 load_config 的定义，不要用 git_clean。\n\nThe LD goal runner will advance it automatically, one bounded decision at a time, whenever the observed state changes. Progress and verdicts come from the ledger; ask me again l",
       "goal_ids": [
-        "goal-a5d5004aa8cc"
+        "goal-301c90faab36"
       ],
       "staged": false,
       "work_items_seen_before": 0
@@ -55,26 +55,26 @@
       "intent": "goal_status",
       "intent_source": "model",
       "requires_confirmation": false,
-      "answer_head": "Goals of project prj-bda4d46459:\n\n- goal-a5d5004aa8cc [completed]: 在 t53chat 完成这件事：实现 configlib 包中的 load_config(config_dict) 函数，使预置测试 test_load.py 全部通过。验收断言用 file_contains 检查 configlib/__init__.py 中 load_config 的定义，不要用 git_clean。\n  tasks 1/2, decisions 2/12, verified 1, current task cp-22edb7bb3524\n  last step: finish (finished)",
+      "answer_head": "Goals of project prj-e12fe1d629:\n\n- goal-301c90faab36 [completed]: 在 t53chat 完成这件事：实现 configlib 包中的 load_config(config_dict) 函数，使预置测试 test_load.py 全部通过。验收断言用 file_contains 检查 configlib/__init__.py 中 load_config 的定义，不要用 git_clean。\n  tasks 1/2, decisions 2/12, verified 1, current task cp-f91eed8bf1fd\n  last step: finish (finished)",
       "goal_ids": [
-        "goal-a5d5004aa8cc"
+        "goal-301c90faab36"
       ],
       "staged": false,
-      "work_items_seen_before": 0
+      "work_items_seen_before": 1
     },
     {
       "message": "刚才那个任务完成了吗？",
       "intent": "task_status",
       "intent_source": "model",
       "requires_confirmation": false,
-      "answer_head": "Task cp-22edb7bb3524 (prj-bda4d46459)\n\nWorker state: succeeded; control-plane verdict: verified; queue: complete\nTitle: Implement configlib.load_config\n\nAcceptance assertions:\n- [pass] file_contains configlib/__init__.py = def load_config(config_dict):\n\nThis verdict is the control plane's independent acceptance of the declared assertions, not a guarantee of general code quality.",
+      "answer_head": "Task cp-f91eed8bf1fd (prj-e12fe1d629)\n\nWorker state: succeeded; control-plane verdict: verified; queue: complete\nTitle: Implement configlib.load_config\n\nAcceptance assertions:\n- [pass] file_contains configlib/__init__.py = def load_config(config_dict)\n\nThis verdict is the control plane's independent acceptance of the declared assertions, not a guarantee of general code quality.",
       "goal_ids": [],
       "staged": false,
-      "work_items_seen_before": 0
+      "work_items_seen_before": 1
     }
   ],
   "goal": {
-    "goal_id": "goal-a5d5004aa8cc",
+    "goal_id": "goal-301c90faab36",
     "status": "completed",
     "decision_count": 2,
     "task_count": 1,
@@ -87,57 +87,61 @@
     "count": 1,
     "items": [
       {
-        "task_id": "cp-22edb7bb3524",
+        "task_id": "cp-f91eed8bf1fd",
         "state": "succeeded",
         "verdict": "verified",
         "queue_status": "complete",
-        "session_id": null,
+        "dispatch_attempt_id": "at-ce78a10611",
+        "worker_session_id": "0a3e3d04-5152-4c1b-acc2-343b11e59961",
+        "worker_job_id": "0a3e3d04",
+        "dispatch_http": 200,
+        "adapter": "codebuddy",
         "assertions": 1
       }
     ]
   },
   "timeline_tail": [
     {
-      "t": 1793441005.9,
+      "t": 1793453627.1,
       "status": "waiting",
       "decision_count": 1,
       "task_count": 1,
-      "current_task_id": "cp-22edb7bb3524"
+      "current_task_id": "cp-f91eed8bf1fd"
     },
     {
-      "t": 1793441013.9,
+      "t": 1793453635.1,
       "status": "waiting",
       "decision_count": 1,
       "task_count": 1,
-      "current_task_id": "cp-22edb7bb3524"
+      "current_task_id": "cp-f91eed8bf1fd"
     },
     {
-      "t": 1793441021.9,
+      "t": 1793453643.1,
       "status": "waiting",
       "decision_count": 1,
       "task_count": 1,
-      "current_task_id": "cp-22edb7bb3524"
+      "current_task_id": "cp-f91eed8bf1fd"
     },
     {
-      "t": 1793441029.9,
+      "t": 1793453651.1,
       "status": "waiting",
       "decision_count": 1,
       "task_count": 1,
-      "current_task_id": "cp-22edb7bb3524"
+      "current_task_id": "cp-f91eed8bf1fd"
     },
     {
-      "t": 1793441037.9,
+      "t": 1793453659.1,
       "status": "waiting",
       "decision_count": 1,
       "task_count": 1,
-      "current_task_id": "cp-22edb7bb3524"
+      "current_task_id": "cp-f91eed8bf1fd"
     },
     {
-      "t": 1793441046.0,
+      "t": 1793453667.1,
       "status": "completed",
       "decision_count": 2,
       "task_count": 1,
-      "current_task_id": "cp-22edb7bb3524"
+      "current_task_id": "cp-f91eed8bf1fd"
     }
   ],
   "checks": {
@@ -154,11 +158,15 @@
     "exactly_one_goal_for_project": true,
     "goal_is_the_one_conversation_created": true,
     "real_worker_produced_a_task": true,
+    "worker_session_is_recorded": true,
+    "dispatch_was_accepted": true,
     "worker_state_is_succeeded": true,
     "verifier_verified_the_task": true,
     "decision_history_is_contiguous": true,
     "B2_reported_a_ledger_fact": true,
-    "B2_reported_the_real_verdict": true,
+    "B2_goal_status_equals_the_ledger": true,
+    "C_task_verdict_equals_the_ledger": true,
+    "ledger_actually_verified_something": true,
     "C_no_extra_goal_created": true,
     "reports_created_no_work_item": true,
     "no_turn_was_silently_staged_and_forgotten": true,

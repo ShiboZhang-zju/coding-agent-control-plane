@@ -228,20 +228,49 @@ def a_current_message_gated() -> dict:
 
 
 def a2_authorized_model_still_sees_message() -> dict:
+    """With ``local`` granted the turn uses the model — the gate is authorization.
+
+    Note this deliberately uses an ordinary sentence rather than
+    ``SENSITIVE_SENTENCE``: an explicit ``local`` grant permits sharing, but the
+    credential tripwire is an *additional* check that still fires on an obvious
+    secret (see :func:`a4_tripwire_still_fires_when_authorized`).  Keeping the
+    two behaviours in separate sections is what stops "authorized" from being
+    silently equivalent to "no checks at all".
+    """
     model = RecordingModel()
     h = Harness(fresh_ledger("a2"), model=model, domains=("local", "shareable"))
     try:
-        h.say(SENSITIVE_SENTENCE)
+        ordinary = "t53 项目里客户代号蓝鲸七号，下一步怎么安排？"
+        turn = h.say(ordinary)
         delivered = [item for item in model.inputs
-                     if SENSITIVE_SENTENCE in str(item.get("message") or "")]
+                     if ordinary in str(item.get("message") or "")]
         return {
             "authorized_model_receives_the_message": bool(delivered),
+            "turn_used_the_model_not_the_router":
+                turn.get("intent_source") in ("model", "invalid_model_intent"),
             "payload_declares_local": (delivered[0].get("security") or {})
             .get("authorized_context_domains") == ["local", "shareable"]
             if delivered else False,
             "message_not_marked_withheld":
                 (delivered[0].get("security") or {}).get("message_withheld")
                 is False if delivered else False,
+        }
+    finally:
+        h.close()
+
+
+def a4_tripwire_still_fires_when_authorized() -> dict:
+    """The credential tripwire stays as a second check on top of authorization."""
+    model = RecordingModel()
+    h = Harness(fresh_ledger("a4"), model=model, domains=("local", "shareable"))
+    try:
+        turn = h.say(SENSITIVE_SENTENCE)
+        payloads = [json.dumps(item, ensure_ascii=False) for item in model.inputs]
+        return {
+            "secret_still_not_sent_even_when_authorized":
+                not any(SECRET in payload for payload in payloads),
+            "turn_fell_back_to_the_router":
+                turn.get("intent_source") == "local_only",
         }
     finally:
         h.close()
@@ -272,9 +301,13 @@ def b_long_goal_identity_stable() -> dict:
         "goal_id": None, "reason": "model read a question as a request",
         "parameters": {"goal": "把 t53 完成"},
     }
+    # ``local`` is granted so the scripted classifier is actually consulted; the
+    # staging behaviour under test is the model-versus-router second opinion, not
+    # the outbound gate.
     h = Harness(fresh_ledger("b"),
                 model=ScriptedModel(intent, match="完成了吗",
-                                    echo_goal="故意重复："))
+                                    echo_goal="故意重复："),
+                domains=("local", "shareable"))
     try:
         long_objective = "补齐包测试并修正文档" + "，以及补充示例" * 60
         # The scripted model copies everything after "故意重复：" as the
@@ -467,6 +500,7 @@ def main() -> int:
     checks: dict[str, object] = {}
     for name, fn in (("A_message_gated", a_current_message_gated),
                      ("A2_authorized_model", a2_authorized_model_still_sees_message),
+                     ("A4_tripwire", a4_tripwire_still_fires_when_authorized),
                      ("A3_detector", a3_detector_is_conservative),
                      ("B_long_goal", b_long_goal_identity_stable),
                      ("B2_overlong_goal", b2_overlong_objective_refused),

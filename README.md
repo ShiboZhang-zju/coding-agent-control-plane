@@ -510,11 +510,17 @@ $env:LD_MODEL_DOMAINS  = "shareable"      # 想让分类器看到 local 内容�
 `human_confirmation_stale` / `invalid_model_intent`），便于分辨"模型判断"与
 "确定性规则"。
 
-关于 `local_only`：分类模型若**没有** `local` 授权，而当前这句话看起来会引用本地
-内容（密钥、内网地址、`.env`、连接串……），这一句**根本不发出去**，改用本机
-关键词路由回答。不做"猜测式脱敏"——脱敏后的问题会被答错，而且让人看不出内容
-其实没发出去。想让分类器看到原文，显式授予 `local`；不想，就不要在对话里贴
-密钥。
+关于 `local_only`（**默认行为**）：分类模型若**没有**拿到 `local` 授权，当前这句话
+**一律不发出去**，改用本机关键词路由回答，`intent_source` 标为 `local_only`。
+
+这是基于授权的边界，不是基于关键词的猜测：`LD_MODEL_DOMAINS` 不含 `local` 时，
+模型调用次数为 0，无论输入长什么样。"客户内部代号是蓝鲸七号"这类内部信息不含
+任何敏感词，靠词表永远识别不出来，所以**不存在**"看起来安全就放行"这条路径。
+
+- 想让分类器看到原文：显式授予 `local`（`LD_MODEL_DOMAINS=local,shareable`）。
+- 即使授予了 `local`，仍保留一道凭证兜底：句中含密钥/`.env`/连接串等明显凭证时
+  依然不外发。它只能收紧、不能放宽。
+- 不做"猜测式脱敏"——脱敏后的问题会被答错，而且让人看不出内容其实没发出去。
 
 注意：M4-D 的形状校验失败**不会自动重试**，而是返回 `clarify` 让用户换句话
 （见 `ld/chat_intent.py` 模块说明）。真实模型 + 真实 Worker 的对话闭环见
@@ -554,6 +560,8 @@ python scripts/t50_conversational_ld.py    # M4-D 对话闭环 / 无第二真相
 python scripts/t51_intent_safety.py        # M4-D 意图安全：疑问不误提交 / 预算不可改
 python scripts/t52_conversation_security.py # M4-D 历史投影 / 暂存版本绑定 / 并发确认
 python scripts/t53_chat_outbound_safety.py   # M4-D 当前消息门控 / 长目标身份 / 签名稳定
+python scripts/t53_real_chat_e2e.py        # M4-D 真实模型 + 真实 Worker 对话闭环
+                                           # 需 LD_MODEL_* 与 serve_ctl start；否则记为 BLOCKED
 
 # 既有回归
 python scripts/t26_p0_fixes.py

@@ -557,8 +557,8 @@ Human Owner ──自然语言──> LDChat（意图分类 + 确定性渲染）
 | 5 | 意图 schema 是真实门控（策略 vs 形状分离） | Pass（E 段 12 项） |
 | 6 | 疑问/引用/否定不误提交；未注册项目不建 Goal；重复 Goal 不改预算 | Pass（T51，6 段） |
 | 7 | 未授权历史不外发；确认绑定版本；并发确认最多一次 | Pass（T52，5 段） |
-| 8 | 当前消息也受授权门控；长目标身份一致；签名跨进程稳定 | Pass（T53 确定性，8 段） |
-| 9 | 真实模型对话 → 真实 Worker 执行 → 从 Ledger 回报 | Pass（T53 真实，21 项断言） |
+| 8 | 当前消息也受授权门控；长目标身份一致；签名跨进程稳定 | Pass（T53 确定性，9 段） |
+| 9 | 真实模型对话 → 真实 Worker 执行 → 从 Ledger 回报 | Pass（T53 真实） |
 
 证据：`evidence/project/T50-conversational-ld.json`（确定性：脚本化意图分类器 +
 脚本化决策模型 + stub adapter）。另外用真实 CLI 进程做过一次跨进程手工冒烟
@@ -615,6 +615,22 @@ Human Owner ──自然语言──> LDChat（意图分类 + 确定性渲染）
   `state=succeeded` / `verdict=verified`，项目内**仅 1 个 Goal**，只读轮次
   未新增 WorkItem，`finish` 前决策历史连续（step 1..2）。
 - 21 项断言全过。
+
+### M4-D Safety Closure 第三轮（5d528e7 复审后）
+
+| # | 问题 | 修复 | 证据 |
+|---|---|---|---|
+| P0 | 当前消息门控是"关键词命中才拦截"，等于"看起来像密码的才拦"；`客户内部代号是蓝鲸七号` 不含敏感词，仍会外发 | 反转为**授权边界**：无 `local` 授权时当前消息一律不外发（模型调用 0 次），`intent_source='local_only'`，payload 标 `message_withheld_reason`。敏感词检测降级为**额外收紧**（授予 `local` 后仍拦明显凭证），永不作放行依据 | T53 A/A2/A3/A4 |
+| P0 | `is_negated()` 的 6 字符窗口可被绕过：`先不要在未审批通过前继续推进` 中 `继续推进` 距 `不要` 超过 6 字符 → 被判为非否定 → 直接建 Goal | 不再调窗口（调到 10/20 只是换个反例）。改为：**指令部分**含任何否定/禁止词即不可直接提交；并增加结构性前缀判定（禁/勿/缓/停/搁置 紧邻提交动词），覆盖 `禁止推进`/`请勿继续推进`/`暂缓推进`/`搁置…推进`；引入 `is_conditional()`（如果/待/在未/审批通过前）。命中返回 `clarify`，不降级成状态查询 | T51 A（12 条否定/条件用例） |
+| P2 | `B2_reported_the_real_verdict` 只检查响应里是否出现 `verified` 字样——`not verified` 也能通过 | 改为 **逐字段精确比对 Ledger**：`B2_goal_status_equals_the_ledger`、`C_task_verdict_equals_the_ledger` | T53 真实 |
+| P2 | `task_truth(ledger, "")` 用空 goal_ref 过滤，`work_items_seen_before` 恒为 0，断言形同虚设 | 改为记录每轮对话前 Ledger 的 WorkItem 总数 | T53 真实 |
+
+关于"指令"与"目标正文"的区分（否则严格否定会误伤真实场景）：
+
+- `在 t53chat 完成这件事：实现 load_config，不要用 git_clean` 中 `不要` 位于冒号
+  之后的**目标正文**里，是对"怎么做"的约束，不构成对"要做"的否定。`is_negated()` /
+  `is_conditional()` 只看 `：`/`:` 之前的部分。这是 5d528e7 首次真实运行
+  （`B1_was_not_needlessly_staged`）暴露的，不区分会让每个写清约束的请求都多问一次。
 
 **仍然不宣称**：
 

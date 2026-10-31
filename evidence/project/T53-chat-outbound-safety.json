@@ -14,8 +14,13 @@
     },
     "A2_authorized_model": {
       "authorized_model_receives_the_message": true,
+      "turn_used_the_model_not_the_router": true,
       "payload_declares_local": true,
       "message_not_marked_withheld": true
+    },
+    "A4_tripwire": {
+      "secret_still_not_sent_even_when_authorized": true,
+      "turn_fell_back_to_the_router": true
     },
     "A3_detector": {
       "all_sensitive_examples_flagged": true,

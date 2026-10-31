@@ -192,8 +192,18 @@ class Harness:
 # A. history projection
 # --------------------------------------------------------------------------- #
 def a_history_projection() -> dict:
+    """The projection must omit the LD's prose *when a payload is built at all*.
+
+    Re-audit note: since the authorization boundary became "a model without
+    ``local`` is never sent the current message", a ``shareable``-only model
+    receives no payload for an ordinary turn either.  That makes the original
+    "record the second request" probe impossible — correctly so — so the
+    projection is now exercised in two places: through a ``local``-authorized
+    model (payload is built, and the *history* must still omit LD prose), and
+    directly against ``_safe_history``.
+    """
     model = RecordingModel()
-    h = Harness(fresh_ledger("a"), model=model, domains=("shareable",))
+    h = Harness(fresh_ledger("a"), model=model, domains=("local", "shareable"))
     try:
         h.add_local_knowledge()
         # A knowledge query renders the local body into the LD's answer.
@@ -206,7 +216,7 @@ def a_history_projection() -> dict:
         history = ((second_input.get("conversation") or {})
                    .get("recent_turns") or [])
 
-        # The projection itself, exercised directly for the local branch.
+        # The projection itself, exercised directly for both domain sets.
         local_history = _safe_history(
             [{"role": "ld", "content": f"body: {SECRET}", "intent": {
                 "intent": "knowledge_query"}, "goal_ids": []}],
@@ -214,8 +224,10 @@ def a_history_projection() -> dict:
         return {
             "knowledge_answer_really_contains_local_body": answer_leaked,
             "secret_absent_from_next_model_input": SECRET not in payload,
-            "secret_title_absent_from_history":
-                SECRET_TITLE not in json.dumps(history, ensure_ascii=False),
+            # The *title* is the owner's own words and may legitimately travel;
+            # what must never travel is the body, which lives in the LD's answer.
+            "secret_body_absent_from_history":
+                SECRET not in json.dumps(history, ensure_ascii=False),
             "ld_answer_prose_not_forwarded":
                 all(item.get("content_omitted") is True
                     for item in history if item.get("role") != "user"),
@@ -223,14 +235,14 @@ def a_history_projection() -> dict:
                 any(item.get("intent") == "knowledge_query" for item in history),
             "history_is_bounded":
                 len(history) <= 6,
+            # With ``local`` granted the owner's own words may travel; the LD's
+            # answer still may not, which is the point of the projection.
             "user_turn_still_present":
-                any(item.get("role") == "user" for item in history),
-            "project_names_excluded_without_local":
-                all("name" not in row
-                    for row in second_input.get("projects") or []),
+                any(item.get("role") == "user"
+                    and not item.get("content_omitted") for item in history),
             "declared_domains_match":
                 (second_input.get("security") or {}).get(
-                    "authorized_context_domains") == ["shareable"],
+                    "authorized_context_domains") == ["local", "shareable"],
             "local_domain_also_omits_prose":
                 all(item.get("content_omitted") is True
                     for item in local_history if item.get("role") != "user"),

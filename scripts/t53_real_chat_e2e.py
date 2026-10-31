@@ -282,17 +282,30 @@ def build_chat(ledger: Path, model) -> tuple[LDChat, LDGoalStore, LDChatStore,
 
 def task_truth(ledger: Path, goal_ref: str) -> dict:
     tasks = ledger_tasks(ledger, goal_ref)
-    return {
-        "count": len(tasks),
-        "items": [{"task_id": task.get("task_id"),
-                   "state": task.get("state"),
-                   "verdict": task.get("verdict"),
-                   "queue_status": task.get("queue_status"),
-                   "session_id": (task.get("metadata") or {}).get("session_id")
-                   or (task.get("metadata") or {}).get("worker_job_id"),
-                   "assertions": len(task.get("assertions") or [])}
-                  for task in tasks],
-    }
+    items = []
+    for task in tasks:
+        metadata = task.get("metadata") or {}
+        raw = metadata.get("dispatch_raw") if isinstance(
+            metadata.get("dispatch_raw"), dict) else {}
+        body = raw.get("dispatch_body") if isinstance(
+            raw.get("dispatch_body"), dict) else {}
+        data = body.get("data") if isinstance(body.get("data"), dict) else {}
+        # The real Worker session lives at dispatch_body.data.sessionId.  Earlier
+        # versions looked for metadata["session_id"], which never exists, so the
+        # evidence always read "null" and looked like missing proof.
+        items.append({
+            "task_id": task.get("task_id"),
+            "state": task.get("state"),
+            "verdict": task.get("verdict"),
+            "queue_status": task.get("queue_status"),
+            "dispatch_attempt_id": metadata.get("dispatch_attempt_id"),
+            "worker_session_id": data.get("sessionId") or data.get("session_id"),
+            "worker_job_id": data.get("id"),
+            "dispatch_http": raw.get("dispatch_http"),
+            "adapter": metadata.get("adapter"),
+            "assertions": len(task.get("assertions") or []),
+        })
+    return {"count": len(tasks), "items": items}
 
 
 def main() -> int:
@@ -329,9 +342,12 @@ def main() -> int:
 
             def say(text: str) -> dict:
                 nonlocal conversation_id
+                # Count every work item in the ledger.  The previous version
+                # passed an empty goal ref, so this value was *always* 0 and the
+                # "no extra dispatch" assertion could not fail.
+                tasks_before = len(store.all())
                 turn = chat.handle(text, conversation_id=conversation_id)
                 conversation_id = turn["conversation_id"]
-                tasks_before = task_truth(ledger, "")["count"]
                 turns.append({
                     "message": text,
                     "intent": (turn.get("intent") or {}).get("intent"),
@@ -380,9 +396,26 @@ def main() -> int:
             verdicts = [item["verdict"] for item in truth["items"]]
             verified = [v for v in verdicts if v == "verified"]
 
-            reported_verified = any(
-                "verified" in json.dumps(turn.get("answer") or "").lower()
-                for turn in (b2, c1))
+            # Compare the *reported* values against the ledger field by field.
+            # The old check only asked whether the word "verified" appeared in
+            # the prose, which an answer saying "not verified" would also pass.
+            ledger_goal_status = str(final_status or "").lower()
+            reported_goal_statuses = {
+                str(goal_row.get("status") or "").lower()
+                for goal_row in ((b2.get("facts") or {}).get("goals") or [])
+                if goal_row.get("goal_id") == goal_id
+            }
+            goal_report_matches_ledger = (
+                reported_goal_statuses == {ledger_goal_status})
+
+            ledger_verdicts = [str(item["verdict"] or "").lower()
+                               for item in truth["items"]]
+            reported_task_verdict = str(
+                ((c1.get("facts") or {}).get("task") or {}).get("verdict")
+                or "").lower()
+            task_report_matches_ledger = (
+                len(ledger_verdicts) == 1
+                and reported_task_verdict == ledger_verdicts[0])
 
             checks = {
                 "A1_intent_is_list_projects":
@@ -408,6 +441,13 @@ def main() -> int:
                 "goal_is_the_one_conversation_created":
                     goals_for_project and goals_for_project[0]["goal_id"] == goal_id,
                 "real_worker_produced_a_task": truth["count"] >= 1,
+                # The Worker really ran: the dispatch was accepted over HTTP and
+                # a concrete session id came back.  Without this a verified
+                # verdict could in principle come from a fabricated snapshot.
+                "worker_session_is_recorded": all(
+                    bool(item.get("worker_session_id")) for item in truth["items"]),
+                "dispatch_was_accepted": all(
+                    item.get("dispatch_http") == 200 for item in truth["items"]),
                 "worker_state_is_succeeded":
                     all(item["state"] == "succeeded" for item in truth["items"])
                     if truth["items"] else False,
@@ -419,8 +459,11 @@ def main() -> int:
                     (b2.get("intent") or {}).get("intent") in (
                         "goal_status", "project_status")
                     and (b2.get("facts") or {}).get("project_id") == project_id,
-                "B2_reported_the_real_verdict":
-                    reported_verified,
+                "B2_goal_status_equals_the_ledger":
+                    goal_report_matches_ledger,
+                "C_task_verdict_equals_the_ledger":
+                    task_report_matches_ledger,
+                "ledger_actually_verified_something": bool(verified),
                 "C_no_extra_goal_created":
                     len(goals.find_by_project(project_id)) == 1,
                 "reports_created_no_work_item":
