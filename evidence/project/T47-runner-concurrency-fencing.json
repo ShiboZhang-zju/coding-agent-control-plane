@@ -1,0 +1,93 @@
+{
+  "test": "T47-runner-concurrency-fencing",
+  "worker_started": false,
+  "note": "two real OS processes per scenario (t47_goal_runner_process.py), independent SQLite connections on one shared ledger; stub adapter + scripted model with deterministic fault injection.",
+  "sections": {
+    "C1_two_runners_one_goal": {
+      "task_existed": true,
+      "exactly_one_workitem": true,
+      "exactly_one_submission_step": true,
+      "goal_completed": true,
+      "history_contiguous": true,
+      "no_duplicate_step_keys": true,
+      "model_calls_bounded": true,
+      "winner_model_calls": [
+        1,
+        2
+      ]
+    },
+    "C2_stale_escalation_cannot_overwrite": {
+      "runner_b_completed_goal": true,
+      "stale_escalation_skipped": true,
+      "completed_not_overwritten": true,
+      "stale_observation_older": true,
+      "control_escalation_works": true
+    },
+    "C3_lease_lost_fenced_write": {
+      "lease_was_taken": true,
+      "fenced_write_rejected": true,
+      "stale_renew_rejected": true,
+      "takeover_submitted_exactly_one": true,
+      "goal_advancing_normally": true
+    },
+    "C4_restart_continuation": {
+      "process_a_inspected": true,
+      "goal_active_after_a": true,
+      "process_b_continued": true,
+      "process_b_submitted": true,
+      "goal_completed": true
+    },
+    "C5_single_effective_escalation": {
+      "goal_needs_human": true,
+      "exactly_one_effective_escalation": true,
+      "escalation_reason_persisted": true,
+      "failures_bounded": true,
+      "no_task_submitted": true
+    },
+    "C6_goal_failure_isolation": {
+      "bad_goal_parked": true,
+      "bad_goal_no_tasks": true,
+      "ok_goal_completed": true,
+      "ok_task_was_submitted": true,
+      "ok_goal_isolated": true,
+      "failures_did_not_stop_ok_goal": true
+    }
+  },
+  "section_failures": [],
+  "checks": {
+    "C1_two_runners_one_goal.task_existed": true,
+    "C1_two_runners_one_goal.exactly_one_workitem": true,
+    "C1_two_runners_one_goal.exactly_one_submission_step": true,
+    "C1_two_runners_one_goal.goal_completed": true,
+    "C1_two_runners_one_goal.history_contiguous": true,
+    "C1_two_runners_one_goal.no_duplicate_step_keys": true,
+    "C1_two_runners_one_goal.model_calls_bounded": true,
+    "C2_stale_escalation_cannot_overwrite.runner_b_completed_goal": true,
+    "C2_stale_escalation_cannot_overwrite.stale_escalation_skipped": true,
+    "C2_stale_escalation_cannot_overwrite.completed_not_overwritten": true,
+    "C2_stale_escalation_cannot_overwrite.stale_observation_older": true,
+    "C2_stale_escalation_cannot_overwrite.control_escalation_works": true,
+    "C3_lease_lost_fenced_write.lease_was_taken": true,
+    "C3_lease_lost_fenced_write.fenced_write_rejected": true,
+    "C3_lease_lost_fenced_write.stale_renew_rejected": true,
+    "C3_lease_lost_fenced_write.takeover_submitted_exactly_one": true,
+    "C3_lease_lost_fenced_write.goal_advancing_normally": true,
+    "C4_restart_continuation.process_a_inspected": true,
+    "C4_restart_continuation.goal_active_after_a": true,
+    "C4_restart_continuation.process_b_continued": true,
+    "C4_restart_continuation.process_b_submitted": true,
+    "C4_restart_continuation.goal_completed": true,
+    "C5_single_effective_escalation.goal_needs_human": true,
+    "C5_single_effective_escalation.exactly_one_effective_escalation": true,
+    "C5_single_effective_escalation.escalation_reason_persisted": true,
+    "C5_single_effective_escalation.failures_bounded": true,
+    "C5_single_effective_escalation.no_task_submitted": true,
+    "C6_goal_failure_isolation.bad_goal_parked": true,
+    "C6_goal_failure_isolation.bad_goal_no_tasks": true,
+    "C6_goal_failure_isolation.ok_goal_completed": true,
+    "C6_goal_failure_isolation.ok_task_was_submitted": true,
+    "C6_goal_failure_isolation.ok_goal_isolated": true,
+    "C6_goal_failure_isolation.failures_did_not_stop_ok_goal": true
+  },
+  "result": "Pass"
+}

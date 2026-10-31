@@ -174,9 +174,26 @@ class GoalRunnerStore:
                  streak, 1 if advanced else 0, outcome, now))
         return self.get(goal_id) or {}
 
-    def record_skip(self, goal_id: str, *, signature: str, outcome: str) -> dict:
+    def record_skip(self, goal_id: str, *, signature: str, outcome: str,
+                    acknowledge: bool = True) -> dict:
+        """Record a non-advancing observation.
+
+        ``acknowledge=False`` is for skips where the observed state was *not*
+        handled by this executor — another holder is (or was) advancing it
+        (lease held/lost) or has already moved the goal on (stale failure).
+        Writing the signature there would make a still-unhandled failure look
+        like "no observable state change" and silently disable the retry
+        policy; whoever actually handles the state acknowledges it.
+        """
         now = time.time()
         with self._txn() as conn:
+            if acknowledge:
+                stored = signature
+            else:
+                row = conn.execute(
+                    "SELECT last_signature FROM ld_goal_runner WHERE goal_id=?",
+                    (goal_id,)).fetchone()
+                stored = row["last_signature"] if row else None
             conn.execute(
                 "INSERT INTO ld_goal_runner (goal_id, last_signature,"
                 " last_observed_at, next_attempt_at, runs, last_outcome, updated_at)"
@@ -185,7 +202,7 @@ class GoalRunnerStore:
                 " last_signature=excluded.last_signature,"
                 " last_observed_at=excluded.last_observed_at,"
                 " last_outcome=excluded.last_outcome, updated_at=excluded.updated_at",
-                (goal_id, signature, now, outcome, now))
+                (goal_id, stored, now, outcome, now))
         return self.get(goal_id) or {}
 
     def record_failure(self, goal_id: str, *, signature: str, error: str,
@@ -477,15 +494,18 @@ class LDGoalRunner:
                 lifetime_max_decisions=self._lifetime_max_decisions,
                 lifetime_max_tasks=self._lifetime_max_tasks)
         except GoalLeaseHeld as exc:
-            # Another runtime/CLI is advancing this goal right now: not a failure.
+            # Another runtime/CLI is advancing this goal right now: not a failure,
+            # and not an acknowledgement — the other holder owns this state.
             self._runner.record_skip(goal_id, signature=observed["signature"],
-                                     outcome="lease held by another executor")
+                                     outcome="lease held by another executor",
+                                     acknowledge=False)
             return {"goal_id": goal_id, "action": "skip",
                     "reason": f"lease held: {exc}",
                     "signature": observed["signature"]}
         except GoalLeaseLost as exc:
             self._runner.record_skip(goal_id, signature=observed["signature"],
-                                     outcome="lease lost during advancement")
+                                     outcome="lease lost during advancement",
+                                     acknowledge=False)
             return {"goal_id": goal_id, "action": "skip",
                     "reason": f"lease lost: {exc}",
                     "signature": observed["signature"]}
@@ -550,7 +570,8 @@ class LDGoalRunner:
             self._runner.record_skip(
                 goal_id, signature=observed["signature"],
                 outcome=f"stale failure ignored (goal advanced elsewhere): "
-                        f"{error[:300]}")
+                        f"{error[:300]}",
+                acknowledge=False)
             return {"goal_id": goal_id, "action": "skip",
                     "reason": "stale failure ignored: the goal advanced elsewhere",
                     "detail": error[:300],
