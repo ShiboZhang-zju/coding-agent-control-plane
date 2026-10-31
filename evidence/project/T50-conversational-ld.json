@@ -1,0 +1,75 @@
+{
+  "test": "T50 conversational LD (M4-D)",
+  "fixture": "<REPO>/sandbox/t50-chat",
+  "note": "Deterministic: scripted intent classifier + scripted decision model + stub adapter. Real endpoint / real Worker behaviour of the LD itself is covered by T38b/T43/T48.",
+  "checks": {
+    "A_read_intents": {
+      "list_projects_answered": true,
+      "list_projects_uses_ledger": true,
+      "status_reports_rejected": true,
+      "status_mentions_attention": true,
+      "blockers_name_rejected_task": true,
+      "blockers_flags_present": true,
+      "knowledge_returns_config_entry": true,
+      "knowledge_marks_verification": true,
+      "task_status_verdict_from_ledger": true,
+      "task_status_warns_state_is_not_truth": true,
+      "read_turns_created_no_work_item": true,
+      "intent_source_is_heuristic": true,
+      "conversation_continues": true
+    },
+    "B_submit_goal": {
+      "submit_intent_detected": true,
+      "goal_row_created": true,
+      "goal_budget_bounded": true,
+      "second_mention_reused_goal": true,
+      "single_goal_row": true,
+      "goal_completed_by_runner": true,
+      "chat_reports_ledger_verdict": true,
+      "chat_reports_verified_count": true,
+      "chat_did_not_submit_task_itself": true,
+      "sweeps_used": 2,
+      "model_decisions": 2
+    },
+    "C_resume_gating": {
+      "staged_not_applied": true,
+      "stage_requires_confirmation": true,
+      "unrelated_message_supersedes": true,
+      "cancel_keeps_goal_parked": true,
+      "cancel_reported": true,
+      "confirm_resumes": true,
+      "confirm_is_a_history_step": true,
+      "resume_did_not_enlarge_budget": true,
+      "resume_counted_as_human": true,
+      "stray_confirm_changes_nothing": true,
+      "three_stages": true,
+      "confirmation_tokens_exact": true
+    },
+    "D_no_second_truth": {
+      "chat_added_no_work_item": true,
+      "chat_added_no_context_entry": true,
+      "chat_added_no_revision": true,
+      "chat_asked_no_model_to_write": true,
+      "deleting_conversation_keeps_progress": true,
+      "reopened_reads_ledger": true,
+      "conversation_separate_from_project_memory": true,
+      "model_calls_zero": true
+    },
+    "E_intent_gate": {
+      "unknown_intent_is_policy_error": true,
+      "unknown_field_is_policy_error": true,
+      "forbidden_param_is_policy_error": true,
+      "missing_project_is_validation_error": true,
+      "bad_limit_is_validation_error": true,
+      "valid_intent_accepted": true,
+      "model_turn_labelled_model": true,
+      "model_input_has_no_prompt_content": true,
+      "model_input_declares_rules": true,
+      "forbidden_intent_refused": true,
+      "refused_turn_created_nothing": true,
+      "heuristic_router_blockers": true
+    }
+  },
+  "result": "PASS",
+  "failed": []
+}

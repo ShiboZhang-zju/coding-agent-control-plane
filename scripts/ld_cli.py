@@ -1,4 +1,4 @@
-"""Minimal local CLI for the LD coordinator (M4-A single turn, M4-B goals).
+"""Minimal local CLI for the LD coordinator (M4-A turns, M4-B goals, M4-D chat).
 
 The CLI shares the Runtime's SQLite ledger.  It never imports a Worker Adapter,
 never dispatches directly, and cannot approve/deny work.  ``--decision-json``
@@ -9,6 +9,13 @@ A real model can be attached with ``--model-base-url/--model-name/--model-api-ke
 or the ``LD_MODEL_BASE_URL`` / ``LD_MODEL_NAME`` / ``LD_MODEL_API_KEY``
 environment variables.  Without either, the coordinator reports
 ``model_not_configured`` and executes nothing.
+
+``ld chat`` is the conversational entry point (M4-D).  It is a routing layer
+over the same deterministic tools: it can read status, submit a bounded goal and
+stage a resume for explicit human confirmation — it can never approve work,
+write project knowledge or dispatch a Worker.  With no model endpoint
+configured it falls back to a deterministic keyword router, and every answer is
+rendered from Ledger / Goal / Context rows.
 """
 from __future__ import annotations
 
@@ -26,8 +33,11 @@ sys.path.insert(0, str(ROOT))
 from controlplane.plane import ControlPlane  # noqa: E402
 from controlplane.project_service import ProjectService  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
+from ld.chat import LDChat  # noqa: E402
+from ld.chat_store import LDChatStore  # noqa: E402
 from ld.coordinator import LDCoordinator  # noqa: E402
-from ld.model import OpenAIChatModel  # noqa: E402
+from ld.goal_store import LDGoalStore  # noqa: E402
+from ld.model import OpenAIChatIntentModel, OpenAIChatModel  # noqa: E402
 from ld.tools import LDTools  # noqa: E402
 
 
@@ -103,6 +113,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--resume", action="store_true",
         help="after human review, lift a needs_human goal back to active")
     _add_model_args(goal_cmd)
+
+    chat_cmd = sub.add_parser(
+        "chat", help="conversational project-management entry point (M4-D)")
+    chat_cmd.add_argument(
+        "message", nargs="*",
+        help="one message; omit to start an interactive session")
+    chat_cmd.add_argument("--conversation", default=None,
+                          help="continue a specific conversation id")
+    chat_cmd.add_argument(
+        "--new", action="store_true",
+        help="start a new conversation instead of continuing the most recent one")
+    chat_cmd.add_argument("--project", default=None, help="project id or name")
+    chat_cmd.add_argument(
+        "--no-model", action="store_true",
+        help="skip the intent classifier and use the deterministic keyword router")
+    _add_model_args(chat_cmd)
+
+    conv = sub.add_parser("conversations", help="list stored conversations")
+    conv.add_argument("--limit", type=int, default=20)
+    show_conv = sub.add_parser("conversation", help="print one conversation")
+    show_conv.add_argument("conversation")
+    show_conv.add_argument("--limit", type=int, default=200)
     return parser
 
 
@@ -124,6 +156,105 @@ def _add_model_args(command: argparse.ArgumentParser) -> None:
         help="comma-separated security domains a real model endpoint may see "
              "(or LD_MODEL_DOMAINS). Default for an endpoint: none — the model "
              "is not called for a 'local' goal until 'local' is granted")
+
+
+def _chat_model(args) -> OpenAIChatIntentModel | None:
+    """The intent classifier endpoint, or None to use the keyword router."""
+    if getattr(args, "no_model", False):
+        return None
+    base_url = (args.model_base_url or os.environ.get("LD_MODEL_BASE_URL", "")).strip()
+    model_name = (args.model_name or os.environ.get("LD_MODEL_NAME", "")).strip()
+    if not base_url or not model_name:
+        return None
+    return OpenAIChatIntentModel(
+        base_url=base_url, model=model_name,
+        api_key=args.model_api_key or os.environ.get("LD_MODEL_API_KEY"),
+        timeout_s=(args.model_timeout_s
+                   or float(os.environ.get("LD_MODEL_TIMEOUT_S", "60"))))
+
+
+def _chat_append_message(emit_message, message: str, conversation_id: str | None,
+                         project_id: str | None) -> tuple[str | None, dict]:
+    """Append one turn to an open conversation; returns (conversation, turn)."""
+    turn = emit_message(message, conversation_id=conversation_id,
+                        project_id=project_id)
+    return turn.get("conversation_id"), turn
+
+
+def _run_chat(args, tools: LDTools, store: TaskStore) -> int:
+    """One-shot or interactive chat over the existing deterministic core.
+
+    Nothing here is a new execution path: every answer is rendered from rows
+    the control plane already wrote, and the two state-changing intents
+    (``submit_goal`` / ``resume_goal``) reuse the existing bounded goal
+    machinery.  ``resume_goal`` still needs an explicit follow-up confirmation.
+    """
+    model = _chat_model(args)
+    if model is not None:
+        domain_spec = (args.model_domains
+                       or os.environ.get("LD_MODEL_DOMAINS", "")).strip()
+    else:
+        domain_spec = "local,shareable"
+    domains = tuple(item.strip() for item in domain_spec.split(",") if item.strip())
+
+    goal_store = LDGoalStore(store.path)
+    chats = LDChatStore(store.path)
+    try:
+        chat = LDChat(tools, goal_store, chats, model,
+                      model_authorized_security_domains=domains)
+
+        def send(message: str, conversation_id: str | None,
+                 project_id: str | None) -> dict:
+            return chat.handle(message, conversation_id=conversation_id,
+                               project_id=project_id)
+
+        conversation_id = args.conversation
+        if conversation_id is None and not args.new:
+            # One-shot invocations should continue the owner's conversation, not
+            # silently start a new one every time: without this, a staged action
+            # or an established project selection is lost between two commands.
+            recent = chats.list_conversations(limit=1)
+            conversation_id = recent[0]["conversation_id"] if recent else None
+        project_id = args.project
+        if args.message:
+            _cid, turn = _chat_append_message(
+                send, " ".join(args.message), conversation_id, project_id)
+            emit(turn, compact=args.compact)
+            return 0
+
+        if not sys.stdin.isatty():
+            # Piped input: one message per line keeps scripting possible.
+            for line in sys.stdin:
+                if not line.strip():
+                    continue
+                conversation_id, turn = _chat_append_message(
+                    send, line.strip(), conversation_id, project_id)
+                emit(turn, compact=args.compact)
+            return 0
+
+        print("LD chat. Type a message, or 'exit' to leave. "
+              "Conversation memory is separate from project memory; every answer "
+              "is read from the ledger.")
+        while True:
+            try:
+                line = input("ld> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return 0
+            if not line:
+                continue
+            if line.lower() in ("exit", "quit", ":q"):
+                return 0
+            conversation_id, turn = _chat_append_message(
+                send, line, conversation_id, project_id)
+            print(turn.get("answer") or "")
+            if turn.get("requires_confirmation"):
+                target = (turn.get("pending_action") or {}).get("goal_id")
+                print(f"[staged action on {target}; reply 'confirm' or 'cancel']")
+            print()
+    finally:
+        chats.close()
+        goal_store.close()
 
 
 def main() -> int:
@@ -151,6 +282,27 @@ def main() -> int:
             project = read_plane.project(args.project)
             emit(tools.get_project_brief(project["id"]), compact=args.compact)
             return 0
+        if args.command in ("conversations", "conversation"):
+            chats = LDChatStore(store.path)
+            try:
+                if args.command == "conversations":
+                    emit(chats.list_conversations(limit=args.limit),
+                         compact=args.compact)
+                else:
+                    conversation = chats.get_conversation(args.conversation)
+                    if conversation is None:
+                        emit({"error": f"no conversation {args.conversation}"},
+                             compact=args.compact)
+                        return 2
+                    emit({"conversation": conversation,
+                          "messages": chats.messages(args.conversation,
+                                                     limit=args.limit)},
+                         compact=args.compact)
+            finally:
+                chats.close()
+            return 0
+        if args.command == "chat":
+            return _run_chat(args, tools, store)
 
         decision_file = getattr(args, "decision_json", None)
         model = load_decision(decision_file)
@@ -189,7 +341,6 @@ def main() -> int:
                                "LD_MODEL_BASE_URL/LD_MODEL_NAME"},
                      compact=args.compact)
                 return 3
-            from ld.goal_store import LDGoalStore
             goal_store = LDGoalStore(store.path)
             try:
                 report = coordinator.run_goal(

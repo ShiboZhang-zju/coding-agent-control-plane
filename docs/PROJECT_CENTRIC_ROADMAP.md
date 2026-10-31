@@ -25,6 +25,9 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 | **M3** | Session Registry / Handoff | M1（M2 有益但非必需） | **确定性（T33）与真实 Worker（T34）验证通过；git commit checkpoint 路径未覆盖** |
 | **M4-A** | Minimal LD（受限工具、结构化决策、单轮协调） | M1 + M2 | **已完成**（T32/T36 确定性 + T38a 真实模型与真实 Worker 单轮集成验收） |
 | **M4-B** | 有界连续推进（持久化 Goal + 依赖任务确定性交接 + 恢复） | M3 + M4-A | **已完成**（T39/T40 确定性含崩溃注入与租约 fencing；T38b 真实模型严格闭环 25/25 Pass；T38c 真实故障恢复与副作用拒绝验证） |
+| **M4-C** | 自动唤醒与运行时可靠性收口 | M4-B | **已完成**（T41–T49，含 T48 真实常驻服务双任务零人工闭环） |
+| **M4-D** | Conversational LD（自然语言查询 / 提交 Goal / 阻塞解释 / 显式确认恢复） | M4-C | **确定性完成**（T50）；真实模型分类器与真实 Worker 对话闭环未执行 |
+| M4-E | Markdown Project Memory（导出/编辑/校验导入、候选晋升、去重、失效） | M4-D | 未开始 |
 | M5 | Distributed Workspace | M1–M4 | 未实现 |
 
 依赖是**功能依赖**而非排期依赖。M4-B 的依赖任务交接走控制平面确定性
@@ -495,6 +498,76 @@ Human Owner 只提交一次 Goal，系统自动完成
 - 不做 M5 跨机器执行；`node_id != 'local'` 依旧阻塞。
 - 不做第二套自动唤醒实现：Runtime 内嵌与独立进程共用同一个 `LDGoalRunner`。
 - 不做 Goal DAG / 多 LD 协商 / Feature-Issue / Dashboard。
+
+---
+
+## M4-D — Conversational LD ✅ 确定性完成（T50）
+
+### 目标
+
+Human Owner 可以持续对话地管理项目，而不是反复手敲命令：查询进度、提交
+Goal、解释阻塞、查询项目知识，并用显式确认解除 `needs_human`。
+
+**这不是一个新的 LD Agent。** 它是交互与意图路由层：
+
+```text
+Human Owner ──自然语言──> LDChat（意图分类 + 确定性渲染）
+                              ├─ 读 Ledger / Goal / Project Context
+                              ├─ 复用 LDGoalStore（submit_goal / resume_goal）
+                              └─ 复用既有 LDCoordinator + LDGoalRunner
+```
+
+### 交付
+
+| 交付物 | 实现位置 | 边界 |
+|---|---|---|
+| 对话持久化（`ld_conversations` / `ld_messages`） | `ld/chat_store.py` | 只存文本、意图、所依据的事实快照；不存任务状态/verdict/知识 |
+| 严格对话意图 schema（`m4-d.v1`，9 种意图） | `ld/chat_intent.py` | 未知意图/字段/参数 = 策略违规（永不重试）；缺字段 = 可重试形状缺陷 |
+| 会话层与确定性渲染 | `ld/chat.py` | 无执行权限：不派工、不审批、不写知识、不改验收 |
+| 意图分类模型（独立 system prompt，与决策模型分离） | `ld/model.py::OpenAIChatIntentModel` | 只能输出意图；不能输出命令或自由文本动作 |
+| 无模型时的确定性关键词路由 | `ld/chat.py::HeuristicIntentRouter` | 没配端点也能用；回答标注 `intent_source` |
+| CLI `chat` / `conversations` / `conversation` | `scripts/ld_cli.py` | 一次性与交互式共用同一实现；跨命令默认续最近会话 |
+
+### 对话语义（本轮契约）
+
+- **对话记忆 ≠ 项目记忆 ≠ Ledger。** 对话回答"刚才在聊什么"；项目知识回答
+  "项目确认过什么"；Ledger 回答"实际跑到哪"。重开会话重新读 Ledger，绝不把
+  上次聊天摘要当进度。
+- **读意图不产生任何副作用。** 一次只读问答不新增 WorkItem、不新增 context
+  条目、不增加 context_version/revision。
+- **写意图只有两个，且都走既有机制。** `submit_goal` 复用确定性 `goal_id`，
+  同一目标重复提出只复用不新建；`resume_goal` **必须先暂存**，只有下一条消息
+  是精确确认词（`confirm` / `确认` 等）才经 `LDGoalStore.resume()` 生效。
+  "yes, and also deploy" 不是确认；任何其他句子会作废暂存动作。
+- **恢复不增预算。** 对话恢复等同人工 `resume`：决策/任务生命周期预算不变，
+  仅人工 `set_lifetime_budget` 可调。
+- **阻塞解释来自真实证据。** 回答包含 attention flags、失败的断言、
+  `rejected/inconclusive` verdict 与 Goal 的 stop reason，而不是模型措辞。
+- **`verified` 的语义照样收紧。** 对话明确说明 verdict 只是"声明的验收条件
+  通过"，不是工程质量保证。
+
+### 退出条件与实际结果
+
+| # | 退出条件 | 结果（T50） |
+|---|---|---|
+| 1 | 项目列表/状态/阻塞/任务/知识查询均由 Ledger 渲染 | Pass（A 段 13 项） |
+| 2 | 对话内提交 Goal，由既有 Runner 推进，回报真实 verdict | Pass（B 段，2 次 sweep 到 `completed`） |
+| 3 | `resume` 必须显式确认；取消/跑题/无暂存确认均不生效 | Pass（C 段 12 项） |
+| 4 | 对话不产生第二份真相，删除会话不影响进度 | Pass（D 段 8 项） |
+| 5 | 意图 schema 是真实门控（策略 vs 形状分离） | Pass（E 段 12 项） |
+
+证据：`evidence/project/T50-conversational-ld.json`（确定性：脚本化意图分类器 +
+脚本化决策模型 + stub adapter）。另外用真实 CLI 进程做过一次跨进程手工冒烟
+（一次性多轮 → `submit_goal` → 暂存 `resume_goal` → 下一进程 `确认` 生效且预算
+未变），该冒烟不产出证据文件。
+
+### 明确不做
+
+- 不做第二套 LD、第二套调度或第二套审批；对话层没有 Worker/SQLite 直接访问。
+- 不把聊天内容写成项目知识（M4-E 才讨论导入流程，且必须经校验与确认）。
+- 不做自动审批：`needs_approval` 仍必须在控制平面显式处理。
+- 不做 Web UI；先保证 CLI/服务接口是唯一逻辑。
+- 不宣称真实模型对话闭环已验收：T50 的意图分类器是脚本化的。
 
 ---
 

@@ -196,9 +196,65 @@ class OpenAIChatModel:
         return decision
 
 
+_CHAT_SYSTEM_PROMPT = (
+    "You are the intent router of a local project-management coordinator (LD). "
+    "Read the JSON chat input and reply with EXACTLY ONE JSON object following "
+    "the embedded intent_schema: exactly the six top-level fields (intent, "
+    "project_id, task_id, goal_id, reason, parameters) and nothing else.\n"
+    "No prose, no markdown fences, no code, no extra keys.\n"
+    "Rules:\n"
+    "- You cannot execute, approve, deny, write project knowledge or dispatch work.\n"
+    "- Use list_projects when no project is named.\n"
+    "- Use submit_goal only when the owner asks to advance/build/finish something "
+    "in a named project; put the owner's objective in parameters.goal verbatim.\n"
+    "- Use resume_goal only for a goal whose status is needs_human.\n"
+    "- Use clarify when the sentence is ambiguous; put your question in "
+    "parameters.question.\n"
+    "- Never invent project ids, task ids or goal ids that are not in the input.\n"
+    "Example: {\"intent\":\"project_status\",\"project_id\":\"prj-1\","
+    "\"task_id\":null,\"goal_id\":null,\"reason\":\"owner asked about progress\","
+    "\"parameters\":{}}"
+)
+
+
+class OpenAIChatIntentModel:
+    """One strict intent classification per chat turn.
+
+    Shares :class:`OpenAIChatModel`'s transport (standard library only) but has
+    its own prompt and output contract: an intent is not a decision, and this
+    class can therefore be given to :class:`ld.chat.LDChat` without granting any
+    execution capability.
+    """
+
+    def __init__(self, *, base_url: str, model: str, api_key: str | None = None,
+                 timeout_s: float = 60.0, max_tokens: int = 1024):
+        self._inner = OpenAIChatModel(
+            base_url=base_url, model=model, api_key=api_key,
+            timeout_s=timeout_s, max_tokens=max_tokens,
+            system_prompt=_CHAT_SYSTEM_PROMPT)
+
+    @classmethod
+    def from_env(cls) -> "OpenAIChatIntentModel | None":
+        base_url = os.environ.get("LD_MODEL_BASE_URL", "").strip()
+        model = os.environ.get("LD_MODEL_NAME", "").strip()
+        if not base_url or not model:
+            return None
+        timeout_raw = os.environ.get("LD_MODEL_TIMEOUT_S", "").strip()
+        return cls(base_url=base_url, model=model,
+                   api_key=os.environ.get("LD_MODEL_API_KEY") or None,
+                   timeout_s=float(timeout_raw) if timeout_raw else 60.0)
+
+    def describe(self) -> dict[str, Any]:
+        return {**self._inner.describe(), "contract": "m4-d.intent.v1"}
+
+    def classify(self, chat_input: Mapping[str, Any]) -> Mapping[str, Any]:
+        return self._inner.decide(chat_input)
+
+
 __all__ = [
     "ModelCallError",
     "ModelResponseError",
     "ModelTimeoutError",
+    "OpenAIChatIntentModel",
     "OpenAIChatModel",
 ]

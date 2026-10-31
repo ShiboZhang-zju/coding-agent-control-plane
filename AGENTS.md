@@ -179,8 +179,27 @@
   `running` 行。
 - 自动推进不得改写已冻结的 Effective Prompt、`handoff_signature` 或既有审批。
 
-## 6. 派发与审批规则（M1 补充）
+### 5.5 对话入口边界（M4-D 引入）
 
+- **对话层不是第二个 Agent，也不是第二种执行路径。** `ld/chat.py` 只能读
+  Ledger / Goal / Project Context，并把它们渲染成文本；它不得派工、审批、
+  写项目知识、改 Effective Prompt 或编造 verdict。
+- **三种记忆必须分开。** `ld_conversations` / `ld_messages` 只回答"刚才在聊
+  什么"；`project_context_entries` 回答"项目确认过什么"；Ledger 回答"实际跑到
+  哪"。重开会话必须重新读 Ledger，不得把旧聊天摘要当当前进度。
+- **写意图只有 `submit_goal` 与 `resume_goal`，都必须落到既有机制。**
+  `submit_goal` 用确定性 `goal_id`（同目标重复提出只复用）；`resume_goal` 必须
+  先暂存，只有下一条消息是精确确认词才调用 `LDGoalStore.resume()`。确认不得由
+  模型输出推断，也不得从"同意"之外的句子推断。
+- **恢复不增预算。** 对话恢复等同人工 `resume`：`max_decisions_total` /
+  `max_tasks_total` 不变；只有人工 `set_lifetime_budget` 可调。
+- **只读问答零副作用。** 一次查询不得新增 WorkItem、context 条目、context_version
+  或 revision；发现它做了，属于 bug 而不是特性。
+- **意图分类是门控。** 未知意图/字段/参数是 `ChatPolicyError`（永久 fail-closed，
+  不重试）；缺字段是 `ChatValidationError`（可有界重试）。无模型端点时使用确定性
+  关键词路由，并如实标注 `intent_source`。
+
+## 6. 派发与审批规则（M1 补充）
 - 入队即冻结 Effective Prompt。已入队任务的内容不得因上下文更新而改变。
 - `task_digest` 必须绑定实际执行内容；项目任务的 digest 还包含
   `workspace_id` 与 `context_version`，Handoff 任务还要包含 `handoff_signature`。
