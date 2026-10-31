@@ -154,11 +154,19 @@
   调度组件，不是 LLM Agent。Runtime 内嵌（`--advance-goals`）与独立进程
   （`scripts/run_ld_goal_runner.py`）必须共用它，不得出现第二套唤醒逻辑。
 - **只在观测状态确实变化时调用模型。** 相同 `goal_wake_signature` 必须跳过；
-  Pending Step 例外（未完成的工作不是"没变化"）。不得为了刷完成率而缩短去重。
+  Pending Step 例外（未完成的工作不是"没变化"）。留下 Goal 为 `active` 的
+  推进（如 `inspect` 查询、单次 Quantum 耗尽让出）同样不算"已处理"：
+  不得确认签名，下一轮继续唤醒，由无进展连击上限有界升级。失租/陈旧失败
+  路径不得写调度签名。
+- **预算分两层，不得混用。** 单次调度 Quantum 耗尽是正常让出，绝不停 Goal；
+  Goal 生命周期总预算持久化在 `ld_goals`，首次推进盖章后任何自动路径
+  （含 `resume`）不得重置或扩大，仅人工显式 `set_lifetime_budget` 可调。
 - **终态 Goal 不得被自动唤醒**：`needs_human` / `completed` / `failed`
   不调用模型、不自动恢复。模型自述的 `request_human` 不得被调度器忽略。
-- **失败必须有界。** 模型失败按退避重试，超过阈值写 `needs_human` 并停止
-  调用；失败原因必须可查询。不得实现无限重试或无限轮询。
+- **失败必须有界且升级必须 fenced。** 模型失败按退避重试，超过阈值经
+  条件更新（`stop_goal_if`）转人工并停止调用；陈旧观察（Goal 已被他人推进
+  或终态）的失败不得计数、不得退避、不得覆盖他方状态。不得实现无限重试
+  或无限轮询。
 - **调度簿记不是第二份真相。** `ld_goal_runner` 只存 last_signature / 退避 /
   计数；任务成败一律读 Ledger，`ld_goals` 只记目标推进。
 - **模型输出瑕疵与策略违规必须分开。** 缺字段/类型错是可重试的

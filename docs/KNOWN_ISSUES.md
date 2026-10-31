@@ -9,6 +9,20 @@ completed，零人工介入）**；故障恢复与副作用拒绝路径另由 T3
 **"任务执行与交接成功"与"Goal 自动闭环完成"是两个不同的验收结论**，本文档分开
 记录。决策模型端点与模型 id 属于环境配置，不出现在任何代码默认值、日志或证据中。
 
+## M4-C 可靠性收口轮（2026-10-31，预算 / inspect 续推 / 并发 / 常驻服务）
+
+| # | 源码位置 | 影响 / 处理 | 最小复现 / 验证方法 | 状态 |
+|---|---|---|---|---|
+| M4C-06 | `ld/coordinator.py::run_goal(budget_is_per_call=True)` | 单次额度叠加在累计计数上等效于"每次唤醒都发新预算"：连续多次成功派工可无限突破预算；且单次额度耗尽会被误判为 `decision budget exhausted` 直接停成 `needs_human`（inspect 后无法继续）。现拆分为两层：Quantum（每次唤醒的额度，耗尽即正常让出，报告 `per-call decision budget exhausted`，Goal 保持可推进）与 Lifetime（`ld_goals.max_decisions_total/max_tasks_total`，首次推进盖章，跨重启持久，达到才 `needs_human`，stop reason `lifetime decision budget exhausted` / `goal task budget exhausted`）。 | T45 A1–A6：Quantum 耗尽不错误转人工；多轮唤醒总决策/总任务预算不可突破；重启不重置；`resume` 不隐式增加（仅人工显式 `set_lifetime_budget`）；旧库迁移后生效。 | 已修复；T45 Pass |
+| M4C-07 | `ld/goal_runner.py`（wake signature 去重） | `inspect` 决策不改变任何可观测事实：签名去重把"尚未完成的查询流程"当作已处理，LD 查询后永久跳过，无法进入 submit/finish。现引入最小"待继续决策"语义：凡留下 Goal 为 `active` 的推进不确认签名（`record_success(acknowledge=False)`），下一轮 sweep 继续唤醒；检查结果以有界快照（1200 字符）持久化到步 outcome，下一次决策经 `goal_state.last_step.inspection_result` 可用，且仅对授权 `local` 域的模型展示。 | T46 B1–B8：inspect→submit、inspect×2→submit、inspect→request_human、无进展连击上限转人工、查询后重启续推、未授权模型不可见查询结果、Worker 运行期 0 次重复调用、Pending Step 仍优先确定性对账。 | 已修复；T46 Pass |
+| M4C-08 | `ld/goal_store.py::stop_goal`（token=None） / `ld/goal_runner.py::_escalate()` | 失败升级不带 fencing：Runner A 模型调用失败期间 Runner B 已完成 Goal 时，A 的升级会把 `completed` 覆盖成 `needs_human`。新增 `stop_goal_if`（单事务条件更新：Goal 仍可推进 + decision_count 与观察一致 + 无其他存活租约才生效）；失败/升级前增加陈旧观察检测（`_observation_is_stale`），陈旧失败不计数、不退避、不升级。 | T47 C2：A 观察后睡眠，B 完成目标，A 升级必须 no-op（`completed` 保持），正向对照（真实卡死 Goal）仍能升级。 | 已修复；T47 Pass |
+| M4C-09 | `ld/goal_runner.py::record_skip`（GoalLeaseHeld/Lost 路径） | 失租竞争者的 skip 会写入当前 `last_signature`，把"另一执行者未处理完的失败状态"标记为已处理；下一轮 sweep 判定"观测无变化"而 skip，**退避重试策略被静默禁用**（T47 压测复现：双 Runner 失败场景偶发永不升级）。现失租/陈旧路径 `record_skip(acknowledge=False)`，只有真正处理了该状态的执行者才确认签名。 | T47 C5：双真实进程持续失败，失败计数 1→2→3 且恰一次有效升级；连续三次全量运行稳定。 | 已修复；T47 Pass |
+| M4C-10 | 测试约定（非产品缺陷） | stub 测试若从 harness 直接写终态/判定，会与 Runtime 的 `refresh_known_jobs` 读-改-写竞争（终态被回写 running/pending）。产品契约中判定只能来自 adapter 观测 + Verifier；T49 改为 stub adapter 报告终态、由真实 Verifier 路径评估断言产生 rejected/verified。 | T49：A 的 `file_exists never-created.txt` 经 Verifier 真实判 rejected → LD request_human 停摆；B 的工件真实产出后 verified → completed。 | 已按契约修正测试；T49 Pass |
+| M4C-11 | T48 首轮真实运行暴露的两个模型侧缺陷（非控制平面缺陷） | (a) Worker agent 对"在当前工作分支提交（不要操作 main/master）"产生合规性误读：检出仅 main 时拒绝执行任何写操作（无 worktree 产生、断言全部"pre-existing unchanged"判 rejected）。修复：T48 目标文本显式允许自建特性分支。(b) LD 模型提交第二任务时连续 4 次产出缺 `target` 的断言，而重试是**盲重试**（同样输入再采样），必然重复失败至升级转人工。修复：新增校验错误反馈重试——Runner 把上一次 `model output rejected` 的校验错误经 `run_goal(retry_feedback=...)` 注入下一次模型输入（`previous_attempt_error` 字段 + 修正规则；仅首次调用生效、传输错误不反馈、输出仍走同一严格校验），模型据此自我纠正。 | T46 B9：无效断言 → 重试输入含校验错误与修正规则 → 任务成功提交、失败计数清零。T48 真实服务 R1/R2 双任务全 Pass。 | 已修复；T46 B9 + T48 Pass |
+| M4C-R03 | 剩余风险：T48（真实常驻服务双任务自动接续 + 重启恢复）依赖真实决策模型端点（`LD_MODEL_*`）与本机 CodeBuddy 服务 | 环境不可用时 T48 记录 `EnvironmentBlocked`，**不构成 Pass**；也不得用 stub 结果冒充真实服务验收。运行模式区分：T43 是"测试脚本以 `run_due(force=True)` 驱动 Runtime 调度"，T48 才是"独立服务进程自行调度"，只有 T48 通过才能标记后者已验证。 | `python scripts/t48_real_service_autonomous.py`（需要 `LD_MODEL_BASE_URL/LD_MODEL_NAME`，先 `serve_ctl.py start`）。 | 本轮已用环境配置的 DeepSeek 端点实跑通过（R1+R2 全 Pass） |
+| M4C-R04 | 剩余风险：T49 的失败路径为确定性验证（stub Worker + 真实 Verifier 判定路径） | 真实 CodeBuddy Worker 上"任务被拒 → LD 转人工 → 另一项目继续推进"的完整集成未跑（T44 覆盖双项目正常路径，T38c 覆盖真实拒绝路径，但未组合双项目）。 | 环境允许时在 T44 结构上加一个必败断言项目复跑。 | 已知缺口 |
+| M4C-R05 | 剩余风险：`ld_goal_runner` 簿记与 Ledger 仍分属不同连接，`record_success/record_skip` 与 WorkItem 终态不同事务 | 与 M4C-R01 同源：签名多写/漏写最坏造成一次冗余幂等决策；步幂等键 + Pending Step 对账保证不重复派工。 | T42/T46/T47 覆盖进程内、重启后与双进程路径。 | 设计如此，已验证 |
+
 ## M4-C 轮新发现与处理（2026-10-30，自动唤醒 + 双项目）
 
 | # | 源码位置 | 影响 / 处理 | 最小复现 / 验证方法 | 状态 |

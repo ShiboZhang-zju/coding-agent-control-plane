@@ -410,11 +410,22 @@ Human Owner 只提交一次 Goal，系统自动完成
 - **只在观测状态确实变化时调用模型。** `goal_wake_signature` 由 Goal 行、当前
   WorkItem 的 state/verdict/queue_status 与决策计数共同决定；签名相同即 skip。
   Pending Step 例外：它是未完成的工作，签名里不含它，崩溃不能被当成"没变化"。
+  **未完成推进流例外（M4-C 收口）**：凡是留下 Goal 为 `active` 的推进（典型是
+  `inspect` 查询决策、单次 Quantum 耗尽正常让出）都**不确认**签名，下一轮
+  sweep 继续唤醒 LD，由无进展连击上限有界升级转人工；失租/陈旧失败路径同样
+  不写签名（否则他方未处理的失败会被去重吞掉，退避策略失效）。
+- **预算分两层。** 单次调度 Quantum（`--goal-max-decisions/--goal-max-tasks`，
+  默认 1/1）耗尽即正常让出，绝不停 Goal；Goal 生命周期总预算
+  （`ld_goals.max_decisions_total/max_tasks_total`，`--goal-lifetime-*` 指定，
+  默认 24/4）首次推进一次性盖章，跨重启持久，`resume` 不重置不扩大，仅人工
+  显式 `set_lifetime_budget` 可调；达到总预算进入明确 `needs_human`。
 - **失败可查询、有限退避、最终转人工。** 模型传输失败/输出结构不完整按
   `base * 2^(n-1)` 退避（上限 `max_backoff_s`），达到
-  `max_model_failures` 后 `stop_goal(needs_human)` 并停止调用。
+  `max_model_failures` 后经 `stop_goal_if` **条件升级**为
+  `needs_human` 并停止调用：仅当 Goal 仍可推进、决策计数与观察一致且无其他
+  存活租约时生效——陈旧 Runner 的失败升级无法覆盖他方已完成/推进中的 Goal。
 - **不自动忽略 `request_human`。** 模型自己说转人工，Goal 就停在
-  `needs_human`；重复 inspect 无进展也会停滞转人工。
+  `needs_human`；重复无进展决策也会停滞转人工。
 - **进度没有第二份真相。** Runner 只写调度簿记；任务成败一律读 Ledger，
   `ld_goals` 只记目标推进。
 
@@ -442,12 +453,41 @@ Human Owner 只提交一次 Goal，系统自动完成
 - T43 `evidence/project/T43-m4c-autonomous-e2e.json`：**真实模型 + 真实
   CodeBuddy Worker** 黑盒验收。Goal 提交 1 次、手工 `run-goal` 0 次、
   手工提交任务 0 次；1 个 WorkItem verified，worktree 内 `pytest` 3 passed，
-  LD 自动 `finish` → `completed`。
+  LD 自动 `finish` → `completed`。注意：T43 由测试脚本以
+  `run_due(force=True)` 驱动 Runtime 调度，属"脚本驱动"运行模式；
+  "独立服务自行调度"模式由 T48 验证。
 - T44 `evidence/project/T44-m4c-dual-project.json`：**双项目并行独立运行**。
   两个 Goal 同时在一个 Runtime 上推进，各自 1 个任务、全部 verified、
   worktree 在各自仓库、`pytest` 各自全绿、main 未动；任一项目的 local
   秘密条目既不出现在另一项目的 Effective Prompt，也不出现在其 model view /
   progress 投影里。
+- T45 `evidence/project/T45-goal-budget-semantics.json`：预算语义 A1–A6 全
+  Pass —— Quantum 耗尽不转人工、总决策/任务预算跨唤醒不可突破、重启不重置、
+  `resume` 不隐式增预算（仅显式 `set_lifetime_budget` 可调）、旧版 Ledger
+  迁移后行为正确。
+- T46 `evidence/project/T46-inspect-continuation.json`：inspect 连续推进
+  B1–B8 全 Pass —— inspect→submit、inspect→inspect→submit、inspect→
+  request_human、无进展上限、重启续推、查询结果按安全域门控不泄露、
+  Worker 运行期不重复调用、Pending Step 优先对账。
+- T47 `evidence/project/T47-runner-concurrency-fencing.json`：多 Runner 并发
+  C1–C6 全 Pass（每场景两个真实 OS 进程 + 独立 SQLite 连接）—— 并发恰一
+  WorkItem、陈旧升级不覆盖 completed（含正向对照）、失租 fenced 写入被拒、
+  跨进程重启续推、重复失败仅一次有效升级、单 Goal 失败不阻塞其他 Goal。
+- T48 `evidence/project/T48-real-service-autonomous.json`：**真实常驻服务双任务
+  自动接续**（`run_controlplane.py --advance-goals` 服务进程 + CodeBuddy HTTP
+  服务 + 真实 LLM；测试脚本只创建项目/提交一次 Goal/读 Ledger，从不调用
+  `run_due(force=True)` 等外部驱动）。**R1 + R2 全 Pass**：R1 零人工闭环
+  （A verified → 自动唤醒 → B 以新 Session handoff 接续 A 的 checkpoint、
+  A commit 为 B HEAD 祖先、B worktree 预置测试全绿 → 自动 finish 恰含 A/B →
+  `completed`，人工恢复 0 次）；R2 在 A verified 后杀死 Runtime 进程，新服务
+  进程自动发现 Waiting Goal 提交 B 并完成（服务重启 1 次、人工恢复 0 次）。
+  真实模型为环境配置的 DeepSeek 端点；首轮暴露的模型侧缺陷（分支指令误读、
+  断言缺 target）通过明确目标文本 + 校验错误反馈重试修复（见 KNOWN_ISSUES
+  M4C-11）。
+- T49 `evidence/project/T49-project-failure-isolation.json`：双项目失败隔离
+  全 Pass（确定性、真实验证路径：A 的断言经 Verifier 真实判 rejected → LD
+  request_human 停摆，B 同时自动完成；全局并发限制、退避隔离、知识隔离、
+  报告隔离均成立）。真实 CodeBuddy 失败路径集成验证为已知缺口。
 
 ### 明确不做
 

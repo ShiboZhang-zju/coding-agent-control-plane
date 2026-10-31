@@ -1,0 +1,148 @@
+{
+  "test": "T49-project-failure-isolation",
+  "worker_started": false,
+  "note": "deterministic: stub adapter + scripted per-project decision model driven by the real runtime lifecycle (background goal thread; no forced sweeps). Project A's rejection verdict is written by the harness like a real observation would; the LD itself decides request_human. Real-Worker failure-path integration is a recorded gap (see KNOWN_ISSUES).",
+  "fixture": "<REPO>\\sandbox\\t49-isolation-2b67738f",
+  "goal_a": {
+    "status": "needs_human",
+    "task_count": 1,
+    "decision_count": 2,
+    "last_decision": {
+      "step": 2,
+      "action": "request_human",
+      "next_state": "human_required",
+      "task_id": null,
+      "recovered": null
+    }
+  },
+  "goal_b": {
+    "status": "completed",
+    "task_count": 1,
+    "decision_count": 2
+  },
+  "history_a": [
+    {
+      "step": 1,
+      "action": "submit_task",
+      "outcome": "task_submitted"
+    },
+    {
+      "step": 2,
+      "action": "request_human",
+      "outcome": "human_required"
+    }
+  ],
+  "history_b": [
+    {
+      "step": 1,
+      "action": "submit_task"
+    },
+    {
+      "step": 2,
+      "action": "finish"
+    }
+  ],
+  "tasks_a": [
+    {
+      "id": "cp-b0747f056117",
+      "verdict": "rejected",
+      "project": "prj-8bee1eb32f"
+    }
+  ],
+  "tasks_b": [
+    {
+      "id": "cp-4d40145f35f6",
+      "verdict": "verified",
+      "project": "prj-ec48ba21da",
+      "handoff_source": null
+    }
+  ],
+  "runtime": {
+    "goal_runs": 11,
+    "dispatch_runs": 14
+  },
+  "max_in_flight_observed": 1,
+  "b_advanced_during_a_backoff": true,
+  "observation_tail": [
+    {
+      "t": 1793431748.97,
+      "statuses": {
+        "goal-9acb7294b39d": "waiting",
+        "goal-940de9c7fcdb": "completed"
+      },
+      "a_next_attempt_at": 0.0,
+      "b_advances": 2,
+      "in_flight": 1
+    },
+    {
+      "t": 1793431749.27,
+      "statuses": {
+        "goal-9acb7294b39d": "waiting",
+        "goal-940de9c7fcdb": "completed"
+      },
+      "a_next_attempt_at": 0.0,
+      "b_advances": 2,
+      "in_flight": 1
+    },
+    {
+      "t": 1793431749.57,
+      "statuses": {
+        "goal-9acb7294b39d": "waiting",
+        "goal-940de9c7fcdb": "completed"
+      },
+      "a_next_attempt_at": 0.0,
+      "b_advances": 2,
+      "in_flight": 1
+    },
+    {
+      "t": 1793431749.89,
+      "statuses": {
+        "goal-9acb7294b39d": "waiting",
+        "goal-940de9c7fcdb": "completed"
+      },
+      "a_next_attempt_at": 0.0,
+      "b_advances": 2,
+      "in_flight": 0
+    },
+    {
+      "t": 1793431750.2,
+      "statuses": {
+        "goal-9acb7294b39d": "waiting",
+        "goal-940de9c7fcdb": "completed"
+      },
+      "a_next_attempt_at": 0.0,
+      "b_advances": 2,
+      "in_flight": 0
+    },
+    {
+      "t": 1793431750.5,
+      "statuses": {
+        "goal-9acb7294b39d": "needs_human",
+        "goal-940de9c7fcdb": "completed"
+      },
+      "a_next_attempt_at": 0.0,
+      "b_advances": 2,
+      "in_flight": 0
+    }
+  ],
+  "checks": {
+    "a_needs_human": true,
+    "a_parked_via_request_human": true,
+    "a_task_rejected": true,
+    "b_completed": true,
+    "b_task_verified": true,
+    "schedule_kept_running": true,
+    "b_prompt_lacks_a_secret": true,
+    "b_prompt_has_own_secret": true,
+    "a_prompt_lacks_b_secret": true,
+    "b_shareable_view_hides_a_secret": true,
+    "b_goal_has_only_b_tasks": true,
+    "b_progress_counts_only_b": true,
+    "b_not_handoff_of_a": true,
+    "global_concurrency_respected": true,
+    "b_advanced_during_a_backoff": true,
+    "model_never_mixed_projects": true,
+    "a_transport_failures_were_a_only": true
+  },
+  "result": "Pass"
+}

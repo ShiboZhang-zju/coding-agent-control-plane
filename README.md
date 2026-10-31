@@ -154,11 +154,15 @@ M4-A 只把 T32 实际覆盖的确定性边界标为 Pass，整体仍未完成�
 | provenance 模型视图（M4B-01：Prompt/原文不进模型输入） | `ld/tools.py` | T36 Pass |
 | 持久化 Goal 状态（确定性 goal_id、追加式决策历史、跨进程租约 + fencing token） | `ld/goal_store.py` | T37/T39 Pass |
 | 有界连续推进 `run_goal()` + 依赖任务确定性 handoff 交接 | `ld/coordinator.py` | T37/T39 确定性 Pass；T38b 真实严格闭环 25/25 Pass（completed，Owner 介入 0 次）；T38c 真实故障恢复/副作用拒绝 Pass |
-| 自动唤醒调度器 `LDGoalRunner`（状态变化才调模型、有限退避、失败转人工） | `ld/goal_runner.py` | T42 确定性 Pass（B1–B5） |
-| Runtime 内嵌 Goal 推进（`--advance-goals`，独立线程 + 同一 Ledger） | `controlplane/runtime.py`、`scripts/run_controlplane.py` | T42 B2 Pass；T43 真实闭环 Pass |
+| 自动唤醒调度器 `LDGoalRunner`（状态变化才调模型、有限退避、失败转人工） | `ld/goal_runner.py` | T42 确定性 Pass（B1–B6） |
+| Runtime 内嵌 Goal 推进（`--advance-goals`，独立线程 + 同一 Ledger） | `controlplane/runtime.py`、`scripts/run_controlplane.py` | T42 B2 Pass；T43 真实闭环 Pass；T48 真实常驻服务双任务（含重启恢复） |
 | 独立 Goal Scheduler 进程（Control Plane 不导入模型客户端时） | `scripts/run_ld_goal_runner.py` | T42/T43 同源实现 |
 | Handoff Checkpoint 引用保护（排队期阻断 + 派发前复核 + 重启恢复） | `controlplane/handoff.py`、`controlplane/plane.py` | T41 A1–A8 Pass |
 | 双项目并行独立运行 | `controlplane/plane.py`（项目作用域） | T44 Pass |
+| Goal 预算：单次 Quantum 与持久化 Lifetime 总预算分离（resume 不增预算，仅人工 `set_lifetime_budget` 可调） | `ld/goal_store.py`、`ld/coordinator.py` | T45 Pass（含旧库迁移/重启/恢复语义） |
+| inspect 连续推进（查询结果持久化 + 未完成流不确认签名 + 安全域门控） | `ld/coordinator.py`、`ld/goal_runner.py` | T46 Pass |
+| 多 Runner 并发 / 租约丢失 / fenced 失败升级（两真实进程 + 独立连接） | `ld/goal_store.py::stop_goal_if`、`ld/goal_runner.py` | T47 Pass（C1–C6） |
+| 双项目失败隔离（A 拒绝转人工不阻塞 B） | `ld/goal_runner.py`（按 Goal 独立簿记） | T49 Pass（确定性，真实验证路径） |
 | 同 Ledger CLI（查询/单轮/run-goal/--resume） | `scripts/ld_cli.py` | T32/T38 Pass |
 
 M4 未引入任何 Agent Framework。模型输出必须通过严格 schema 校验，模型永远
@@ -170,13 +174,16 @@ M4 未引入任何 Agent Framework。模型输出必须通过严格 schema 校�
 **M4-C：一次提交目标，自动推进到完成。** Human Owner 只声明一次 Goal
 （`LDGoalStore.get_or_create`），之后由 Runtime 的 Goal 推进路径自动完成
 "派发 → Worker → Verifier → Project Context → 唤醒 LD → 下一次决策"。
-它不是第二个 Agent：`LDGoalRunner` 是确定性调度组件，只在观测状态**确实变化**
-时才调用 `LDCoordinator.run_goal()`，否则只记 skip。终态 Goal
+它不是第二个 Agent：`LDGoalRunner` 是确定性调度组件，只在观测状态**确实变化**、
+存在可恢复的 Pending Step、或上一决策留下未完成推进流（如 inspect 之后）时才
+调用 `LDCoordinator.run_goal()`，否则只记 skip。终态 Goal
 （`needs_human` / `completed` / `failed`）永不被自动唤醒；模型连续失败按
-指数退避重试，超过阈值转人工并停止调用；崩溃遗留的 Pending Step 先从 Ledger
-对账（不调模型）再继续。T43 黑盒验收：Goal 提交 1 次、手工 `run-goal` 0 次、
-手工提交任务 0 次，真实 CodeBuddy Worker 完成并 `pytest` 全绿后 LD 自动
-`finish`（`completed`）。
+指数退避重试，超过阈值经条件升级（fenced，陈旧观察不覆盖他方状态）转人工并
+停止调用；崩溃遗留的 Pending Step 先从 Ledger 对账（不调模型）再继续。
+验收：T43 黑盒（单任务真实闭环）；T48 真实常驻服务双任务——Goal 提交 1 次、
+`run_due(force=True)` 等外部驱动 0 次、A verified → 自动唤醒 → B 以 handoff
+接续 A 的 checkpoint（新 Session、HEAD 祖先可证）→ B verified → LD 自动
+`finish`（`completed`），外加服务进程重启后自动发现 Waiting Goal 续推。
 
 ---
 
@@ -227,8 +234,13 @@ $env:LD_MODEL_NAME     = "your-model"
 $env:LD_MODEL_API_KEY  = "..."            # 端点需要时
 python scripts/run_controlplane.py --advance-goals --model-domains local,shareable `
     --goal-interval 5 --goal-max-decisions 1 --goal-max-tasks 1 `
-    --goal-max-model-failures 3 --goal-base-backoff 5 --goal-max-backoff 300
+    --goal-max-model-failures 3 --goal-base-backoff 5 --goal-max-backoff 300 `
+    --goal-lifetime-decisions 24 --goal-lifetime-tasks 4
 ```
+
+这是**真正常驻的服务进程**：`run_forever()` 自带独立的 goal 推进线程，
+派发、观测与 LD 推进互不阻塞；测试脚本 `t43/t48` 之外没有任何路径需要
+`run_due(force=True)` 之类的外部驱动。
 
 如果 Control Plane 所在机器不应导入任何模型客户端，可改由独立进程推进（同一
 Ledger、同一 `LDGoalRunner`，只有一套实现）：
@@ -239,10 +251,52 @@ python scripts/run_ld_goal_runner.py --once       # 一次 sweep，便于排障
 python scripts/run_ld_goal_runner.py --status     # 每个 Goal 的调度视图
 ```
 
-调度语义（`ld/goal_runner.py`）：只有观测状态**确实变化**或存在可恢复的
-Pending Step 时才调用模型；`needs_human` / `completed` / `failed` 永不自动唤醒；
-模型连续失败按指数退避（上限 `--goal-max-backoff`），超过
-`--goal-max-model-failures` 转人工并停止调用。
+**预算语义（M4-C 可靠性收口）：** 单次调度预算（Quantum）与 Goal 生命周期
+总预算（Lifetime）是两个独立概念：
+
+- Quantum：`--goal-max-decisions` / `--goal-max-tasks`（默认 1/1），每次唤醒
+  最多执行 N 次决策/提交；耗尽即正常让出执行权，**绝不**视为 Goal 失败。
+- Lifetime：`--goal-lifetime-decisions` / `--goal-lifetime-tasks`（默认
+  24/4），整个 Goal 累计的模型决策数与 WorkItem 提交数上限，持久化在
+  `ld_goals.max_decisions_total` / `max_tasks_total`，首次推进时一次性盖章；
+  反复唤醒、进程重启、人工 `--resume` 都**不会**重置或扩大它，只有人工显式
+  调用 `LDGoalStore.set_lifetime_budget` 才能调整。达到总预算进入明确的
+  `needs_human`（stop reason `lifetime decision budget exhausted` /
+  `goal task budget exhausted`）。
+
+**inspect 连续推进：** 查询型决策（`inspect`）不会终结 Goal 的推进流——凡是
+留下 Goal 为 `active` 的推进都不确认 wake signature，下一轮 sweep 会继续唤醒
+LD，直到它提交任务、等待验收或 finish；检查结果以有界快照持久化在步 outcome，
+下一次决策可通过 `goal_state.last_step.inspection_result` 使用（仅对授权
+`local` 域的模型可见）。连续无进展的查询由无进展连击上限（默认 3）有界升级转
+人工。
+
+调度语义（`ld/goal_runner.py`）：只有观测状态**确实变化**、存在可恢复的
+Pending Step、或上一决策留下未完成推进流时才调用模型；`needs_human` /
+`completed` / `failed` 永不自动唤醒；模型连续失败按指数退避（上限
+`--goal-max-backoff`），超过 `--goal-max-model-failures` 转人工并停止调用。
+
+**多 Runner 并发安全：** Goal 租约携带单调递增 fencing token，所有目标状态
+写入都在事务内校验；失败升级走条件更新（`stop_goal_if`）——仅当 Goal 仍可推
+进、决策计数与观察一致且无其他存活租约时才落 `needs_human`，陈旧 Runner 无法
+覆盖他方已完成/推进中的状态；租约被夺走的执行者其 fenced 写入会被
+`GoalLeaseLost` 拒绝；失租/陈旧路径不写入调度签名，不会让"未处理的失败"被
+去重误判为"观测无变化"。
+
+**查询 Goal 状态与人工恢复：**
+
+```powershell
+python scripts/run_ld_goal_runner.py --ledger <ledger> --status
+# goal 状态、累计决策/任务数、lifetime 预算、失败退避与上次错误都在输出里
+
+# needs_human 的 Goal 由人工处理后显式恢复（记录为 human_resume 决策；
+# resume 不会增加任何预算）
+python scripts/ld_cli.py --ledger <ledger> run-goal "<目标文本>" `
+    --project <project-id> --resume
+```
+
+M5（跨机器执行）仍未实现：`workspaces.node_id != 'local'` 一律判为阻塞/不支
+持，绝不在本机静默执行。
 
 ### 6.2 最小可运行的 Project Context 示例
 
