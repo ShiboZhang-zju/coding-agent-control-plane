@@ -121,9 +121,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="one message; omit to start an interactive session")
     chat_cmd.add_argument("--conversation", default=None,
                           help="continue a specific conversation id")
+    chat_cmd.add_argument("--new", action="store_true",
+                          help="start a new conversation")
     chat_cmd.add_argument(
-        "--new", action="store_true",
-        help="start a new conversation instead of continuing the most recent one")
+        "--continue-latest", action="store_true", dest="continue_latest",
+        help=("continue the most recently updated conversation (single-operator "
+              "convenience). Without it, a one-shot command refuses to guess; "
+              "an interactive session always starts fresh until you name one"))
     chat_cmd.add_argument("--project", default=None, help="project id or name")
     chat_cmd.add_argument(
         "--no-model", action="store_true",
@@ -209,10 +213,21 @@ def _run_chat(args, tools: LDTools, store: TaskStore) -> int:
                                project_id=project_id)
 
         conversation_id = args.conversation
-        if conversation_id is None and not args.new:
-            # One-shot invocations should continue the owner's conversation, not
-            # silently start a new one every time: without this, a staged action
-            # or an established project selection is lost between two commands.
+        interactive = not args.message and sys.stdin.isatty()
+        if conversation_id is None and not args.new and not interactive:
+            # Continuing the most recent conversation is a *convenience for one
+            # operator at one terminal*.  It is off unless asked for: with two
+            # terminals (or two people) open, silently adopting whatever was
+            # touched last would apply one context's staged action or project
+            # selection to another.  An interactive session is already sticky,
+            # so it just starts fresh when nothing was named.
+            if not getattr(args, "continue_latest", False):
+                raise SystemExit(
+                    "ld chat: refusing to guess which conversation to continue.\n"
+                    "  --new                start a new conversation\n"
+                    "  --conversation ID    continue that conversation\n"
+                    "  --continue-latest    continue the most recently updated one\n"
+                    "Run `ld conversations` to list them.")
             recent = chats.list_conversations(limit=1)
             conversation_id = recent[0]["conversation_id"] if recent else None
         project_id = args.project

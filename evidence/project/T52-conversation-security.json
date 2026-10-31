@@ -1,0 +1,59 @@
+{
+  "test": "T52 conversation security (M4-D Safety Closure)",
+  "fixture": "<REPO>/sandbox/t52-chat-security",
+  "note": "Deterministic: scripted/heuristic classifiers + stub adapter. Covers M4-D audit P0-2 (cross-turn leak through the LD's own answers) and P1 (stale/concurrent confirmation). Real endpoints are not exercised; no claim is made about them.",
+  "checks": {
+    "A_history_projection": {
+      "knowledge_answer_really_contains_local_body": true,
+      "secret_absent_from_next_model_input": true,
+      "secret_title_absent_from_history": true,
+      "ld_answer_prose_not_forwarded": true,
+      "ld_answer_keeps_intent_label": true,
+      "history_is_bounded": true,
+      "user_turn_still_present": true,
+      "project_names_excluded_without_local": true,
+      "declared_domains_match": true,
+      "local_domain_also_omits_prose": true,
+      "note_is_explicit": true
+    },
+    "B_stale_confirmation": {
+      "staged_bound_to_decision_count": true,
+      "pending_carries_the_version": true,
+      "goal_moved_on_as_expected": true,
+      "stale_confirmation_refused": true,
+      "goal_still_parked_after_stale_confirm": true,
+      "refusal_explains_why": true,
+      "facts_report_both_versions": true
+    },
+    "C_concurrent_confirm": {
+      "four_concurrent_confirmations_returned": true,
+      "no_thread_raised": true,
+      "exactly_one_applied": true,
+      "others_reported_stale": true,
+      "decision_count_advanced_once": true,
+      "goal_is_active": true
+    },
+    "D_refusals_inert": {
+      "staged": true,
+      "superseding_message_reports_it": true,
+      "goal_untouched_by_supersede": true,
+      "confirm_after_supersede_does_nothing": true,
+      "confirm_without_stage_is_not_applied": true,
+      "restage_works": true,
+      "cancel_keeps_goal_parked": true,
+      "cancel_does_not_advance_history": true,
+      "cancel_reported": true
+    },
+    "E_projection_monotonic": {
+      "authorization_is_monotonic": true,
+      "unauthorized_projection_carries_no_content": true,
+      "secret_never_in_any_projection": true,
+      "shareable_only_withholds_user_text": true,
+      "local_authorization_keeps_user_text": true,
+      "local_authorized_user_text_is_real": true,
+      "goal_ids_survive_projection": true
+    }
+  },
+  "result": "PASS",
+  "failed": []
+}

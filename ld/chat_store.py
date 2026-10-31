@@ -193,6 +193,46 @@ class LDChatStore:
                 "WHERE conversation_id=?", (encoded, time.time(), conversation_id))
         return self.get_conversation(conversation_id) or {}
 
+    def consume_pending_action(self, conversation_id: str, *,
+                              expected: dict | None = None) -> dict | None:
+        """Atomically clear the staged action and report whether *we* cleared it.
+
+        Two confirmations arriving at the same time must not both apply, so the
+        read and the clear happen inside one ``BEGIN IMMEDIATE`` transaction and
+        the caller only proceeds when it got the row back.  With ``expected`` the
+        clear is additionally conditional on the staged payload still being the
+        one the human saw (same goal, same pause) — a concurrent re-stage or a
+        superseding message therefore wins.
+
+        Returns the consumed pending dict, or ``None`` when nothing was applied.
+        """
+        wanted = None if expected is None else json.dumps(
+            expected, ensure_ascii=False, sort_keys=True, default=str)
+        with self._txn() as conn:
+            row = conn.execute(
+                "SELECT pending_action FROM ld_conversations "
+                "WHERE conversation_id=?", (conversation_id,)).fetchone()
+            if row is None or row["pending_action"] is None:
+                return None
+            if wanted is not None:
+                try:
+                    current = json.dumps(json.loads(row["pending_action"]),
+                                         ensure_ascii=False, sort_keys=True,
+                                         default=str)
+                except (TypeError, json.JSONDecodeError):
+                    return None
+                if current != wanted:
+                    # Re-staged or replaced since the human was asked.
+                    return None
+            conn.execute(
+                "UPDATE ld_conversations SET pending_action=NULL, updated_at=? "
+                "WHERE conversation_id=? AND pending_action IS NOT NULL",
+                (time.time(), conversation_id))
+        try:
+            return json.loads(wanted) if wanted is not None else {}
+        except json.JSONDecodeError:  # pragma: no cover - defensive
+            return None
+
     # ------------------------------------------------------------------ #
     # messages
     # ------------------------------------------------------------------ #

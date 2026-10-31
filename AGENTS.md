@@ -196,8 +196,29 @@
 - **只读问答零副作用。** 一次查询不得新增 WorkItem、context 条目、context_version
   或 revision；发现它做了，属于 bug 而不是特性。
 - **意图分类是门控。** 未知意图/字段/参数是 `ChatPolicyError`（永久 fail-closed，
-  不重试）；缺字段是 `ChatValidationError`（可有界重试）。无模型端点时使用确定性
-  关键词路由，并如实标注 `intent_source`。
+  不重试）；缺字段是 `ChatValidationError`，聊天路径没有重采样预算，直接返回
+  `clarify` 让人换句话（`intent_source='invalid_model_intent'`）。无模型端点时使用
+  确定性关键词路由，并如实标注 `intent_source`。
+
+#### 5.5.1 对话安全收口（M4-D Safety Closure，T51/T52）
+
+- **疑问句永不变成写操作。** 路由必须先判定疑问、引用（"「实现」是什么意思"）与
+  否定（"先不要推进"），再判定祈使；命中提交动词的疑问按状态查询回答。模型提出
+  的 `submit_goal` 若不被确定性路由认可为祈使，必须**暂存**并等人工 `confirm`，
+  不得直接创建 Goal。
+- **预算不可从对话修改。** `submit_goal` 的 schema 不含 `max_decisions` /
+  `max_tasks`；携带即为策略违规。生命周期预算只能由 runner 首次盖章或人工管理
+  命令 `set_lifetime_budget` 调整。
+- **写意图必须解析到已注册项目。** `ChatIntent` 只保证非空，`LDChat._require_project`
+  负责解析；解析失败即 `ChatPolicyError`，绝不隐式创建项目或跨项目操作 Goal。
+- **模型历史是投影，不是原文。** 分类器输入中 LD/系统回答只保留意图标签与 ID
+  （`content_omitted`）；未授权 `local` 域时用户原句也只留引用。新增字段必须先想
+  清楚它是否会随"用户复述知识"一起外发。
+- **确认绑定暂停事件。** 暂存 `resume_goal` 时记录 `decision_count` 与暂停签名；
+  确认时版本不符即拒绝并要求重新暂存。暂存动作的消费必须原子
+  （`LDChatStore.consume_pending_action`），并发确认最多生效一次。
+- **CLI 不猜会话。** 一次性命令必须显式 `--conversation` / `--new`，或单操作员
+  显式 `--continue-latest`；交互式会话自带粘性。
 
 ## 6. 派发与审批规则（M1 补充）
 - 入队即冻结 Effective Prompt。已入队任务的内容不得因上下文更新而改变。

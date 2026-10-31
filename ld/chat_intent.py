@@ -8,10 +8,17 @@ project fact.  Every answer a user sees is rendered deterministically by
 
 Two consequences matter for safety:
 
-* **Policy vs shape.**  An unknown intent kind, an unknown field or a forbidden
-  capability is a policy violation (``ChatPolicyError``) and is never retried.
-  A missing/invalid field is a generation defect (``ChatValidationError``) that
-  a bounded retry may fix — the same split the decision validator uses.
+* **Policy vs shape.**  An unknown intent kind, an unknown field, an
+  unsupported parameter or a forbidden capability is a policy violation
+  (``ChatPolicyError``): the turn fails closed and is never retried.  A
+  missing/invalid field is a generation defect (``ChatValidationError``) — the
+  same split the decision validator uses.
+* **What a shape defect does here.**  Unlike the LD decision loop, chat has no
+  resample budget: a ``ChatValidationError`` from a model intent ends the turn
+  as a ``clarify`` answer (``intent_source='invalid_model_intent'``) so the
+  human rephrases, instead of silently retrying a model that produced garbage.
+  Callers must therefore treat it as "validation failed, clarification asked",
+  not as "will be retried automatically".
 * **No write without a control-plane path.**  ``submit_goal`` and
   ``resume_goal`` only *name* an intent; ``LDChat`` performs them through the
   existing Goal store, and ``resume_goal`` additionally requires an explicit
@@ -68,7 +75,11 @@ _PARAMS: dict[ChatIntentKind, set[str]] = {
     ChatIntentKind.GOAL_STATUS: {"include_completed"},
     ChatIntentKind.TASK_STATUS: set(),
     ChatIntentKind.KNOWLEDGE_QUERY: {"kind", "tags", "keywords", "limit"},
-    ChatIntentKind.SUBMIT_GOAL: {"goal", "max_decisions", "max_tasks"},
+    # Deliberately no max_decisions / max_tasks: a lifetime budget is a Human
+    # Owner management operation (``LDGoalStore.set_lifetime_budget``), never a
+    # side effect of a chat sentence or of a model output.  Passing one is an
+    # unsupported parameter, i.e. a policy violation (M4-D audit P0-3).
+    ChatIntentKind.SUBMIT_GOAL: {"goal"},
     ChatIntentKind.RESUME_GOAL: set(),
     ChatIntentKind.CLARIFY: {"question"},
 }
@@ -209,10 +220,6 @@ def parse_intent(raw: Any) -> ChatIntent:
                                        minimum=1, maximum=50)
     elif kind is ChatIntentKind.SUBMIT_GOAL:
         normalized["goal"] = _nonempty(params.get("goal"), "parameters.goal")
-        for field in ("max_decisions", "max_tasks"):
-            if field in params:
-                normalized[field] = _int(params[field], f"parameters.{field}",
-                                         minimum=1, maximum=50)
     elif kind is ChatIntentKind.CLARIFY:
         normalized["question"] = _nonempty(
             params.get("question"), "parameters.question")
@@ -241,10 +248,13 @@ def chat_intent_schema() -> dict[str, Any]:
                                "keywords": "string",
                                "limit": "integer 1..50"},
             },
-            "submit_goal": {"requires_project_id": True,
-                            "parameters": {"goal": "string (the owner's objective)",
-                                           "max_decisions": "integer 1..50",
-                                           "max_tasks": "integer 1..50"}},
+            "submit_goal": {
+                "requires_project_id": True,
+                "parameters": {"goal": "string (the owner's objective)"},
+                "note": ("budgets are not settable here: a goal's lifetime budget "
+                         "is stamped by the runner or changed by an explicit human "
+                         "management operation, never by a chat turn"),
+            },
             "resume_goal": {
                 "requires_goal_id": True,
                 "parameters": {},

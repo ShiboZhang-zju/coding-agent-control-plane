@@ -68,14 +68,95 @@ def _tokens(text: str) -> set[str]:
     return {m.group(0).lower() for m in _WORD_RE.finditer(text or "")}
 
 
+def _stop_signature(goal: Mapping[str, Any]) -> str:
+    """A stable fingerprint of *why* a goal is paused.
+
+    Used only to keep a staged resume attached to the pause the owner actually
+    read about.  It never influences goal state.
+    """
+    last = goal.get("last_decision")
+    payload = {
+        "status": goal.get("status"),
+        "stop": (last or {}).get("stop") if isinstance(last, dict) else None,
+        "action": (last or {}).get("action") if isinstance(last, dict) else None,
+    }
+    return str(abs(hash(json.dumps(payload, sort_keys=True, default=str))))
+
+
+#: Characters per retained transcript turn in the classifier input.  Long
+#: enough to keep the reference, short enough to bound the payload.
+HISTORY_CHARS = 240
+
+
+def _safe_history(messages: list[Mapping[str, Any]], *,
+                  domains: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Build the classifier's transcript window without leaking content.
+
+    The classifier only needs to know *what kind of thing* was just said.  What
+    it must never receive is the body of an answer: ``knowledge_query`` renders
+    project knowledge into the LD reply, and forwarding that reply verbatim to
+    a model endpoint that is not authorized for ``local`` would be a leak that
+    the per-field security projection (project names, prompts) does not cover.
+
+    So an LD/system turn is reduced to its intent label plus the identifiers it
+    referenced — never its prose.  The user's own turn is kept only when the
+    model is authorized for ``local``; otherwise even that is reduced to a
+    reference, because the owner routinely quotes project knowledge back ("那
+    刚才那条部署约定是什么来着"): the quoted content would travel with the
+    question, so the question is not automatically safe either.
+    """
+    local_ok = "local" in domains
+    items: list[dict[str, Any]] = []
+    for message in messages:
+        role = message.get("role")
+        intent = (message.get("intent") or {}).get("intent")
+        if role == "user" and local_ok:
+            content = str(message.get("content") or "")
+            items.append({"role": "user", "content": content[:HISTORY_CHARS]})
+            continue
+        if role == "user":
+            items.append({
+                "role": "user",
+                "content_omitted": True,
+                "chars": len(str(message.get("content") or "")),
+                "note": ("the owner's message text is withheld because this "
+                         "model is not authorized for local-domain content, "
+                         "which the owner may be quoting"),
+            })
+            continue
+        items.append({
+            "role": role,
+            "intent": intent,
+            "goal_ids": list(message.get("goal_ids") or [])[:5],
+            "content_omitted": True,
+            "note": ("the LD's own answer is omitted: it may contain project "
+                     "knowledge or local-domain text"),
+        })
+    return items
+
+
 class HeuristicIntentRouter:
     """Deterministic, model-free router used when no endpoint is configured.
 
     It exists so the conversational surface is usable (and testable) without an
-    LLM.  It is deliberately shallow: it recognises the four document-level
-    intents and otherwise asks a clarifying question instead of guessing a
-    write.  ``LDChat`` labels every answer with ``intent_source`` so nobody
-    mistakes a keyword match for a model decision.
+    LLM.  It is deliberately shallow: it recognises the document-level intents
+    and otherwise asks a clarifying question instead of guessing a write.
+    ``LDChat`` labels every answer with ``intent_source`` so nobody mistakes a
+    keyword match for a model decision.
+
+    Safety ordering (M4-D audit P0-1) — the reason this is more than keyword
+    matching:
+
+    1. **A question is never a write.**  "这个项目的任务完成了吗？" contains 完成;
+       a naive verb match turned it into a Goal that the Runtime then advanced.
+       Interrogative form therefore wins over every verb, and a submit-looking
+       question is answered as a status read.
+    2. **A quoted or negated verb is not an instruction.**  "“实现”是什么意思"
+       and "先不要推进" talk *about* a verb rather than issuing it.
+    3. **Only then** may a verb mean "do it", and even then ``LDChat`` stages a
+       model-proposed ``submit_goal`` for confirmation unless this router
+       independently agrees the sentence is an imperative
+       (:meth:`is_imperative_submission`).
     """
 
     _SUBMIT = ("继续推进", "继续完善", "推进", "完成", "实现", "开始做", "start",
@@ -87,6 +168,27 @@ class HeuristicIntentRouter:
                  "attention")
     _GOAL = ("目标", "goal", "进度", "progress")
     _TASK = ("任务", "task")
+    #: A question about the registry rather than about one project.
+    _LIST_PROJECTS = ("哪些项目", "所有项目", "项目列表", "几个项目", "what projects",
+                      "which projects", "all projects", "list projects")
+
+    #: Interrogative markers (CJK and English).  Presence of any of these means
+    #: the turn asks something; it can never be executed as an instruction.
+    _QUESTION_MARKS = ("?", "？", "吗", "呢", "么", "是不是", "有没有", "如何",
+                       "怎么", "怎样", "为什么", "哪些", "哪个", "什么", "多少",
+                       "几", "谁", "是否", "能不能", "可不可以")
+    _QUESTION_EN = ("what", "which", "who", "when", "where", "why", "how",
+                    "is ", "are ", "does ", "did ", "has ", "have ", "can ",
+                    "could ", "should ", "any ")
+    #: Quoting or meta-discussion of a verb ("“实现”是什么意思", 'the word implement').
+    _QUOTE_MARKS = ("“", "”", "「", "」", "‘", "’", '"', "'", "的意思", "是什么意思",
+                    "quote", "quoted", "word ")
+    #: Negation / deferral right before an imperative verb.
+    _NEGATIONS = ("不要", "不用", "别", "先别", "暂不", "暂时不", "不需要", "不必",
+                  "停止", "取消", "don't", "do not", "not now", "never", "stop")
+    #: Phrases that make a sentence a new instruction rather than a question
+    #: about an existing goal (imperative voice).
+    _IMPERATIVE_EN = ("please ", "go ahead", "let's ", "lets ")
 
     def classify(self, chat_input: Mapping[str, Any]) -> Mapping[str, Any]:
         message = str(chat_input.get("message") or "")
@@ -99,10 +201,27 @@ class HeuristicIntentRouter:
         goal_id = (conversation.get("selected_goal_id")
                    or chat_input.get("selected_goal_id"))
 
-        if any(word in lowered for word in self._RESUME) and project_id:
-            if goal_id:
-                return self._intent("resume_goal", project_id=project_id,
-                                    goal_id=goal_id, reason="keyword: resume")
+        is_question = self.is_question(message)
+        mentions_verb = any(word in lowered for word in self._SUBMIT)
+
+        # 1. Resume is a read-only staging request, and safe to recognise before
+        #    the question guard (it never applies without an explicit confirm).
+        if (not is_question
+                and any(word in lowered for word in self._RESUME) and project_id
+                and goal_id):
+            return self._intent("resume_goal", project_id=project_id,
+                                goal_id=goal_id, reason="keyword: resume")
+        # 2. A question about a verb is answered by reading state, never by
+        #    creating work.  This is the P0-1 fix.
+        if is_question:
+            return self._read_for_question(message, project_id=project_id,
+                                          task_id=task_id,
+                                          mentions_verb=mentions_verb)
+        if self.is_quoted_reference(message) and project_id:
+            return self._intent(
+                "knowledge_query", project_id=project_id,
+                reason="reference to a term, not an instruction",
+                parameters={"keywords": message})
         if any(word in lowered for word in self._KNOWLEDGE) and project_id:
             return self._intent(
                 "knowledge_query", project_id=project_id,
@@ -114,7 +233,8 @@ class HeuristicIntentRouter:
         if task_id:
             return self._intent("task_status", project_id=project_id,
                                 task_id=task_id, reason="keyword: task id")
-        if any(word in lowered for word in self._SUBMIT) and project_id:
+        # 3. A verb only becomes an instruction after the guards above.
+        if mentions_verb and project_id and not self.is_negated(message):
             return self._intent("submit_goal", project_id=project_id,
                                 reason="keyword: advance the project",
                                 parameters={"goal": self._objective(message)})
@@ -128,6 +248,85 @@ class HeuristicIntentRouter:
             return self._intent("project_status", project_id=project_id,
                                reason="default: project status")
         return self._intent("list_projects", reason="default: no project named")
+
+    # -- guards --------------------------------------------------------- #
+    @classmethod
+    def is_question(cls, message: str) -> bool:
+        """True when the sentence asks something rather than requesting work."""
+        text = message or ""
+        lowered = text.lower()
+        if any(mark in text for mark in cls._QUESTION_MARKS):
+            return True
+        return any(marker in lowered for marker in cls._QUESTION_EN)
+
+    @classmethod
+    def is_quoted_reference(cls, message: str) -> bool:
+        """True when a verb appears as a quoted term being discussed."""
+        text = message or ""
+        if any(mark in text for mark in cls._QUOTE_MARKS):
+            return True
+        lowered = text.lower()
+        return any(f'"{word}"' in lowered for word in cls._SUBMIT)
+
+    @classmethod
+    def is_negated(cls, message: str) -> bool:
+        """True when the instruction itself is negated or deferred."""
+        lowered = (message or "").lower()
+        return any(word in lowered for word in cls._NEGATIONS)
+
+    @classmethod
+    def is_imperative_submission(cls, message: str) -> bool:
+        """Deterministic second opinion for a *model-proposed* ``submit_goal``.
+
+        Returns True only when the sentence is unambiguously an instruction to
+        do work: it names a submit verb, is not a question, not a quoted term
+        and not negated.  Anything else is staged for human confirmation rather
+        than applied, so a model that over-eagerly reads a question as a request
+        cannot create work on its own.
+        """
+        text = message or ""
+        lowered = text.lower()
+        if cls.is_question(text) or cls.is_quoted_reference(text):
+            return False
+        if cls.is_negated(text):
+            return False
+        if any(word in lowered for word in cls._IMPERATIVE_EN):
+            return True
+        return any(word in lowered for word in cls._SUBMIT)
+
+    @classmethod
+    def _read_for_question(cls, message: str, *, project_id: str | None,
+                           task_id: str | None,
+                           mentions_verb: bool) -> dict[str, Any]:
+        """The read-only answer a question deserves."""
+        lowered = message.lower()
+        if task_id:
+            return cls._intent("task_status", project_id=project_id,
+                               task_id=task_id, reason="question about a task id")
+        if any(word in lowered for word in cls._BLOCKERS) and project_id:
+            return cls._intent("explain_blockers", project_id=project_id,
+                               reason="question: blockers")
+        if any(word in lowered for word in cls._KNOWLEDGE) and project_id:
+            return cls._intent(
+                "knowledge_query", project_id=project_id,
+                reason="question: knowledge",
+                parameters={"keywords": message})
+        if not project_id:
+            # "现在有哪些项目？" asks for the registry itself; anything else
+            # without a resolvable project cannot be answered truthfully, so it
+            # asks instead of guessing one.
+            if any(word in lowered for word in cls._LIST_PROJECTS):
+                return cls._intent("list_projects",
+                                   reason="question: which projects exist")
+            return cls._intent(
+                "clarify", reason="question without a project",
+                parameters={"question": "Which project should I look at? Add "
+                                        "its name or id and I will read its state."})
+        if any(word in lowered for word in cls._GOAL) or mentions_verb:
+            return cls._intent("goal_status", project_id=project_id,
+                               reason="question about goal progress")
+        return cls._intent("project_status", project_id=project_id,
+                           reason="question about project status")
 
     @staticmethod
     def _intent(kind: str, *, reason: str, project_id=None, task_id=None,
@@ -222,7 +421,8 @@ class LDChat:
             # the next sentence ("and the task?") does not need to repeat it.
             selected = intent.project_id
             self._chats.set_project(conversation_id, selected)
-        turn = self._dispatch(intent, conversation, message)
+        turn = self._dispatch(intent, conversation, message,
+                              intent_source=intent_meta)
         self._record_turn(conversation_id, intent, turn)
         return {"conversation_id": conversation_id, "intent": intent.to_dict(),
                 "intent_source": intent_meta, **turn}
@@ -269,10 +469,13 @@ class LDChat:
                 "conversation_id": conversation_id,
                 "selected_project_id": project_id,
                 "selected_goal_id": selected_goal,
-                "recent_turns": [
-                    {"role": item["role"], "content": item["content"][:600]}
-                    for item in self._chats.recent_turns(
-                        conversation_id, limit=CONVERSATION_WINDOW)],
+                # Security projection, not the raw transcript: the LD's own
+                # answers may quote project knowledge, and this payload goes to
+                # the classifier endpoint (M4-D audit P0-2).
+                "recent_turns": _safe_history(
+                    self._chats.recent_turns(
+                        conversation_id, limit=CONVERSATION_WINDOW),
+                    domains=self._domains),
             },
             "projects": project_rows,
             "goals": goals,
@@ -280,8 +483,10 @@ class LDChat:
             "security": {
                 "authorized_context_domains": list(self._domains),
                 "project_names_included": "local" in self._domains,
-                "note": ("Project roots, Effective Prompts, task text and "
-                         "unapproved security domains are excluded."),
+                "note": ("Project roots, Effective Prompts, task text, the LD's "
+                         "own answer text and unapproved security domains are "
+                         "excluded. recent_turns carries the owner's words plus "
+                         "intent labels and ids only."),
             },
             "rules": [
                 "Return exactly one structured intent; never return code or commands.",
@@ -321,7 +526,8 @@ class LDChat:
     # dispatch
     # ------------------------------------------------------------------ #
     def _dispatch(self, intent: ChatIntent, conversation: dict,
-                  message: str) -> dict[str, Any]:
+                  message: str, *, intent_source: str = "heuristic_router",
+                  confirmed_stage: bool = False) -> dict[str, Any]:
         handlers = {
             ChatIntentKind.LIST_PROJECTS: self._list_projects,
             ChatIntentKind.PROJECT_STATUS: self._project_status,
@@ -334,10 +540,21 @@ class LDChat:
             ChatIntentKind.CLARIFY: self._clarify,
         }
         handler = handlers[intent.intent]
-        answer, facts, goal_ids, pending = handler(intent, conversation, message)
+        staged = False
+        if (intent.intent is ChatIntentKind.SUBMIT_GOAL
+                and intent_source == "model" and not confirmed_stage
+                and not HeuristicIntentRouter.is_imperative_submission(message)):
+            # The model asked to create work; a deterministic second opinion
+            # does not read the sentence as an instruction.  Stage, never apply.
+            staged = True
+            answer, facts, goal_ids, pending = self._submit_goal(
+                intent, conversation, message, staged=True)
+        else:
+            answer, facts, goal_ids, pending = handler(intent, conversation, message)
         return {"answer": answer, "facts": facts, "goal_ids": goal_ids,
                 "pending_action": pending,
-                "requires_confirmation": bool(pending)}
+                "requires_confirmation": bool(pending),
+                "staged_for_confirmation": staged}
 
     # -- read handlers -------------------------------------------------- #
     def _list_projects(self, intent, conversation, message):
@@ -573,18 +790,32 @@ class LDChat:
         return question, {"clarify": True}, [], None
 
     # -- write handlers ------------------------------------------------- #
-    def _submit_goal(self, intent, conversation, message):
-        project_id = intent.project_id
+    def _submit_goal(self, intent, conversation, message, *,
+                     staged: bool = False):
+        project_id = self._require_project(intent.project_id)
         goal_text = intent.parameters["goal"].strip()
+        if not goal_text:
+            raise ChatValidationError("submit_goal needs a non-empty objective")
         goal_id, goal_ref = goal_identity(goal_text, project_id)
         existing = self._goals.get(goal_id) or {}
+        if staged:
+            # A model proposed work that the deterministic router does not read
+            # as an imperative.  Nothing is written yet: the owner confirms.
+            pending = {"kind": "submit_goal", "goal_id": goal_id,
+                       "goal_ref": goal_ref, "project_id": project_id,
+                       "goal_text": goal_text[:300], "staged_at": time.time(),
+                       "origin": intent.reason[:200]}
+            answer = (f"I read this as a request to start work in {project_id}:\n"
+                      f"  {goal_text[:300]}\n\n"
+                      f"It would create goal {goal_id}. If that is not what you "
+                      "meant, say 'cancel'. Say 'confirm' to create it; nothing "
+                      "has been created or dispatched yet, and no budget is "
+                      "granted here.")
+            return answer, {"project_id": project_id, "goal_id": goal_id,
+                            "goal_ref": goal_ref, "staged": True,
+                            "reused": bool(existing)}, [], pending
+
         goal = self._goals.get_or_create(goal_id, project_id, goal_text, goal_ref)
-        lifetime_decisions = intent.parameters.get("max_decisions")
-        lifetime_tasks = intent.parameters.get("max_tasks")
-        if lifetime_decisions or lifetime_tasks:
-            goal = self._goals.set_lifetime_budget(
-                goal_id, max_decisions=lifetime_decisions,
-                max_tasks=lifetime_tasks)
         status = goal.get("status")
         lines = []
         if existing:
@@ -639,26 +870,36 @@ class LDChat:
         goal = self._goals.get(intent.goal_id) or {}
         if not goal:
             raise ChatPolicyError(f"no goal {intent.goal_id}")
-        if intent.project_id and goal.get("project_id") != intent.project_id:
+        project_id = self._require_project(
+            intent.project_id or goal.get("project_id"))
+        if goal.get("project_id") != project_id:
             raise ChatPolicyError(
                 f"goal {intent.goal_id} belongs to project "
-                f"{goal.get('project_id')}, not {intent.project_id}")
+                f"{goal.get('project_id')}, not {project_id}")
         if goal.get("status") != "needs_human":
             return (f"Goal {intent.goal_id} is {goal.get('status')}, not "
                     "needs_human; there is nothing to resume."), \
                 {"goal_id": intent.goal_id, "status": goal.get("status")}, \
                 [intent.goal_id], None
+        # The staged confirmation is bound to the *pause event*, not just the
+        # goal id: ``decision_count`` advances on every applied step (including
+        # a resume), so a later pause produced by a different problem can never
+        # be cleared by this earlier confirmation.
         pending = {"kind": "resume_goal", "goal_id": intent.goal_id,
-                   "project_id": goal.get("project_id"),
+                   "project_id": project_id,
                    "goal_text": (goal.get("goal_text") or "")[:300],
-                   "staged_at": time.time()}
+                   "staged_at": time.time(),
+                   "decision_count": int(goal.get("decision_count") or 0),
+                   "stop_signature": _stop_signature(goal)}
         answer = (f"Goal {intent.goal_id} is stopped: "
                   f"{(goal.get('goal_text') or '')[:200]}\n"
                   f"Last step: {json.dumps(goal.get('last_decision') or {}, ensure_ascii=False, default=str)[:300]}\n\n"
                   "Say 'confirm' (or '确认') to resume it, or 'cancel' to leave it "
-                  "stopped. Resuming does not increase the goal's budget.")
+                  "stopped. Resuming does not increase the goal's budget. This "
+                  "confirmation applies to this pause only.")
         return answer, {"goal_id": intent.goal_id,
                         "status": goal.get("status"),
+                        "decision_count": pending["decision_count"],
                         "staged": True}, [intent.goal_id], pending
 
     # ------------------------------------------------------------------ #
@@ -673,31 +914,106 @@ class LDChat:
             self._chats.set_pending_action(conversation_id, None)
             intent, intent_meta = self._classify(message, conversation_id, project_id)
             turn = self._dispatch(
-                intent, self._chats.get_conversation(conversation_id) or {}, message)
+                intent, self._chats.get_conversation(conversation_id) or {},
+                message, intent_source=intent_meta)
             self._record_turn(conversation_id, intent, turn)
             return {"conversation_id": conversation_id, "intent": intent.to_dict(),
                     "intent_source": intent_meta,
                     "superseded_pending_action": pending, **turn}
 
-        self._chats.set_pending_action(conversation_id, None)
-        if decision == "deny":
-            answer = (f"Cancelled. Goal {pending.get('goal_id')} was not resumed "
-                      "and remains in needs_human.")
+        # Consume the staged action atomically: of two concurrent confirmations
+        # exactly one wins, the other sees nothing to apply.  Doing this *before*
+        # the write is what makes "at most once" true rather than "usually once".
+        consumed = self._chats.consume_pending_action(
+            conversation_id, expected=pending)
+        if consumed is None:
+            answer = ("That confirmation no longer applies: the staged action was "
+                      "already consumed or superseded. Nothing was changed. Ask "
+                      "again if you still want it.")
             turn = {"answer": answer,
-                    "facts": {"cancelled": True, "pending": pending},
-                    "goal_ids": [pending.get("goal_id")] if pending.get("goal_id") else [],
-                    "pending_action": None, "requires_confirmation": False}
+                    "facts": {"cancelled": True, "pending": pending,
+                              "already_consumed": True},
+                    "goal_ids": [], "pending_action": None,
+                    "requires_confirmation": False}
             intent = ChatIntent(ChatIntentKind.CLARIFY, pending.get("project_id"),
                                 None, pending.get("goal_id"),
+                                "staged action was already consumed", {})
+            self._record_turn(conversation_id, intent, turn)
+            return {"conversation_id": conversation_id, "intent": intent.to_dict(),
+                    "intent_source": "human_confirmation_stale", **turn}
+
+        if decision == "deny":
+            item = pending.get("goal_id")
+            answer = (f"Cancelled. {item} was not applied and nothing changed.")
+            turn = {"answer": answer,
+                    "facts": {"cancelled": True, "pending": pending},
+                    "goal_ids": [item] if item else [],
+                    "pending_action": None, "requires_confirmation": False}
+            intent = ChatIntent(ChatIntentKind.CLARIFY, pending.get("project_id"),
+                                None, item,
                                 "human declined the staged action",
                                 {"question": answer})
             self._record_turn(conversation_id, intent, turn)
             return {"conversation_id": conversation_id, "intent": intent.to_dict(),
                     "intent_source": "human_confirmation_denied", **turn}
 
-        if pending.get("kind") != "resume_goal":
-            raise ChatPolicyError(f"unknown pending action {pending.get('kind')!r}")
+        kind = pending.get("kind")
+        if kind == "submit_goal":
+            return self._confirm_submit_goal(conversation_id, pending)
+        if kind == "resume_goal":
+            return self._confirm_resume_goal(conversation_id, pending)
+        raise ChatPolicyError(f"unknown pending action {kind!r}")
+
+    def _confirm_submit_goal(self, conversation_id: str, pending: dict) -> dict:
+        project_id = self._require_project(pending.get("project_id"))
+        goal_text = (pending.get("goal_text") or "").strip()
+        goal_id, goal_ref = goal_identity(goal_text, project_id)
+        existing = self._goals.get(goal_id) or {}
+        goal = self._goals.get_or_create(goal_id, project_id, goal_text, goal_ref)
+        answer = (f"Goal {goal_id} created for project {project_id}: {goal_text[:200]}"
+                  + ("\n(It already existed and was reused.)" if existing else "")
+                  + "\n\nThe runner will advance it automatically within its stamped "
+                    "budget. Budgets are unchanged by this confirmation.")
+        turn = {"answer": answer,
+                "facts": {"project_id": project_id, "goal_id": goal_id,
+                          "goal_ref": goal_ref, "status": goal.get("status"),
+                          "reused": bool(existing), "confirmed_by_human": True},
+                "goal_ids": [goal_id], "pending_action": None,
+                "requires_confirmation": False}
+        intent = ChatIntent(ChatIntentKind.SUBMIT_GOAL, project_id, None, goal_id,
+                            "staged submit confirmed by the human owner",
+                            {"goal": goal_text})
+        self._record_turn(conversation_id, intent, turn, role="system")
+        return {"conversation_id": conversation_id, "intent": intent.to_dict(),
+                "intent_source": "human_confirmation", **turn}
+
+    def _confirm_resume_goal(self, conversation_id: str, pending: dict) -> dict:
         goal_id = pending.get("goal_id")
+        staged_count = pending.get("decision_count")
+        current = self._goals.get(goal_id) or {}
+        if not current:
+            raise ChatPolicyError(f"no goal {goal_id}")
+        # The confirmation is bound to the pause event that was staged.  Any
+        # step since — including another terminal's resume — means this
+        # confirmation refers to a pause that no longer exists.
+        if staged_count is not None and \
+                int(current.get("decision_count") or 0) != int(staged_count):
+            answer = (f"I did not resume {goal_id}: it changed since I staged this "
+                      f"(decision count {staged_count} -> "
+                      f"{current.get('decision_count')}). The confirmation no longer "
+                      "refers to the pause you saw. Ask again to re-stage it.")
+            turn = {"answer": answer,
+                    "facts": {"goal_id": goal_id, "resumed": False,
+                              "stale_confirmation": True,
+                              "staged_decision_count": staged_count,
+                              "current_decision_count": current.get("decision_count")},
+                    "goal_ids": [goal_id], "pending_action": None,
+                    "requires_confirmation": False}
+            intent = ChatIntent(ChatIntentKind.RESUME_GOAL, pending.get("project_id"),
+                                None, goal_id, "stale confirmation ignored", {})
+            self._record_turn(conversation_id, intent, turn)
+            return {"conversation_id": conversation_id, "intent": intent.to_dict(),
+                    "intent_source": "human_confirmation_stale", **turn}
         try:
             goal = self._goals.resume(
                 goal_id, note="resumed by the Human Owner through LD chat; "
@@ -710,8 +1026,7 @@ class LDChat:
                     "goal_ids": [goal_id], "pending_action": None,
                     "requires_confirmation": False}
             intent = ChatIntent(ChatIntentKind.RESUME_GOAL, pending.get("project_id"),
-                                None, goal_id, "confirmed resume failed",
-                                {})
+                                None, goal_id, "confirmed resume failed", {})
             self._record_turn(conversation_id, intent, turn)
             return {"conversation_id": conversation_id, "intent": intent.to_dict(),
                     "intent_source": "human_confirmation", **turn}
@@ -833,6 +1148,26 @@ class LDChat:
             if requested in (item.get("project_id"), item.get("name")):
                 return item["project_id"]
         raise KeyError(f"no project {requested}")
+
+    def _require_project(self, requested: str | None) -> str:
+        """Resolve a project for a *write* intent, or refuse the turn.
+
+        A chat sentence is not allowed to invent a project: ``ChatIntent`` only
+        checks that ``project_id`` is non-empty, so every write path resolves it
+        against the registry here and fails closed with a policy error (never a
+        ``KeyError``, and never an implicit "create it for me").
+        """
+        if not requested:
+            raise ChatPolicyError(
+                "this request needs a registered project; name one explicitly")
+        projects = self._tools.list_projects()
+        for item in projects:
+            if requested in (item.get("project_id"), item.get("name")):
+                return item["project_id"]
+        known = ", ".join(sorted(str(item.get("project_id")) for item in projects)) \
+            or "none"
+        raise ChatPolicyError(
+            f"no project {requested}; registered projects: {known}")
 
     @staticmethod
     def _safe(label: str, operation, default):

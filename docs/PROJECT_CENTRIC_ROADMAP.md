@@ -26,7 +26,7 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 | **M4-A** | Minimal LD（受限工具、结构化决策、单轮协调） | M1 + M2 | **已完成**（T32/T36 确定性 + T38a 真实模型与真实 Worker 单轮集成验收） |
 | **M4-B** | 有界连续推进（持久化 Goal + 依赖任务确定性交接 + 恢复） | M3 + M4-A | **已完成**（T39/T40 确定性含崩溃注入与租约 fencing；T38b 真实模型严格闭环 25/25 Pass；T38c 真实故障恢复与副作用拒绝验证） |
 | **M4-C** | 自动唤醒与运行时可靠性收口 | M4-B | **已完成**（T41–T49，含 T48 真实常驻服务双任务零人工闭环） |
-| **M4-D** | Conversational LD（自然语言查询 / 提交 Goal / 阻塞解释 / 显式确认恢复） | M4-C | **确定性完成**（T50）；真实模型分类器与真实 Worker 对话闭环未执行 |
+| **M4-D** | Conversational LD（自然语言查询 / 提交 Goal / 阻塞解释 / 显式确认恢复） | M4-C | **确定性完成 + 安全收口**（T50/T51/T52）；真实模型分类器与真实 Worker 对话闭环未执行 |
 | M4-E | Markdown Project Memory（导出/编辑/校验导入、候选晋升、去重、失效） | M4-D | 未开始 |
 | M5 | Distributed Workspace | M1–M4 | 未实现 |
 
@@ -555,11 +555,45 @@ Human Owner ──自然语言──> LDChat（意图分类 + 确定性渲染）
 | 3 | `resume` 必须显式确认；取消/跑题/无暂存确认均不生效 | Pass（C 段 12 项） |
 | 4 | 对话不产生第二份真相，删除会话不影响进度 | Pass（D 段 8 项） |
 | 5 | 意图 schema 是真实门控（策略 vs 形状分离） | Pass（E 段 12 项） |
+| 6 | 疑问/引用/否定不误提交；未注册项目不建 Goal；重复 Goal 不改预算 | Pass（T51，6 段） |
+| 7 | 未授权历史不外发；确认绑定版本；并发确认最多一次 | Pass（T52，5 段） |
 
 证据：`evidence/project/T50-conversational-ld.json`（确定性：脚本化意图分类器 +
 脚本化决策模型 + stub adapter）。另外用真实 CLI 进程做过一次跨进程手工冒烟
 （一次性多轮 → `submit_goal` → 暂存 `resume_goal` → 下一进程 `确认` 生效且预算
 未变），该冒烟不产出证据文件。
+
+### M4-D Safety Closure（2d478ae 审查后）
+
+对 `2d478ae` 的代码审查发现三项 P0 与若干 P1，均为"正常路径测试看不出来"的边界问题。
+修复与验证如下（T51/T52 为新增证据）：
+
+| # | 问题（审查结论） | 修复 | 证据 |
+|---|---|---|---|
+| P0-1 | `_SUBMIT` 动词判定早于疑问判定，"这个项目的任务完成了吗？" 会被判为 `submit_goal` 并创建 Goal | 路由改为「疑问 → 引用 → 知识/阻塞 → 任务 ID → 祈使」；`is_imperative_submission()` 对模型 `submit_goal` 做确定性复核，不认可则暂存等确认 | T51 A/B/E |
+| P0-2 | 分类器输入直传最近 6 条原文，含 LD 自身渲染的 `local` 知识正文，未授权端点可间接获取 | 新增 `_safe_history()` 安全投影：LD/系统回复只留意图标签+ID，未授权 `local` 时用户原句也只留引用 | T52 A/E |
+| P0-3 | 聊天 `submit_goal` 可携带 `max_decisions/max_tasks`，等价于自动路径扩大预算 | schema 移除该参数（携带即 `ChatPolicyError`）；`_submit_goal` 不再调用 `set_lifetime_budget` | T51 D |
+| P1 | 暂存确认只绑定 goal_id，旧确认可能清除后来不同原因的暂停 | 暂存记录 `decision_count` + 暂停签名，确认时校验；不符则拒绝并要求重新暂存 | T52 B |
+| P1 | 写意图的项目只校验非空，未验证存在性 | `_require_project()` 解析注册表，失败即 `ChatPolicyError`，含跨项目 Goal 拒绝 | T51 C |
+| P1 | CLI 默认接续"最近更新的会话"，多终端会串上下文 | 一次性命令必须显式 `--conversation` / `--new` / `--continue-latest` | 手工 CLI 冒烟 |
+| P1 | 并发确认可能重复应用 | `LDChatStore.consume_pending_action()` 单事务原子消费（含 `expected` 比对） | T52 C（4 线程，恰好 1 次生效） |
+| P2 | 文档称 `ChatValidationError` 可重试，实际直接 `clarify` | 文档改为"校验失败并请求澄清"，说明聊天无重采样预算 | `ld/chat_intent.py` |
+| P2 | README 缺 M4-D Quick Start | 新增 §6.3b（启动/选会话/查询/提交/确认/恢复/安全语义） | README |
+
+顺带修复的真实缺陷：
+
+- **T50 A 段回归**：加上疑问守卫后「现在有哪些项目？」被误判为 `clarify`；
+  新增 `_LIST_PROJECTS` 短语集，让"问注册表"与"问某个项目"分开。
+- **`submit_goal` 暂存**需要新的确认分支，`_handle_confirmation` 拆成
+  `_confirm_submit_goal` / `_confirm_resume_goal`，确认路径统一走原子消费。
+
+**尚未覆盖**（不得宣称已完成）：
+
+- T53 真实模型 + 真实 Worker 的对话闭环（查询 → 明确提交 → 真实执行 → 回报）。
+  当前所有对话证据都基于脚本化/关键词分类器 + stub adapter。
+- 真实模型在疑问句上的分类质量：修复保证的是"即使模型判错也不会误写"，
+  不是"模型一定判对"。
+- 多用户并发会话的一致性（当前只保证单会话内确认的原子性）。
 
 ### 明确不做
 
@@ -567,7 +601,7 @@ Human Owner ──自然语言──> LDChat（意图分类 + 确定性渲染）
 - 不把聊天内容写成项目知识（M4-E 才讨论导入流程，且必须经校验与确认）。
 - 不做自动审批：`needs_approval` 仍必须在控制平面显式处理。
 - 不做 Web UI；先保证 CLI/服务接口是唯一逻辑。
-- 不宣称真实模型对话闭环已验收：T50 的意图分类器是脚本化的。
+- 不宣称真实模型对话闭环已验收：T50–T52 的意图分类器都是脚本化/关键词的。
 
 ---
 

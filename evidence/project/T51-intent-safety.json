@@ -1,0 +1,73 @@
+{
+  "test": "T51 intent safety (M4-D Safety Closure)",
+  "fixture": "<REPO>/sandbox/t51-intent-safety",
+  "note": "Deterministic: scripted intent model + stub adapter. Covers the M4-D audit findings P0-1 (question misrouted to submit_goal) and P0-3 (chat path changing a goal's lifetime budget), plus unregistered-project refusal.",
+  "checks": {
+    "A_questions_never_submit": {
+      "router_never_submits_on_questions": true,
+      "router_never_submits_on_negations": true,
+      "questions_answered_as_reads": true,
+      "no_goal_created_by_questions": true,
+      "no_goal_created_by_negations": true,
+      "routed_intents": {
+        "这个项目的任务完成了吗？": "goal_status",
+        "t51 项目实现了哪些功能？": "goal_status",
+        "t51 现在的进展怎么样？": "project_status",
+        "t51 是不是已经完成了？": "goal_status",
+        "t51 还有哪些任务没有实现？": "goal_status",
+        "t51 项目现在什么状态？": "project_status",
+        "我刚才说的“实现”是什么意思？": "goal_status",
+        "谁负责推进 t51 的下一步？": "goal_status",
+        "t51 为什么还没完成？": "knowledge_query",
+        "先不要推进 t51 项目": "project_status",
+        "别实现新功能，t51 现在什么状态？": "goal_status"
+      }
+    },
+    "B_model_needs_corroboration": {
+      "model_submit_on_question_is_staged": true,
+      "no_goal_before_confirmation": true,
+      "confirmation_creates_exactly_one_goal": true,
+      "confirmed_goal_matches_objective": true,
+      "answer_discloses_staging": true,
+      "intent_source_is_model": true,
+      "confirmation_source": "human_confirmation"
+    },
+    "B2_corroborated_submit": {
+      "corroborated_submit_is_immediate": true,
+      "goal_text_is_the_objective": true,
+      "model_origin_still_labelled": true
+    },
+    "C_unregistered_project": {
+      "unknown_project_is_policy_error": true,
+      "unknown_project_creates_no_goal": true,
+      "foreign_goal_resume_refused": true,
+      "foreign_goal_still_parked": true,
+      "error_message_names_the_project": true
+    },
+    "D_budget_immutable": {
+      "repeat_reuses_goal": true,
+      "repeat_keeps_budget": true,
+      "budget_parameters_are_policy_error": true,
+      "budget_unchanged_after_attempt": true,
+      "goal_count_unchanged": true,
+      "budget_parameters_rejected_by_schema": true
+    },
+    "E_imperatives": {
+      "imperatives_still_submit": true,
+      "english_imperative_submits": true,
+      "blockers_still_read": true,
+      "progress_question_is_project_status": true,
+      "goal_progress_question_is_goal_status": true,
+      "turn_created_the_goal": true,
+      "routed": {
+        "继续推进 t51 项目：把包测试补齐": "submit_goal",
+        "开始实现 t51 的导出功能": "submit_goal",
+        "t51 有哪些阻塞？": "explain_blockers",
+        "t51 项目进展如何": "project_status",
+        "t51 的目标进度如何？": "goal_status"
+      }
+    }
+  },
+  "result": "PASS",
+  "failed": []
+}

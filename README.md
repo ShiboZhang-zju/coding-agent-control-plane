@@ -449,6 +449,69 @@ python scripts/ld_cli.py --ledger $L run-goal "……" --project <project-id> --
 LD 只接受 `inspect` / `submit_task` / `wait` / `request_human` / `finish`。
 完整 Schema 由 `ld.decision.decision_schema()` 生成；未知字段会被拒绝。
 
+### 6.3b M4-D 对话入口（Chat Quick Start）
+
+`ld chat` 是**交互与意图路由层**，不是第二个 LD：它只读 Ledger / Goal /
+Project Context，写操作只有两个（提交 Goal、人工确认后恢复 Goal），且都走
+既有机制。没有模型端点时用确定性关键词路由，答案仍全部由 Ledger 渲染。
+
+```powershell
+$L = ".poc-state/ledger.db"
+
+# 开一个新会话（一次性）
+python scripts/ld_cli.py --ledger $L chat --new "现在有哪些项目？"
+
+# 指定会话继续（推荐：多终端/多人时不要猜）
+python scripts/ld_cli.py --ledger $L chat --conversation <conv-id> "t50 有哪些阻塞？"
+
+# 单操作员图省事：继续最近更新的那个会话
+python scripts/ld_cli.py --ledger $L chat --continue-latest "t50 项目进行到哪了？"
+
+# 交互式（提示符 ld>；exit 退出）
+python scripts/ld_cli.py --ledger $L chat --new
+
+# 看看有哪些会话 / 某个会话说了什么
+python scripts/ld_cli.py --ledger $L conversations
+python scripts/ld_cli.py --ledger $L conversation <conv-id>
+```
+
+四类对话：
+
+```text
+查询      "现在有哪些项目？" / "t50 进行到哪了？" / "有哪些阻塞？"
+知识      "我们为什么用 load_config 读取配置？"
+提交目标  "继续推进 t50 项目：把包测试补齐"   # 冒号后是目标本身
+恢复      "恢复 t50 那个停下来的目标" -> 再回 "确认"
+```
+
+安全语义（都不是"尽力而为"，有测试守着）：
+
+- **疑问句不会变成写操作。** "这个项目的任务完成了吗？" 只读状态；即使模型
+  判断成 `submit_goal`，确定性路由器不认可时会先暂存并要求 `confirm`。
+- **确认绑定到"那一次暂停"。** 恢复暂存时记录 `decision_count`，期间被别人
+  推进/重新暂停则拒绝，需重新暂存；并发确认最多生效一次。
+- **聊天不能改预算。** `submit_goal` 不接受 `max_decisions/max_tasks`（属于
+  策略违规）；预算只能由 runner 首次盖章或人工管理命令调整。
+- **模型看不到 LD 自己的回答。** 分类器输入里 LD/系统回复只保留意图标签和 ID，
+  未授权 `local` 时连用户原句也只留引用，避免知识正文跨轮外发。
+- **未注册项目不会创建 Goal**：写意图解析失败即 fail-closed（策略错误）。
+
+配置（可选，不配就用关键词路由）：
+
+```powershell
+$env:LD_MODEL_BASE_URL = "https://.../v1"
+$env:LD_MODEL_NAME     = "<chat model>"
+$env:LD_MODEL_API_KEY  = "..."
+$env:LD_MODEL_DOMAINS  = "shareable"      # 想让分类器看到 local 内容才加 local
+```
+
+`--no-model` 强制走关键词路由。每次回答都带 `intent_source`（`model` /
+`heuristic_router` / `human_confirmation` / `human_confirmation_stale` /
+`invalid_model_intent`），便于分辨"模型判断"与"确定性规则"。
+
+注意：M4-D 的形状校验失败**不会自动重试**，而是返回 `clarify` 让用户换句话
+（见 `ld/chat_intent.py` 模块说明）。真实模型 + 真实 Worker 的对话闭环尚未验收。
+
 ### 6.4 传统队列流程（仍然支持，未改变）
 
 ```powershell
@@ -478,6 +541,9 @@ python scripts/t36_m4_model.py             # 模型边界 / fail-closed / 模型
 python scripts/t37_m4_goal.py              # Goal 生命周期 / 恢复 / 预算 / 租约 / 停滞
 python scripts/t39_m4_goal_reliability.py  # 崩溃注入恢复 / 租约 fencing / resume 步号
 python scripts/t40_m4_checkpoint_safety.py # checkpoint 安全 / CLI 安全域默认值
+python scripts/t50_conversational_ld.py    # M4-D 对话闭环 / 无第二真相 / 确认门控
+python scripts/t51_intent_safety.py        # M4-D 意图安全：疑问不误提交 / 预算不可改
+python scripts/t52_conversation_security.py # M4-D 历史投影 / 暂存版本绑定 / 并发确认
 
 # 既有回归
 python scripts/t26_p0_fixes.py
