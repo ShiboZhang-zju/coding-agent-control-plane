@@ -1,0 +1,92 @@
+{
+  "test": "T45-goal-budget-semantics",
+  "worker_started": false,
+  "note": "scripted decision model + stub adapter: verifies the budget contract (per-call quantum vs persisted lifetime budget), not Worker execution.",
+  "sections": {
+    "A1_quantum_yield": {
+      "first_sweep_inspected": true,
+      "goal_active_after_quantum": true,
+      "not_needs_human_after_quantum": true,
+      "continuation_pending_flag": true,
+      "not_acknowledged": true,
+      "second_sweep_submitted": true,
+      "goal_waiting_after_submit": true,
+      "goal_completed": true,
+      "model_calls_total": 3
+    },
+    "A2_lifetime_decision_budget": {
+      "model_calls_equal_lifetime": true,
+      "goal_needs_human": true,
+      "stop_reason_is_lifetime": true,
+      "budget_stamped_once": true,
+      "sweeps_ran": 3,
+      "no_task_submitted": true
+    },
+    "A3_lifetime_task_budget": {
+      "exactly_lifetime_tasks_submitted": true,
+      "goal_parked_on_task_budget": true,
+      "task_budget_reason_persisted": true,
+      "task_budget_stamped": true,
+      "all_submitted_tasks_counted": true
+    },
+    "A4_budget_survives_restart": {
+      "budget_persisted": true,
+      "restarted_goal_kept_budget": true,
+      "restart_cannot_enlarge": true,
+      "total_calls_bounded_by_lifetime": true,
+      "goal_needs_human_after_restart": true
+    },
+    "A5_resume_does_not_mint_budget": {
+      "parked_on_lifetime": true,
+      "resume_worked": true,
+      "resume_kept_budget": true,
+      "retry_spends_no_new_budget": true,
+      "re_parked_on_lifetime": true,
+      "budget_unchanged_after_retry": true,
+      "explicit_raise_enlarges": true
+    },
+    "A6_legacy_ledger_migration": {
+      "legacy_columns_nullable_before_advance": true,
+      "budget_stamped_after_first_advance": true,
+      "legacy_history_kept": true,
+      "lifetime_binds_migrated_goal": true
+    }
+  },
+  "checks": {
+    "A1_quantum_yield.first_sweep_inspected": true,
+    "A1_quantum_yield.goal_active_after_quantum": true,
+    "A1_quantum_yield.not_needs_human_after_quantum": true,
+    "A1_quantum_yield.continuation_pending_flag": true,
+    "A1_quantum_yield.not_acknowledged": true,
+    "A1_quantum_yield.second_sweep_submitted": true,
+    "A1_quantum_yield.goal_waiting_after_submit": true,
+    "A1_quantum_yield.goal_completed": true,
+    "A2_lifetime_decision_budget.model_calls_equal_lifetime": true,
+    "A2_lifetime_decision_budget.goal_needs_human": true,
+    "A2_lifetime_decision_budget.stop_reason_is_lifetime": true,
+    "A2_lifetime_decision_budget.budget_stamped_once": true,
+    "A2_lifetime_decision_budget.no_task_submitted": true,
+    "A3_lifetime_task_budget.exactly_lifetime_tasks_submitted": true,
+    "A3_lifetime_task_budget.goal_parked_on_task_budget": true,
+    "A3_lifetime_task_budget.task_budget_reason_persisted": true,
+    "A3_lifetime_task_budget.task_budget_stamped": true,
+    "A3_lifetime_task_budget.all_submitted_tasks_counted": true,
+    "A4_budget_survives_restart.budget_persisted": true,
+    "A4_budget_survives_restart.restarted_goal_kept_budget": true,
+    "A4_budget_survives_restart.restart_cannot_enlarge": true,
+    "A4_budget_survives_restart.total_calls_bounded_by_lifetime": true,
+    "A4_budget_survives_restart.goal_needs_human_after_restart": true,
+    "A5_resume_does_not_mint_budget.parked_on_lifetime": true,
+    "A5_resume_does_not_mint_budget.resume_worked": true,
+    "A5_resume_does_not_mint_budget.resume_kept_budget": true,
+    "A5_resume_does_not_mint_budget.retry_spends_no_new_budget": true,
+    "A5_resume_does_not_mint_budget.re_parked_on_lifetime": true,
+    "A5_resume_does_not_mint_budget.budget_unchanged_after_retry": true,
+    "A5_resume_does_not_mint_budget.explicit_raise_enlarges": true,
+    "A6_legacy_ledger_migration.legacy_columns_nullable_before_advance": true,
+    "A6_legacy_ledger_migration.budget_stamped_after_first_advance": true,
+    "A6_legacy_ledger_migration.legacy_history_kept": true,
+    "A6_legacy_ledger_migration.lifetime_binds_migrated_goal": true
+  },
+  "result": "Pass"
+}

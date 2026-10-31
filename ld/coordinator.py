@@ -7,11 +7,12 @@ Handoff, remote execution, or arbitrary model-authored commands.
 """
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 import hashlib
+import json
 import threading
 import time
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from ld.decision import (
@@ -21,7 +22,13 @@ from ld.decision import (
     LDDecision,
     decision_schema,
 )
-from ld.goal_store import GoalLeaseLost, goal_identity, step_idempotency_key
+from ld.goal_store import (
+    DEFAULT_LIFETIME_DECISIONS,
+    DEFAULT_LIFETIME_TASKS,
+    GoalLeaseLost,
+    goal_identity,
+    step_idempotency_key,
+)
 from ld.tools import LDTools
 
 _SECURITY_DOMAINS = {"local", "shareable"}
@@ -31,6 +38,54 @@ _HUMAN_ATTENTION_FLAGS = {
     "suspected_lost",
     "session_binding_conflict",
 }
+
+
+@dataclass(frozen=True)
+class _GoalBudget:
+    """Effective budgets for one ``run_goal`` call.
+
+    ``quantum_decisions`` / ``quantum_tasks`` only apply in per-call (scheduler)
+    mode; ``lifetime_decisions`` / ``lifetime_tasks`` are absolute caps stored
+    on the goal row in per-call mode, and the caller's explicit values in
+    absolute mode.
+    """
+
+    per_call: bool
+    quantum_decisions: int = 0
+    quantum_tasks: int = 0
+    lifetime_decisions: int = 0
+    lifetime_tasks: int = 0
+
+
+def _resolve_goal_budget(goal_store, goal_id: str, *, budget_is_per_call: bool,
+                         quantum_decisions: int, quantum_tasks: int,
+                         lifetime_max_decisions: int | None,
+                         lifetime_max_tasks: int | None) -> _GoalBudget:
+    if not budget_is_per_call:
+        # M4-B contract: the caller's numbers are absolute for the whole goal.
+        return _GoalBudget(per_call=False,
+                           lifetime_decisions=quantum_decisions,
+                           lifetime_tasks=quantum_tasks)
+    # Scheduler mode: stamp the lifetime budgets once (first writer wins) and
+    # read back whatever is stored — a later wake-up, a restart or a human
+    # resume can never enlarge them.
+    goal_store.ensure_lifetime_budget(
+        goal_id,
+        max_decisions=(lifetime_max_decisions
+                       if lifetime_max_decisions is not None
+                       else DEFAULT_LIFETIME_DECISIONS),
+        max_tasks=(lifetime_max_tasks
+                   if lifetime_max_tasks is not None
+                   else DEFAULT_LIFETIME_TASKS))
+    stored = goal_store.get(goal_id) or {}
+    return _GoalBudget(
+        per_call=True,
+        quantum_decisions=quantum_decisions,
+        quantum_tasks=quantum_tasks,
+        lifetime_decisions=int(stored.get("max_decisions_total")
+                               or DEFAULT_LIFETIME_DECISIONS),
+        lifetime_tasks=int(stored.get("max_tasks_total")
+                           or DEFAULT_LIFETIME_TASKS))
 
 
 class DecisionModel(Protocol):
@@ -811,6 +866,8 @@ class LDCoordinator:
         resume_note: str = "",
         heartbeat: bool = True,
         budget_is_per_call: bool = False,
+        lifetime_max_decisions: int | None = None,
+        lifetime_max_tasks: int | None = None,
     ) -> dict[str, Any]:
         """Advance one persistent goal by one auditable transition at a time.
 
@@ -820,6 +877,22 @@ class LDCoordinator:
         failures, human-attention flags) all stop the goal in an explicit
         state.  ``poll_interval_s=None`` (default) returns as soon as the goal
         waits on an in-flight task.
+
+        Budget semantics (M4-C reliability closure):
+
+        * ``budget_is_per_call=False`` (default, the M4-B contract): the
+          budgets are **absolute for the whole goal** — an Owner re-running
+          ``run-goal`` cannot silently exceed the limit by asking again.
+        * ``budget_is_per_call=True`` (scheduler mode): ``max_decisions`` /
+          ``max_tasks`` are a **per-call quantum** — how many decisions this
+          one wake-up may spend.  The *lifetime* bound lives on the goal row
+          (``max_decisions_total`` / ``max_tasks_total``), is stamped once on
+          the first advancement (from ``lifetime_max_decisions`` /
+          ``lifetime_max_tasks`` or the store defaults) and is never enlarged
+          by automation or by a human ``resume``.  Exhausting the quantum
+          merely returns control ("per-call decision budget exhausted") while
+          the goal stays advanceable; exhausting the lifetime stops the goal
+          in ``needs_human``.
 
         Reliability (M4 reliability closure):
 
@@ -841,17 +914,11 @@ class LDCoordinator:
         selected_id = self._resolve_project_id(self._tools.list_projects(), project_id)
         goal_id, goal_ref = goal_identity(normalized_goal, selected_id)
         goal_store.get_or_create(goal_id, selected_id, normalized_goal, goal_ref)
-        if budget_is_per_call:
-            # Default (``False``) keeps the documented M4-B contract: the budgets
-            # are absolute for the whole goal, so an Owner re-running ``run-goal``
-            # cannot silently exceed the limit by asking again.  A scheduler that
-            # advances the same goal many times (``LDGoalRunner``) grants one
-            # decision per wake-up instead, so it opts in here and the *overall*
-            # bound stays with the runner's own escalation policy.
-            existing = goal_store.get(goal_id) or {}
-            max_decisions = (int(existing.get("model_decision_count") or 0)
-                             + max_decisions)
-            max_tasks = int(existing.get("task_count") or 0) + max_tasks
+        budget = _resolve_goal_budget(
+            goal_store, goal_id, budget_is_per_call=budget_is_per_call,
+            quantum_decisions=max_decisions, quantum_tasks=max_tasks,
+            lifetime_max_decisions=lifetime_max_decisions,
+            lifetime_max_tasks=lifetime_max_tasks)
         owner = lease_owner or goal_store.default_owner()
         leased = goal_store.acquire_lease(goal_id, owner)
         lease = _GoalLease(goal_store, goal_id, owner, int(leased["lease_token"]))
@@ -865,7 +932,7 @@ class LDCoordinator:
             return self._advance_goal_loop(
                 goal_id=goal_id, goal_ref=goal_ref, project_id=selected_id,
                 normalized_goal=normalized_goal, goal_store=goal_store,
-                max_decisions=max_decisions, max_tasks=max_tasks,
+                budget=budget,
                 max_stalled_inspections=max_stalled_inspections,
                 poll_interval_s=poll_interval_s, max_wait_s=max_wait_s,
                 lease=lease)
@@ -875,12 +942,17 @@ class LDCoordinator:
 
     def _advance_goal_loop(
         self, *, goal_id: str, goal_ref: str, project_id: str,
-        normalized_goal: str, goal_store, max_decisions: int, max_tasks: int,
+        normalized_goal: str, goal_store, budget: "_GoalBudget",
         max_stalled_inspections: int, poll_interval_s: float | None,
         max_wait_s: float | None, lease: "_GoalLease",
     ) -> dict[str, Any]:
         deadline = (time.time() + max_wait_s
                     if poll_interval_s is not None and max_wait_s else None)
+        # The per-call cap is frozen from the *entry* observation: a quantum
+        # granted by one wake-up must not grow while the call runs.
+        per_call_cap = (int((goal_store.get(goal_id) or {})
+                            .get("model_decision_count", 0))
+                        + budget.quantum_decisions)
         stalled = 0
         last_result: dict[str, Any] | None = None
         while True:
@@ -894,7 +966,8 @@ class LDCoordinator:
                 result = self._reconcile_pending_step(
                     pending, goal=goal, goal_id=goal_id, goal_ref=goal_ref,
                     project_id=project_id, normalized_goal=normalized_goal,
-                    goal_store=goal_store, max_tasks=max_tasks, lease=lease)
+                    goal_store=goal_store, max_tasks=budget.lifetime_tasks,
+                    lease=lease)
                 transition = self._commit_goal_step(
                     goal_store, goal_id, goal, result, step, lease,
                     pending=True, decision=pending.get("decision") or {})
@@ -903,23 +976,33 @@ class LDCoordinator:
                 if goal.get("status") in ("needs_human", "completed", "failed"):
                     return self._goal_report(goal_id, project_id, goal_ref, goal_store,
                                              last_result, reason="goal is not active")
-                if int(goal.get("model_decision_count", 0)) >= max_decisions:
+                spent = int(goal.get("model_decision_count", 0))
+                if spent >= budget.lifetime_decisions:
                     goal_store.stop_goal(
                         goal_id, lease.token, "needs_human",
-                        {"stop": "decision budget exhausted",
-                         "model_decision_count": goal.get("model_decision_count")})
-                    return self._goal_report(goal_id, project_id, goal_ref, goal_store,
-                                             last_result,
-                                             reason="decision budget exhausted")
+                        {"stop": "lifetime decision budget exhausted",
+                         "model_decision_count": spent,
+                         "max_decisions_total": budget.lifetime_decisions})
+                    return self._goal_report(
+                        goal_id, project_id, goal_ref, goal_store, last_result,
+                        reason="lifetime decision budget exhausted")
+                if budget.per_call and spent >= per_call_cap:
+                    # The quantum of *this* wake-up is spent while the goal
+                    # still has lifetime budget: return control normally.  The
+                    # goal stays advanceable — exhausting a per-call quota is
+                    # never a failure and must not park the goal.
+                    return self._goal_report(
+                        goal_id, project_id, goal_ref, goal_store, last_result,
+                        reason="per-call decision budget exhausted")
                 step = int(goal.get("decision_count", 0)) + 1
                 goal_context = self._goal_context(
-                    goal, goal_store, goal_ref, max_decisions, max_tasks)
+                    goal, goal_store, goal_ref, budget)
                 result = self.run_once(
                     normalized_goal, project_id=project_id,
                     goal_context=goal_context, goal_ref=goal_ref,
                     submit_executor=self._make_goal_submit_executor(
                         project_id=project_id, goal_ref=goal_ref, goal=goal,
-                        max_tasks=max_tasks, goal_id=goal_id, step=step,
+                        max_tasks=budget.lifetime_tasks, goal_id=goal_id, step=step,
                         goal_store=goal_store, lease=lease, replay=False))
                 if result.get("model_call_failed"):
                     # Transport failure: no decision was made, so no step is
@@ -1034,6 +1117,12 @@ class LDCoordinator:
             # has to guess.  Bounded; never contains prompts or credentials.
             "decision_source": result.get("decision_source"),
             "reason": str(result.get("reason") or "")[:600],
+            # Bounded snapshot of an inspection result so the *next* decision
+            # can use what the LD just queried instead of querying again (and
+            # so an interrupted query flow survives a restart).  Surfacing to
+            # the model is gated on the authorized security domains in
+            # ``_goal_context``.
+            "inspection_result": self._inspection_summary(result),
         }
         if pending:
             goal_store.commit_step(goal_id, step, outcome, fields, lease.token)
@@ -1041,6 +1130,18 @@ class LDCoordinator:
             goal_store.record_step(goal_id, step, dict(decision), outcome, fields,
                                    lease.token)
         return status
+
+    @staticmethod
+    def _inspection_summary(result: dict) -> str | None:
+        """Bounded JSON snapshot of an inspect result (never prompts/keys)."""
+        if result.get("action") != "inspect":
+            return None
+        try:
+            payload = json.dumps(result.get("result"), ensure_ascii=False,
+                                 default=str)
+        except (TypeError, ValueError):
+            return None
+        return payload[:1200]
 
     @staticmethod
     def _goal_transition_fields(goal: dict, result: dict,
@@ -1077,12 +1178,15 @@ class LDCoordinator:
         return fields, status
 
     def _goal_context(self, goal: dict, goal_store, goal_ref: str,
-                      max_decisions: int, max_tasks: int) -> dict[str, Any]:
+                      budget: "_GoalBudget") -> dict[str, Any]:
         """What the model is told about the goal's own progress.
 
         Task truth is re-read from the Ledger on every decision (never from
         the goal row alone), so a restart after a crash between enqueue and
         the goal-row update still shows the existing WorkItem to the model.
+        Budgets are shown as the *goal-level* caps (per-call quanta are a
+        scheduling detail the model cannot spend anyway), plus the remaining
+        amounts so the model can pace itself.
         """
         service = self._tools.service
         goal_tasks = []
@@ -1130,14 +1234,24 @@ class LDCoordinator:
             # model the coordinator ever calls for a local goal.
             if "local" in self._model_domains:
                 last_step["reason"] = outcome.get("reason")
+                # The bounded inspection snapshot may carry local-domain
+                # project content (progress narratives, task titles); the same
+                # authorization gate applies before it enters model input.
+                if outcome.get("inspection_result"):
+                    last_step["inspection_result"] = outcome["inspection_result"]
             break
         return {
             "status": goal.get("status"),
             "decision_count": goal.get("decision_count", 0),
             "human_resume_count": goal.get("resume_count", 0),
             "task_count": goal.get("task_count", 0),
-            "max_decisions": max_decisions,
-            "max_tasks": max_tasks,
+            "max_decisions": budget.lifetime_decisions,
+            "max_tasks": budget.lifetime_tasks,
+            "decisions_remaining": max(
+                0, budget.lifetime_decisions
+                - int(goal.get("model_decision_count", 0))),
+            "tasks_remaining": max(
+                0, budget.lifetime_tasks - int(goal.get("task_count", 0))),
             "current_task": current_task,
             "last_step": last_step,
             "completed_tasks": completed,

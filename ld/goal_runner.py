@@ -20,7 +20,19 @@ needed repeated manual invocations.  The runner closes that loop:
 
     goal waiting + WorkItem running     -> no model call, keep waiting
     goal waiting + verdict ready        -> wake the LD once
+    goal active after a query decision  -> wake the LD again (continuation),
+                                           bounded by the no-progress streak
     goal needs_human / completed / failed -> never woken automatically
+
+Budgets (M4-C reliability closure)
+----------------------------------
+Each wake-up grants the LD a small per-call *quantum* (``max_decisions`` /
+``max_tasks``, default 1/1).  The *lifetime* bound — the maximum cumulative
+model decisions and WorkItem submissions for the whole goal — is persisted on
+the goal row itself (``ld_goals.max_decisions_total`` / ``max_tasks_total``),
+stamped once at the first advancement and never enlarged by scheduling,
+restarts or a human ``resume``.  Exhausting a quantum just returns control;
+exhausting a lifetime parks the goal in ``needs_human``.
 
 Not a second source of truth
 ----------------------------
@@ -43,7 +55,6 @@ import time
 from typing import Any
 
 from ld.goal_store import GoalLeaseHeld, GoalLeaseLost
-
 #: Goal statuses the runner is allowed to consider at all.  ``needs_human``,
 #: ``completed`` and ``failed`` are terminal for automation: only a Human Owner
 #: (or an explicit ``--resume`` run) may move them, so the runner never calls the
@@ -120,14 +131,28 @@ class GoalRunnerStore:
         return {row["goal_id"]: dict(row) for row in rows}
 
     def record_success(self, goal_id: str, *, signature: str, outcome: str,
-                       advanced: bool, no_progress: bool) -> dict:
+                       advanced: bool, no_progress: bool,
+                       acknowledge: bool = True) -> dict:
+        """Record a successful advance.
+
+        ``acknowledge=False`` deliberately keeps the previous
+        ``last_signature``: it marks "the LD's flow continues — the current
+        observation is *not* fully handled yet" (e.g. an inspection whose
+        follow-up decision is still pending).  The next sweep therefore still
+        sees an unacknowledged state and wakes the model again, bounded by the
+        runner's no-progress escalation.  Losing the row can cause at most one
+        extra (idempotent) decision.
+        """
         now = time.time()
         with self._txn() as conn:
             row = conn.execute(
-                "SELECT consecutive_no_progress FROM ld_goal_runner WHERE goal_id=?",
+                "SELECT consecutive_no_progress, last_signature "
+                "FROM ld_goal_runner WHERE goal_id=?",
                 (goal_id,)).fetchone()
             streak = ((int(row["consecutive_no_progress"]) if row else 0) + 1
                       if no_progress else 0)
+            stored = (signature if acknowledge
+                      else (row["last_signature"] if row else None))
             conn.execute(
                 "INSERT INTO ld_goal_runner (goal_id, last_signature,"
                 " last_observed_at, last_advanced_at, next_attempt_at,"
@@ -145,7 +170,7 @@ class GoalRunnerStore:
                 " advances=ld_goal_runner.advances+excluded.advances,"
                 " last_error=NULL, last_outcome=excluded.last_outcome,"
                 " updated_at=excluded.updated_at",
-                (goal_id, signature, now, now if advanced else None,
+                (goal_id, stored, now, now if advanced else None,
                  streak, 1 if advanced else 0, outcome, now))
         return self.get(goal_id) or {}
 
@@ -244,6 +269,8 @@ class LDGoalRunner:
                  max_model_failures: int = 3,
                  max_no_progress_advances: int = 3,
                  base_backoff_s: float = 5.0, max_backoff_s: float = 300.0,
+                 lifetime_max_decisions: int | None = None,
+                 lifetime_max_tasks: int | None = None,
                  owner: str | None = None,
                  wall_clock=time.time):
         if max_decisions < 1 or max_tasks < 1:
@@ -265,6 +292,12 @@ class LDGoalRunner:
         self._max_no_progress = max_no_progress_advances
         self._base_backoff_s = base_backoff_s
         self._max_backoff_s = max_backoff_s
+        # Lifetime budgets stamped on the goal at its first advancement (see
+        # ``LDGoalStore.ensure_lifetime_budget``): repeated wake-ups, restarts
+        # and human resumes never enlarge them.  ``None`` falls back to the
+        # store defaults.
+        self._lifetime_max_decisions = lifetime_max_decisions
+        self._lifetime_max_tasks = lifetime_max_tasks
         self._owner = owner
         self._clock = wall_clock
 
@@ -437,9 +470,12 @@ class LDGoalRunner:
                 max_tasks=self._max_tasks,
                 poll_interval_s=None, max_wait_s=None,
                 lease_owner=self._owner,
-                # Each wake-up grants one decision; the *overall* bound is this
-                # runner's failure/stall escalation, not a single call's budget.
-                budget_is_per_call=True)
+                # Each wake-up grants a per-call quantum; the *overall* bound
+                # is the goal's persisted lifetime budget, stamped once and
+                # never enlarged by scheduling, restarts or resumes.
+                budget_is_per_call=True,
+                lifetime_max_decisions=self._lifetime_max_decisions,
+                lifetime_max_tasks=self._lifetime_max_tasks)
         except GoalLeaseHeld as exc:
             # Another runtime/CLI is advancing this goal right now: not a failure.
             self._runner.record_skip(goal_id, signature=observed["signature"],
@@ -454,58 +490,41 @@ class LDGoalRunner:
                     "reason": f"lease lost: {exc}",
                     "signature": observed["signature"]}
         except Exception as exc:  # noqa: BLE001 - transport/tooling failure
-            failures = int(state.get("consecutive_failures") or 0) + 1
-            delay = self._backoff(failures)
-            self._runner.record_failure(
-                goal_id, signature=observed["signature"],
-                error=f"{type(exc).__name__}: {exc}", next_attempt_at=now + delay)
-            escalated = None
-            if failures >= self._max_model_failures:
-                escalated = self._escalate(goal_id, failures,
-                                            f"{type(exc).__name__}: {exc}")
-            return {"goal_id": goal_id, "action": "error",
-                    "reason": f"{type(exc).__name__}: {exc}",
-                    "consecutive_failures": failures,
-                    "retry_in_s": round(delay, 1),
-                    "escalated_to_human": escalated,
-                    "signature": observed["signature"]}
+            return self._record_advance_failure(
+                goal, observed, state, now,
+                error=f"{type(exc).__name__}: {exc}")
 
         status = report.get("status")
         last_result = report.get("last_result") or {}
         model_failed = bool(last_result.get("model_call_failed"))
-        no_progress = (last_result.get("action") == "inspect"
-                       and not last_result.get("task_id"))
         if model_failed:
-            failures = int(state.get("consecutive_failures") or 0) + 1
-            delay = self._backoff(failures)
-            self._runner.record_failure(
-                goal_id, signature=observed["signature"],
-                error=str(last_result.get("reason") or "model call failed"),
-                next_attempt_at=now + delay)
-            escalated = None
-            if failures >= self._max_model_failures:
-                escalated = self._escalate(
-                    goal_id, failures,
-                    str(last_result.get("reason") or "model call failed"))
-            return {"goal_id": goal_id, "action": "error",
-                    "reason": "model call failed",
-                    "consecutive_failures": failures,
-                    "retry_in_s": round(delay, 1),
-                    "escalated_to_human": escalated,
-                    "signature": observed["signature"]}
+            return self._record_advance_failure(
+                goal, observed, state, now,
+                error=str(last_result.get("reason") or "model call failed"))
 
         after = self.observe(self._goals.get(goal_id) or goal)
+        # A decision that leaves the goal ``active`` means the LD's flow is
+        # unfinished (e.g. it inspected something and the follow-up decision —
+        # submit, wait or finish — is still to come).  Such an advance is
+        # deliberately NOT acknowledged, so the next sweep wakes the model
+        # again instead of treating the unchanged observation as "handled".
+        # Bounded: every unacknowledged advance counts toward the no-progress
+        # streak, which escalates to a human after ``max_no_progress``.
+        continuation_pending = status == "active"
         entry = self._runner.record_success(
             goal_id, signature=after["signature"],
             outcome=f"{status}:{last_result.get('action')}",
-            advanced=True, no_progress=no_progress)
+            advanced=True, no_progress=continuation_pending,
+            acknowledge=not continuation_pending)
         escalated = None
-        if (no_progress
+        if (continuation_pending
                 and int(entry.get("consecutive_no_progress") or 0)
                 >= self._max_no_progress):
             escalated = self._escalate(
                 goal_id, int(entry.get("consecutive_no_progress") or 0),
-                "repeated inspections without observable progress")
+                "repeated decisions without observable progress",
+                observed_decision_count=(
+                    self._goals.get(goal_id) or {}).get("decision_count"))
         return {"goal_id": goal_id, "action": "advanced",
                 "reason": "LD advanced the goal",
                 "plan_reason": plan_reason,
@@ -513,8 +532,55 @@ class LDGoalRunner:
                 "decision_action": last_result.get("action"),
                 "next_state": last_result.get("next_state"),
                 "task_id": last_result.get("task_id"),
+                "continuation_pending": continuation_pending,
                 "escalated_to_human": escalated,
                 "signature": after["signature"]}
+
+    def _record_advance_failure(self, goal: dict, observed: dict, state: dict,
+                                now: float, *, error: str) -> dict[str, Any]:
+        """Count and back off a failed advance — unless the observation is stale.
+
+        If another executor advanced the goal while our model call was failing,
+        our failure belongs to a world that no longer exists: it must not bump
+        the failure streak, must not extend the backoff of a healthy goal and
+        must never escalate over the other executor's progress.
+        """
+        goal_id = goal["goal_id"]
+        if self._observation_is_stale(goal):
+            self._runner.record_skip(
+                goal_id, signature=observed["signature"],
+                outcome=f"stale failure ignored (goal advanced elsewhere): "
+                        f"{error[:300]}")
+            return {"goal_id": goal_id, "action": "skip",
+                    "reason": "stale failure ignored: the goal advanced elsewhere",
+                    "detail": error[:300],
+                    "signature": observed["signature"]}
+        failures = int(state.get("consecutive_failures") or 0) + 1
+        delay = self._backoff(failures)
+        self._runner.record_failure(
+            goal_id, signature=observed["signature"],
+            error=error, next_attempt_at=now + delay)
+        escalated = None
+        if failures >= self._max_model_failures:
+            escalated = self._escalate(
+                goal_id, failures, error,
+                observed_decision_count=goal.get("decision_count"))
+        return {"goal_id": goal_id, "action": "error",
+                "reason": error,
+                "consecutive_failures": failures,
+                "retry_in_s": round(delay, 1),
+                "escalated_to_human": escalated,
+                "signature": observed["signature"]}
+
+    def _observation_is_stale(self, goal: dict) -> bool:
+        """Did the goal move on since this sweep observed it?"""
+        current = self._goals.get(goal["goal_id"]) or {}
+        if not current:
+            return True
+        if current.get("status") not in ADVANCEABLE_STATUSES:
+            return True
+        return (int(current.get("decision_count") or 0)
+                != int(goal.get("decision_count") or 0))
 
     def _backoff(self, failures: int) -> float:
         if failures <= 0:
@@ -522,11 +588,18 @@ class LDGoalRunner:
         return min(self._max_backoff_s,
                    self._base_backoff_s * (2 ** min(failures - 1, 8)))
 
-    def _escalate(self, goal_id: str, failures: int, error: str) -> dict:
-        """Stop automatic advancement after repeated failures (fenced, audited).
+    def _escalate(self, goal_id: str, failures: int, error: str, *,
+                  observed_decision_count: int | None = None) -> dict:
+        """Stop automatic advancement after repeated failures (revalidated).
 
-        This writes only the goal's ``status`` — never a task verdict — and the
-        reason is persisted so the Human Owner sees why automation gave up.
+        The stop is a *conditional* write (``LDGoalStore.stop_goal_if``): it
+        applies only when the goal is still advanceable, no other executor
+        holds a live lease, and — when provided — the goal's decision count
+        still matches our observation.  A runner whose model call failed while
+        another runner advanced or completed the goal therefore cannot
+        overwrite that progress with ``needs_human``.  This writes only the
+        goal's ``status`` — never a task verdict — and the reason is persisted
+        so the Human Owner sees why automation gave up.
         """
         note = {
             "stop": "repeated LD failures; automatic advancement disabled",
@@ -534,9 +607,16 @@ class LDGoalRunner:
             "error": error[:600],
         }
         try:
-            self._goals.stop_goal(goal_id, None, "needs_human", note)
+            stopped = self._goals.stop_goal_if(
+                goal_id, "needs_human", note,
+                allow_owner=self._owner,
+                expected_decision_count=observed_decision_count)
         except Exception as exc:  # noqa: BLE001 - escalation must not crash a sweep
             return {"escalated": False, "error": f"{type(exc).__name__}: {exc}"}
+        if stopped is None:
+            return {"escalated": False,
+                    "reason": "goal moved on (advanced/completed/leased "
+                              "elsewhere); escalation skipped"}
         return {"escalated": True, "reason": note["stop"]}
 
     def status(self) -> dict[str, Any]:
@@ -550,8 +630,11 @@ class LDGoalRunner:
                 "project_id": goal.get("project_id"),
                 "status": goal.get("status"),
                 "decision_count": goal.get("decision_count"),
+                "model_decision_count": goal.get("model_decision_count"),
                 "task_count": goal.get("task_count"),
                 "current_task_id": goal.get("current_task_id"),
+                "lifetime_max_decisions": goal.get("max_decisions_total"),
+                "lifetime_max_tasks": goal.get("max_tasks_total"),
                 "runs": state.get("runs", 0),
                 "advances": state.get("advances", 0),
                 "consecutive_failures": state.get("consecutive_failures", 0),

@@ -43,6 +43,14 @@ from typing import Any
 
 GOAL_STATUSES = ("active", "waiting", "needs_human", "completed", "failed")
 
+# ``ld_goals`` lifetime budgets (M4-C reliability closure): NULL until the
+# first advancement stamps them, then never reset or enlarged by automation.
+#: Default lifetime decision/task budgets stamped when a scheduler advances a
+#: goal without explicit values.  Deliberately generous enough for a
+#: multi-task goal with retries, and small enough to bound runaway models.
+DEFAULT_LIFETIME_DECISIONS = 24
+DEFAULT_LIFETIME_TASKS = 4
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS ld_goals (
     goal_id TEXT PRIMARY KEY,
@@ -59,6 +67,8 @@ CREATE TABLE IF NOT EXISTS ld_goals (
     claim_owner TEXT,
     claim_until REAL,
     lease_token INTEGER NOT NULL DEFAULT 0,
+    max_decisions_total INTEGER,
+    max_tasks_total INTEGER,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -79,7 +89,9 @@ CREATE INDEX IF NOT EXISTS idx_ld_goal_decisions_goal
 
 _MIGRATIONS = {
     "ld_goals": {"resume_count": "INTEGER NOT NULL DEFAULT 0",
-                 "lease_token": "INTEGER NOT NULL DEFAULT 0"},
+                 "lease_token": "INTEGER NOT NULL DEFAULT 0",
+                 "max_decisions_total": "INTEGER",
+                 "max_tasks_total": "INTEGER"},
     "ld_goal_decisions": {"state": "TEXT NOT NULL DEFAULT 'committed'",
                           "lease_token": "INTEGER"},
 }
@@ -395,13 +407,134 @@ class LDGoalStore:
                 "status": status, "last_decision": last_decision})
         return self.get(goal_id) or {}
 
+    def stop_goal_if(self, goal_id: str, status: str, last_decision: dict, *,
+                     from_statuses: tuple[str, ...] = ("active", "waiting"),
+                     allow_owner: str | None = None,
+                     expected_decision_count: int | None = None) -> dict | None:
+        """Conditionally stop a goal for escalation paths (M4-C closure).
+
+        Unlike :meth:`stop_goal` this write is *revalidating*, not fenced on a
+        lease token the caller may no longer hold: a scheduler whose model call
+        failed must not overwrite a goal that another runner has since
+        advanced or completed.  The stop applies only when, inside one
+        ``BEGIN IMMEDIATE`` transaction:
+
+        * the goal is still in ``from_statuses`` (never overwrite a terminal
+          status such as ``completed``);
+        * the goal's ``decision_count`` still equals the caller's observation
+          (when provided) — any step committed since means the observation is
+          stale and the escalation must be skipped;
+        * no *other* holder has a live advancement lease (a goal being actively
+          advanced belongs to that holder, including its own escalation).
+
+        Returns the updated goal when the stop was applied, ``None`` when the
+        state moved on.  Never raises for "not applied".
+        """
+        if status not in GOAL_STATUSES:
+            raise GoalStoreError(f"unknown goal status {status!r}")
+        now = time.time()
+        with self._txn() as conn:
+            row = conn.execute(
+                "SELECT status, decision_count, claim_owner, claim_until "
+                "FROM ld_goals WHERE goal_id=?", (goal_id,)).fetchone()
+            if row is None or row["status"] not in from_statuses:
+                return None
+            if (expected_decision_count is not None
+                    and int(row["decision_count"]) != int(expected_decision_count)):
+                return None
+            lease_live = (row["claim_until"] is not None
+                          and float(row["claim_until"]) >= now)
+            if lease_live and row["claim_owner"] != allow_owner:
+                return None
+            conn.execute(
+                "UPDATE ld_goals SET status=?, last_decision=?, updated_at=? "
+                "WHERE goal_id=?",
+                (status, json.dumps(last_decision, ensure_ascii=False,
+                                    default=str), now, goal_id))
+        return self.get(goal_id)
+
+    # ------------------------------------------------------------------ #
+    # lifetime budgets (M4-C reliability closure)
+    # ------------------------------------------------------------------ #
+    def ensure_lifetime_budget(self, goal_id: str, *, max_decisions: int | None,
+                               max_tasks: int | None) -> dict:
+        """Stamp the goal's lifetime budgets once; never reset or enlarge.
+
+        First writer wins: the first advancement (or an explicit human setup)
+        fixes the goal's lifetime decision/task budget.  Later calls —
+        including every automatic wake-up and a human ``resume`` — leave the
+        stamped values untouched, so repeated scheduling can never mint new
+        budget.  Only the explicit human-only :meth:`set_lifetime_budget`
+        may change them.
+        """
+        if max_decisions is not None and int(max_decisions) < 1:
+            raise ValueError("max_decisions must be >= 1")
+        if max_tasks is not None and int(max_tasks) < 1:
+            raise ValueError("max_tasks must be >= 1")
+        with self._txn() as conn:
+            row = conn.execute(
+                "SELECT max_decisions_total, max_tasks_total FROM ld_goals "
+                "WHERE goal_id=?", (goal_id,)).fetchone()
+            if row is None:
+                raise GoalStoreError(f"no goal {goal_id}")
+            sets: list[str] = []
+            args: list[Any] = []
+            if max_decisions is not None and row["max_decisions_total"] is None:
+                sets.append("max_decisions_total=?")
+                args.append(int(max_decisions))
+            if max_tasks is not None and row["max_tasks_total"] is None:
+                sets.append("max_tasks_total=?")
+                args.append(int(max_tasks))
+            if sets:
+                sets.append("updated_at=?")
+                args.append(time.time())
+                args.append(goal_id)
+                conn.execute(
+                    f"UPDATE ld_goals SET {', '.join(sets)} WHERE goal_id=?",
+                    args)
+        return self.get(goal_id) or {}
+
+    def set_lifetime_budget(self, goal_id: str, *, max_decisions: int | None = None,
+                            max_tasks: int | None = None) -> dict:
+        """Explicitly change a goal's lifetime budget (Human Owner only).
+
+        This is the *only* way to enlarge a budget, it is never called by any
+        automatic path, and — unlike ``resume`` — it is a deliberate owner
+        decision that lands in the goal row where audits can see it.  A
+        ``resume`` alone never touches the budgets.
+        """
+        if max_decisions is None and max_tasks is None:
+            raise ValueError("at least one of max_decisions/max_tasks is required")
+        if max_decisions is not None and int(max_decisions) < 1:
+            raise ValueError("max_decisions must be >= 1")
+        if max_tasks is not None and int(max_tasks) < 1:
+            raise ValueError("max_tasks must be >= 1")
+        with self._txn() as conn:
+            self._fenced_row(conn, goal_id, None)
+            sets: list[str] = []
+            args: list[Any] = []
+            if max_decisions is not None:
+                sets.append("max_decisions_total=?")
+                args.append(int(max_decisions))
+            if max_tasks is not None:
+                sets.append("max_tasks_total=?")
+                args.append(int(max_tasks))
+            sets.append("updated_at=?")
+            args.append(time.time())
+            args.append(goal_id)
+            conn.execute(f"UPDATE ld_goals SET {', '.join(sets)} WHERE goal_id=?",
+                         args)
+        return self.get(goal_id) or {}
+
     def resume(self, goal_id: str, note: str = "", token: int | None = None) -> dict:
         """Explicitly return a needs_human goal to active (human decision only).
 
         The resume is one step of the same contiguous history: the decision row
         and the ``decision_count`` increment commit in one transaction, so the
         next model step never collides with it.  Without a token the call is
-        refused while another holder has a live lease.
+        refused while another holder has a live lease.  A resume deliberately
+        does **not** touch the lifetime budgets: saying "continue" must never
+        mint new decision or task budget (see ``ensure_lifetime_budget``).
         """
         note = (note or "").strip() or "resumed by human owner"
         with self._txn() as conn:
@@ -475,5 +608,6 @@ class LDGoalStore:
         return goal
 
 
-__all__ = ["GOAL_STATUSES", "GoalLeaseHeld", "GoalLeaseLost", "GoalStoreError",
+__all__ = ["DEFAULT_LIFETIME_DECISIONS", "DEFAULT_LIFETIME_TASKS",
+           "GOAL_STATUSES", "GoalLeaseHeld", "GoalLeaseLost", "GoalStoreError",
            "LDGoalStore", "goal_identity", "step_idempotency_key"]

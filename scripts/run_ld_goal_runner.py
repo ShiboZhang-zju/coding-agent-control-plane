@@ -77,6 +77,10 @@ def main() -> int:
                     help="model decisions allowed per goal per sweep")
     ap.add_argument("--max-tasks", type=int, default=1,
                     help="task submissions allowed per goal per sweep")
+    ap.add_argument("--lifetime-decisions", type=int, default=None,
+                    help="lifetime model-decision budget per goal (stamped once)")
+    ap.add_argument("--lifetime-tasks", type=int, default=None,
+                    help="lifetime WorkItem submission budget per goal")
     ap.add_argument("--max-model-failures", type=int, default=3,
                     help="consecutive model failures before the goal goes to human")
     ap.add_argument("--base-backoff-s", type=float, default=5.0)
@@ -122,7 +126,9 @@ def main() -> int:
             max_decisions=args.max_decisions, max_tasks=args.max_tasks,
             max_model_failures=args.max_model_failures,
             base_backoff_s=args.base_backoff_s,
-            max_backoff_s=args.max_backoff_s)
+            max_backoff_s=args.max_backoff_s,
+            lifetime_max_decisions=args.lifetime_decisions,
+            lifetime_max_tasks=args.lifetime_tasks)
 
         if args.status:
             print(json.dumps(goal_runner.status(), ensure_ascii=False, indent=2))

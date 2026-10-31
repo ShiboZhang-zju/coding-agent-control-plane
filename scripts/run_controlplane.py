@@ -67,7 +67,9 @@ def build_goal_runner(plane: ControlPlane, store: TaskStore, args,
         max_decisions=args.goal_max_decisions, max_tasks=args.goal_max_tasks,
         max_model_failures=args.goal_max_model_failures,
         base_backoff_s=args.goal_base_backoff,
-        max_backoff_s=args.goal_max_backoff)
+        max_backoff_s=args.goal_max_backoff,
+        lifetime_max_decisions=args.goal_lifetime_decisions,
+        lifetime_max_tasks=args.goal_lifetime_tasks)
 
 
 def main() -> int:
@@ -95,6 +97,13 @@ def main() -> int:
     ap.add_argument("--goal-interval", type=float, default=5.0)
     ap.add_argument("--goal-max-decisions", type=int, default=1)
     ap.add_argument("--goal-max-tasks", type=int, default=1)
+    ap.add_argument("--goal-lifetime-decisions", type=int, default=None,
+                    help="lifetime model-decision budget per goal (default: "
+                         "ld.goal_store.DEFAULT_LIFETIME_DECISIONS); stamped "
+                         "once, never enlarged by scheduling or resume")
+    ap.add_argument("--goal-lifetime-tasks", type=int, default=None,
+                    help="lifetime WorkItem submission budget per goal "
+                         "(default: ld.goal_store.DEFAULT_LIFETIME_TASKS)")
     ap.add_argument("--goal-max-model-failures", type=int, default=3)
     ap.add_argument("--goal-base-backoff", type=float, default=5.0)
     ap.add_argument("--goal-max-backoff", type=float, default=300.0)

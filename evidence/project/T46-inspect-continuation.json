@@ -1,0 +1,105 @@
+{
+  "test": "T46-inspect-continuation",
+  "worker_started": false,
+  "note": "scripted decision model + stub adapter: verifies the inspect-continuation contract of the goal scheduler, not Worker execution. Real end-to-end behaviour is T48.",
+  "sections": {
+    "B1_inspect_then_submit": {
+      "inspect_left_goal_active": true,
+      "continuation_pending_flag": true,
+      "second_sweep_submitted": true,
+      "task_submitted": true,
+      "finish_after_verdict": true,
+      "goal_completed": true,
+      "no_model_call_while_in_flight_or_done": true,
+      "model_calls_total": 3,
+      "inspection_result_persisted": true
+    },
+    "B2_two_inspections_then_submit": {
+      "two_inspections_allowed": true,
+      "submit_after_two_inspections": true,
+      "no_progress_streak_reset": true,
+      "goal_completed": true,
+      "model_calls_total": 4,
+      "streak_when_submitting": null
+    },
+    "B3_inspect_then_request_human": {
+      "goal_needs_human": true,
+      "model_called_twice": true,
+      "human_reason_persisted": true,
+      "no_task_submitted": true,
+      "terminal_goal_not_woken_again": true
+    },
+    "B4_no_progress_cap": {
+      "capped_after_three": true,
+      "goal_needs_human": true,
+      "stop_reason_persisted": true,
+      "no_call_after_cap": true
+    },
+    "B5_restart_continues_flow": {
+      "query_happened_before_restart": true,
+      "goal_active_before_restart": true,
+      "signature_not_acknowledged": true,
+      "restart_kept_goal_active": true,
+      "restart_continued_with_model": true,
+      "restart_submitted_task": true,
+      "goal_waiting_after_restart": true
+    },
+    "B6_inspection_result_domain_gate": {
+      "inspect_executed": true,
+      "secret_in_local_outcome": true,
+      "local_model_sees_result": true,
+      "shareable_model_blind_to_result": true,
+      "shareable_model_blind_to_reason": true,
+      "unauthorized_model_never_called": true,
+      "unauthorized_run_refuses": true
+    },
+    "B8_pending_step_priority": {
+      "pending_reconciled_without_model": true,
+      "single_workitem": true,
+      "adopted_existing_task": true,
+      "pending_reported": true
+    }
+  },
+  "checks": {
+    "B1_inspect_then_submit.inspect_left_goal_active": true,
+    "B1_inspect_then_submit.continuation_pending_flag": true,
+    "B1_inspect_then_submit.second_sweep_submitted": true,
+    "B1_inspect_then_submit.task_submitted": true,
+    "B1_inspect_then_submit.finish_after_verdict": true,
+    "B1_inspect_then_submit.goal_completed": true,
+    "B1_inspect_then_submit.no_model_call_while_in_flight_or_done": true,
+    "B1_inspect_then_submit.inspection_result_persisted": true,
+    "B2_two_inspections_then_submit.two_inspections_allowed": true,
+    "B2_two_inspections_then_submit.submit_after_two_inspections": true,
+    "B2_two_inspections_then_submit.no_progress_streak_reset": true,
+    "B2_two_inspections_then_submit.goal_completed": true,
+    "B3_inspect_then_request_human.goal_needs_human": true,
+    "B3_inspect_then_request_human.model_called_twice": true,
+    "B3_inspect_then_request_human.human_reason_persisted": true,
+    "B3_inspect_then_request_human.no_task_submitted": true,
+    "B3_inspect_then_request_human.terminal_goal_not_woken_again": true,
+    "B4_no_progress_cap.capped_after_three": true,
+    "B4_no_progress_cap.goal_needs_human": true,
+    "B4_no_progress_cap.stop_reason_persisted": true,
+    "B4_no_progress_cap.no_call_after_cap": true,
+    "B5_restart_continues_flow.query_happened_before_restart": true,
+    "B5_restart_continues_flow.goal_active_before_restart": true,
+    "B5_restart_continues_flow.signature_not_acknowledged": true,
+    "B5_restart_continues_flow.restart_kept_goal_active": true,
+    "B5_restart_continues_flow.restart_continued_with_model": true,
+    "B5_restart_continues_flow.restart_submitted_task": true,
+    "B5_restart_continues_flow.goal_waiting_after_restart": true,
+    "B6_inspection_result_domain_gate.inspect_executed": true,
+    "B6_inspection_result_domain_gate.secret_in_local_outcome": true,
+    "B6_inspection_result_domain_gate.local_model_sees_result": true,
+    "B6_inspection_result_domain_gate.shareable_model_blind_to_result": true,
+    "B6_inspection_result_domain_gate.shareable_model_blind_to_reason": true,
+    "B6_inspection_result_domain_gate.unauthorized_model_never_called": true,
+    "B6_inspection_result_domain_gate.unauthorized_run_refuses": true,
+    "B8_pending_step_priority.pending_reconciled_without_model": true,
+    "B8_pending_step_priority.single_workitem": true,
+    "B8_pending_step_priority.adopted_existing_task": true,
+    "B8_pending_step_priority.pending_reported": true
+  },
+  "result": "Pass"
+}
