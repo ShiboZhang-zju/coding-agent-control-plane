@@ -31,6 +31,7 @@ exact confirmation token — never inferred from the model's output.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -71,21 +72,60 @@ def _tokens(text: str) -> set[str]:
 def _stop_signature(goal: Mapping[str, Any]) -> str:
     """A stable fingerprint of *why* a goal is paused.
 
-    Used only to keep a staged resume attached to the pause the owner actually
-    read about.  It never influences goal state.
+    Deliberately ``sha256`` and not the builtin ``hash()``: ``hash()`` of a
+    string is randomized per interpreter, so a value persisted in a staged
+    action would never match after a restart.  This signature is compared in
+    :meth:`LDChat._confirm_resume_goal`, so it must be reproducible across
+    processes and machines.
     """
-    last = goal.get("last_decision")
+    last = goal.get("last_decision") if isinstance(goal.get("last_decision"), dict) \
+        else {}
     payload = {
         "status": goal.get("status"),
-        "stop": (last or {}).get("stop") if isinstance(last, dict) else None,
-        "action": (last or {}).get("action") if isinstance(last, dict) else None,
+        "stop": last.get("stop"),
+        "action": last.get("action"),
+        "next_state": last.get("next_state"),
     }
-    return str(abs(hash(json.dumps(payload, sort_keys=True, default=str))))
+    encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 #: Characters per retained transcript turn in the classifier input.  Long
 #: enough to keep the reference, short enough to bound the payload.
 HISTORY_CHARS = 240
+
+#: Hard ceiling for a goal objective.  A longer text is refused rather than
+#: truncated: the objective *is* the goal's identity, so silently shortening it
+#: would create a different goal than the one that was confirmed.
+MAX_GOAL_CHARS = 2000
+
+#: Markers that a sentence is quoting project knowledge, credentials or other
+#: local-domain content.  This is a conservative *detector*, not a redactor:
+#: when it fires and the model is not authorized for ``local``, the turn falls
+#: back to the deterministic router instead of sending the text anywhere.
+_LOCAL_CONTENT_MARKERS = (
+    "密钥", "秘钥", "密码", "口令", "令牌", "token", "secret", "password",
+    "apikey", "api key", "api_key", "credential", "私钥", "证书",
+    "内网", "内网地址", "数据库连接", "连接串", "dsn", ".env",
+    "本地部署", "部署地址", "生产环境地址", "localhost", "127.0.0.1",
+    "10.", "192.168.", "172.16.",
+)
+
+
+def _looks_like_local_content(message: str) -> bool:
+    """Heuristic gate: might this sentence carry local-domain content?
+
+    Deliberately over-inclusive.  A false positive costs one keyword-routed turn
+    (the answer is still correct, just less flexible); a false negative ships
+    a secret to a third-party endpoint.  The caller decides what to do — this
+    function never edits the text, because "auto-redaction" of a sentence whose
+    meaning depends on the redacted span produces an answer that is confidently
+    wrong, and worse, hides from the operator that nothing was sent.
+    """
+    text = (message or "").lower()
+    if not text:
+        return False
+    return any(marker in text for marker in _LOCAL_CONTENT_MARKERS)
 
 
 def _safe_history(messages: list[Mapping[str, Any]], *,
@@ -268,11 +308,32 @@ class HeuristicIntentRouter:
         lowered = text.lower()
         return any(f'"{word}"' in lowered for word in cls._SUBMIT)
 
+    #: How far after a negation the verb may appear and still be "the negated
+    #: instruction".  "先不要推进" negates 推进 (2 chars apart); "…，不要用
+    #: git_clean" negates a *different* verb and says nothing about the request.
+    _NEGATION_WINDOW = 6
+
     @classmethod
     def is_negated(cls, message: str) -> bool:
-        """True when the instruction itself is negated or deferred."""
+        """True when the *instruction* is negated or deferred.
+
+        Not "the sentence contains 不要": a perfectly normal goal statement ends
+        with constraints ("…，不要用 git_clean"), and treating that as a refusal
+        forced a needless confirmation on every well-specified request
+        (observed in T53's first real run).  A negation only counts when the
+        submit verb follows it within a short window, i.e. when it negates *the
+        request* rather than some later verb.
+        """
         lowered = (message or "").lower()
-        return any(word in lowered for word in cls._NEGATIONS)
+        for negation in cls._NEGATIONS:
+            start = lowered.find(negation)
+            while start != -1:
+                window = lowered[start + len(negation):
+                                 start + len(negation) + cls._NEGATION_WINDOW]
+                if any(word in window for word in cls._SUBMIT):
+                    return True
+                start = lowered.find(negation, start + 1)
+        return False
 
     @classmethod
     def is_imperative_submission(cls, message: str) -> bool:
@@ -461,10 +522,22 @@ class LDChat:
                     if goal.get("status") in ("active", "waiting", "needs_human")]
             selected_goal = (live or goals)[0]["goal_id"]
 
+        # The current message is *also* model input, and the history projection
+        # said nothing about it (M4-D re-audit P0).  "DNF 里那个本地密钥是 XXX,
+        # 为什么这样设计?" forwarded the secret verbatim to an endpoint that was
+        # never authorized for ``local``.
+        #
+        # Policy: a model that is not authorized for ``local`` does not get to
+        # see an unvetted message that may contain local content.  We do not
+        # guess a redaction (that would answer a mangled question, and hide the
+        # fact that nothing left the machine); the turn is routed locally by the
+        # deterministic router instead, which needs no endpoint at all.
+        local_gated = "local" not in self._domains
+        withheld = local_gated and _looks_like_local_content(message)
         known_task_ids = self._recent_task_ids(project_id)
         chat_input = {
             "schema_version": "m4-d.v1",
-            "message": message,
+            "message": ("" if withheld else message),
             "conversation": {
                 "conversation_id": conversation_id,
                 "selected_project_id": project_id,
@@ -483,10 +556,13 @@ class LDChat:
             "security": {
                 "authorized_context_domains": list(self._domains),
                 "project_names_included": "local" in self._domains,
+                "message_withheld": withheld,
                 "note": ("Project roots, Effective Prompts, task text, the LD's "
                          "own answer text and unapproved security domains are "
                          "excluded. recent_turns carries the owner's words plus "
-                         "intent labels and ids only."),
+                         "intent labels and ids only. message_withheld=true means "
+                         "the current message was not sent at all because this "
+                         "model is not authorized for local-domain content."),
             },
             "rules": [
                 "Return exactly one structured intent; never return code or commands.",
@@ -497,9 +573,13 @@ class LDChat:
             ],
             "intent_schema": chat_intent_schema(),
         }
-        if self._model is None:
-            raw = HeuristicIntentRouter().classify(chat_input)
-            return parse_intent(raw), "heuristic_router"
+        if self._model is None or withheld:
+            # The router runs in-process: it may see the real sentence even when
+            # the model may not, because nothing leaves this machine.
+            local_input = dict(chat_input, message=message)
+            raw = HeuristicIntentRouter().classify(local_input)
+            return (parse_intent(raw),
+                    "local_only" if withheld else "heuristic_router")
         try:
             raw = (self._model.classify(chat_input)
                    if hasattr(self._model, "classify") else self._model(chat_input))
@@ -796,23 +876,35 @@ class LDChat:
         goal_text = intent.parameters["goal"].strip()
         if not goal_text:
             raise ChatValidationError("submit_goal needs a non-empty objective")
+        if len(goal_text) > MAX_GOAL_CHARS:
+            # The objective *is* the goal identity (``goal_identity`` hashes it),
+            # so a truncated objective is a different goal.  Refuse instead of
+            # silently shortening what will be executed.
+            raise ChatValidationError(
+                f"submit_goal objective is {len(goal_text)} characters; the limit "
+                f"is {MAX_GOAL_CHARS}. Shorten it — a truncated objective would be "
+                "a different goal than the one you confirm.")
         goal_id, goal_ref = goal_identity(goal_text, project_id)
         existing = self._goals.get(goal_id) or {}
         if staged:
             # A model proposed work that the deterministic router does not read
             # as an imperative.  Nothing is written yet: the owner confirms.
+            # The FULL objective is stored (bounded by MAX_GOAL_CHARS): storing a
+            # prefix made the confirmed goal_id differ from the staged one.
             pending = {"kind": "submit_goal", "goal_id": goal_id,
                        "goal_ref": goal_ref, "project_id": project_id,
-                       "goal_text": goal_text[:300], "staged_at": time.time(),
+                       "goal_text": goal_text, "staged_at": time.time(),
                        "origin": intent.reason[:200]}
+            preview = goal_text if len(goal_text) <= 300 else goal_text[:300] + "…"
             answer = (f"I read this as a request to start work in {project_id}:\n"
-                      f"  {goal_text[:300]}\n\n"
+                      f"  {preview}\n\n"
                       f"It would create goal {goal_id}. If that is not what you "
                       "meant, say 'cancel'. Say 'confirm' to create it; nothing "
                       "has been created or dispatched yet, and no budget is "
                       "granted here.")
             return answer, {"project_id": project_id, "goal_id": goal_id,
                             "goal_ref": goal_ref, "staged": True,
+                            "goal_chars": len(goal_text),
                             "reused": bool(existing)}, [], pending
 
         goal = self._goals.get_or_create(goal_id, project_id, goal_text, goal_ref)
@@ -967,7 +1059,18 @@ class LDChat:
     def _confirm_submit_goal(self, conversation_id: str, pending: dict) -> dict:
         project_id = self._require_project(pending.get("project_id"))
         goal_text = (pending.get("goal_text") or "").strip()
+        if not goal_text:
+            raise ChatPolicyError("staged goal has no objective; nothing was created")
         goal_id, goal_ref = goal_identity(goal_text, project_id)
+        # The ID shown to the human must be the ID that gets created.  If they
+        # disagree, the staged payload was tampered with or truncated somewhere,
+        # and creating a *different* goal than the one confirmed is worse than
+        # refusing.
+        if pending.get("goal_id") and pending["goal_id"] != goal_id:
+            raise ChatPolicyError(
+                f"staged goal id {pending['goal_id']} does not match the objective "
+                f"it would create ({goal_id}); nothing was created. Ask again to "
+                "re-stage it.")
         existing = self._goals.get(goal_id) or {}
         goal = self._goals.get_or_create(goal_id, project_id, goal_text, goal_ref)
         answer = (f"Goal {goal_id} created for project {project_id}: {goal_text[:200]}"
@@ -996,17 +1099,33 @@ class LDChat:
         # The confirmation is bound to the pause event that was staged.  Any
         # step since — including another terminal's resume — means this
         # confirmation refers to a pause that no longer exists.
+        #
+        # ``decision_count`` alone is not enough: a resume by someone else
+        # followed by a *new* pause advances the count by two, and a goal that
+        # was never advanced has count 0 both before and after.  So the stored
+        # stop signature is compared as well; it identifies *why* the goal is
+        # paused, which is what the human actually read.
+        stale_reason = None
         if staged_count is not None and \
                 int(current.get("decision_count") or 0) != int(staged_count):
-            answer = (f"I did not resume {goal_id}: it changed since I staged this "
-                      f"(decision count {staged_count} -> "
-                      f"{current.get('decision_count')}). The confirmation no longer "
-                      "refers to the pause you saw. Ask again to re-stage it.")
+            stale_reason = (
+                f"it changed since I staged this (decision count {staged_count} -> "
+                f"{current.get('decision_count')})")
+        elif pending.get("stop_signature") and \
+                pending["stop_signature"] != _stop_signature(current):
+            stale_reason = (
+                "it is paused for a different reason than the one I showed you")
+        if stale_reason is not None:
+            answer = (f"I did not resume {goal_id}: {stale_reason}. The "
+                      "confirmation no longer refers to the pause you saw. Ask "
+                      "again to re-stage it.")
             turn = {"answer": answer,
                     "facts": {"goal_id": goal_id, "resumed": False,
                               "stale_confirmation": True,
                               "staged_decision_count": staged_count,
-                              "current_decision_count": current.get("decision_count")},
+                              "current_decision_count": current.get("decision_count"),
+                              "staged_stop_signature": pending.get("stop_signature"),
+                              "current_stop_signature": _stop_signature(current)},
                     "goal_ids": [goal_id], "pending_action": None,
                     "requires_confirmation": False}
             intent = ChatIntent(ChatIntentKind.RESUME_GOAL, pending.get("project_id"),

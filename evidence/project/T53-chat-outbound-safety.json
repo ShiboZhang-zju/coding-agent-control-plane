@@ -1,0 +1,68 @@
+{
+  "test": "T53 chat outbound safety + staged-goal consistency",
+  "fixture": "<REPO>/sandbox/t53-outbound",
+  "note": "Deterministic half of T53. Covers the two findings of the 8a55672 re-audit: the current message was not covered by the history projection, and a staged long goal could be confirmed under a different goal_id. The real-model / real-Worker conversation is scripts/t53_real_chat_e2e.py and was NOT run as part of this evidence.",
+  "checks": {
+    "A_message_gated": {
+      "detector_flags_the_sentence": true,
+      "detector_ignores_ordinary_sentence": true,
+      "secret_never_reached_the_model": true,
+      "no_model_call_received_the_sentence": true,
+      "turn_was_answered_anyway": true,
+      "turn_is_labelled_local_only": true,
+      "model_was_never_called_for_this_turn": true
+    },
+    "A2_authorized_model": {
+      "authorized_model_receives_the_message": true,
+      "payload_declares_local": true,
+      "message_not_marked_withheld": true
+    },
+    "A3_detector": {
+      "all_sensitive_examples_flagged": true,
+      "ordinary_questions_not_flagged": true,
+      "detector_does_not_rewrite": true
+    },
+    "B_long_goal": {
+      "objective_longer_than_300_chars": true,
+      "staged_payload_keeps_full_objective": true,
+      "staged_id_matches_its_objective": true,
+      "confirmation_created_the_staged_id": true,
+      "no_second_goal_created": true,
+      "confirm_reports_the_same_id": true,
+      "created_goal_text_is_complete": true,
+      "goal_is_retrievable_under_the_staged_id": true
+    },
+    "B2_overlong_goal": {
+      "overlong_objective_is_refused": true,
+      "refusal_names_the_limit": true,
+      "refusal_explains_truncation_is_wrong": true,
+      "no_goal_created": true,
+      "within_limit_still_works": true
+    },
+    "C_signature_stable": {
+      "signature_is_deterministic_in_process": true,
+      "signature_is_sha256_prefixed": true,
+      "signature_matches_a_fresh_interpreter": true,
+      "different_reason_changes_signature": true,
+      "subprocess_stderr_empty": true
+    },
+    "C2_different_pause": {
+      "pending_carries_a_signature": true,
+      "decision_count_unchanged_by_repause": true,
+      "signature_differs_after_repause": true,
+      "confirmation_refused_on_signature_mismatch": true,
+      "goal_still_parked": true,
+      "refusal_mentions_the_reason": true,
+      "facts_expose_both_signatures": true
+    },
+    "D_refusals_inert": {
+      "supersede_leaves_goal_parked": true,
+      "stray_confirm_changes_nothing": true,
+      "tampered_staged_id_is_refused": true,
+      "tampered_payload_created_no_goal": true,
+      "goal_count_unchanged": true
+    }
+  },
+  "result": "PASS",
+  "failed": []
+}

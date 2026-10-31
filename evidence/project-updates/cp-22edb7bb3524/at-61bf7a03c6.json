@@ -1,0 +1,92 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-22edb7bb3524",
+    "project_id": "prj-bda4d46459",
+    "title": "Implement configlib.load_config",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertion_results": [
+      {
+        "kind": "file_contains",
+        "target": "configlib/__init__.py",
+        "value": "def load_config(config_dict):",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      }
+    ],
+    "warnings": [],
+    "finished_at": 1793441032.885
+  },
+  "attempt": {
+    "id": "at-61bf7a03c6",
+    "worker_job_id": "6e3d3971",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793440907.2003791,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 1,
+      "work_item_id": "cp-22edb7bb3524",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-bda4d46459",
+        "workspace_id": "ws-6ecfe7fcce",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "context_injected": true
+      },
+      "created_at": 1793440905.88289
+    },
+    {
+      "id": 2,
+      "work_item_id": "cp-22edb7bb3524",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-bda4d46459",
+        "root": "<REPO>\\sandbox\\t53-real-chat-52c75e27\\repo",
+        "cwd": "<REPO>\\sandbox\\t53-real-chat-52c75e27\\repo"
+      },
+      "created_at": 1793440906.226236
+    },
+    {
+      "id": 3,
+      "work_item_id": "cp-22edb7bb3524",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\t53-real-chat-52c75e27\\repo",
+        "attempt_id": "at-61bf7a03c6",
+        "approval_id": null
+      },
+      "created_at": 1793440907.2508762
+    },
+    {
+      "id": 4,
+      "work_item_id": "cp-22edb7bb3524",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "6e3d3971",
+        "http": 200
+      },
+      "created_at": 1793440907.3422704
+    }
+  ]
+}

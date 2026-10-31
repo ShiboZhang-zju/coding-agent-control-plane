@@ -26,7 +26,7 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 | **M4-A** | Minimal LD（受限工具、结构化决策、单轮协调） | M1 + M2 | **已完成**（T32/T36 确定性 + T38a 真实模型与真实 Worker 单轮集成验收） |
 | **M4-B** | 有界连续推进（持久化 Goal + 依赖任务确定性交接 + 恢复） | M3 + M4-A | **已完成**（T39/T40 确定性含崩溃注入与租约 fencing；T38b 真实模型严格闭环 25/25 Pass；T38c 真实故障恢复与副作用拒绝验证） |
 | **M4-C** | 自动唤醒与运行时可靠性收口 | M4-B | **已完成**（T41–T49，含 T48 真实常驻服务双任务零人工闭环） |
-| **M4-D** | Conversational LD（自然语言查询 / 提交 Goal / 阻塞解释 / 显式确认恢复） | M4-C | **确定性完成 + 安全收口**（T50/T51/T52）；真实模型分类器与真实 Worker 对话闭环未执行 |
+| **M4-D** | Conversational LD（自然语言查询 / 提交 Goal / 阻塞解释 / 显式确认恢复） | M4-C | **已完成**（T50/T51/T52 确定性 + T53 真实模型与真实 Worker 对话闭环） |
 | M4-E | Markdown Project Memory（导出/编辑/校验导入、候选晋升、去重、失效） | M4-D | 未开始 |
 | M5 | Distributed Workspace | M1–M4 | 未实现 |
 
@@ -557,6 +557,8 @@ Human Owner ──自然语言──> LDChat（意图分类 + 确定性渲染）
 | 5 | 意图 schema 是真实门控（策略 vs 形状分离） | Pass（E 段 12 项） |
 | 6 | 疑问/引用/否定不误提交；未注册项目不建 Goal；重复 Goal 不改预算 | Pass（T51，6 段） |
 | 7 | 未授权历史不外发；确认绑定版本；并发确认最多一次 | Pass（T52，5 段） |
+| 8 | 当前消息也受授权门控；长目标身份一致；签名跨进程稳定 | Pass（T53 确定性，8 段） |
+| 9 | 真实模型对话 → 真实 Worker 执行 → 从 Ledger 回报 | Pass（T53 真实，21 项断言） |
 
 证据：`evidence/project/T50-conversational-ld.json`（确定性：脚本化意图分类器 +
 脚本化决策模型 + stub adapter）。另外用真实 CLI 进程做过一次跨进程手工冒烟
@@ -587,13 +589,40 @@ Human Owner ──自然语言──> LDChat（意图分类 + 确定性渲染）
 - **`submit_goal` 暂存**需要新的确认分支，`_handle_confirmation` 拆成
   `_confirm_submit_goal` / `_confirm_resume_goal`，确认路径统一走原子消费。
 
-**尚未覆盖**（不得宣称已完成）：
+### M4-D Safety Closure 第二轮（8a55672 复审后）
 
-- T53 真实模型 + 真实 Worker 的对话闭环（查询 → 明确提交 → 真实执行 → 回报）。
-  当前所有对话证据都基于脚本化/关键词分类器 + stub adapter。
-- 真实模型在疑问句上的分类质量：修复保证的是"即使模型判错也不会误写"，
-  不是"模型一定判对"。
-- 多用户并发会话的一致性（当前只保证单会话内确认的原子性）。
+| # | 问题 | 修复 | 证据 |
+|---|---|---|---|
+| P0 | `_classify()` 直传 `"message": message`：历史投影只盖住了历史，**当前这句话**在未授权 `local` 时仍原样外发 | 新增 `_looks_like_local_content()` 保守检测 + 门控：未授权 `local` 且命中即整句不外发，回退本机路由，`intent_source='local_only'`，payload 标 `message_withheld` | T53 A/A2/A3 |
+| P1 | 暂存 Goal 时用完整目标算 ID 却只存前 300 字符，确认时按截断文本重算 → 长目标确认出**另一个** ID | 暂存保存完整目标；超 `MAX_GOAL_CHARS` 直接拒绝（不静默截断）；确认时校验重算 ID 与暂存 ID 一致，不一致拒绝创建 | T53 B/B2 |
+| P1 | `_stop_signature()` 用内建 `hash()`（每进程随机），且写入后从未被比较 | 改为 `sha256:`；并真正参与确认校验：`decision_count` 相同但暂停原因不同也拒绝 | T53 C/C2 |
+
+第二轮真实 E2E（T53）暴露并修复的体验缺陷：
+
+- **否定词判定过宽。** 原本"句子含 不要"即视为否定，导致 `…，不要用 git_clean`
+  这类**正常的目标陈述**被判为非祈使，每次都多要求一次确认（首轮真实运行观察
+  到此现象）。改为"否定词后 6 字符内出现提交动词"才算否定请求；5 个人工案例
+  与 T51/T52/T53 全部回归通过，重跑真实 E2E 后 B1 直接提交
+  （`B1_was_not_needlessly_staged` 已作为显式断言加入）。
+
+**T53 真实验收结果**（`evidence/project/T53-real-chat-e2e.json`）：
+
+- 部署：真实 CodeBuddy HTTP 服务 + `run_controlplane.py --advance-goals` 常驻
+  进程 + 真实模型（`LD_MODEL_*` 指向本机 infer-proxy）。
+- 对话 5 轮全部由真实分类器判定：`list_projects` / `project_status` /
+  `submit_goal`（**直接提交，未暂存**）/ `goal_status` / `task_status`。
+- 结果：Goal `completed`（decision_count 2，task_count 1），1 个 WorkItem
+  `state=succeeded` / `verdict=verified`，项目内**仅 1 个 Goal**，只读轮次
+  未新增 WorkItem，`finish` 前决策历史连续（step 1..2）。
+- 21 项断言全过。
+
+**仍然不宣称**：
+
+- 真实模型在**疑问句**上的分类准确率：本轮的保证是"判错也不会误写"，加上
+  一次真实路径的观察；不是"模型一定判对"，也没有做多模型/多样本统计。
+- 多用户并发会话一致性（只保证单会话内确认的原子性）。
+- T53 只跑了一个目标、一个任务、一个项目；多 Goal/多项目并发对话未在真实
+  端点上验证。
 
 ### 明确不做
 

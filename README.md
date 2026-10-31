@@ -506,11 +506,20 @@ $env:LD_MODEL_DOMAINS  = "shareable"      # 想让分类器看到 local 内容�
 ```
 
 `--no-model` 强制走关键词路由。每次回答都带 `intent_source`（`model` /
-`heuristic_router` / `human_confirmation` / `human_confirmation_stale` /
-`invalid_model_intent`），便于分辨"模型判断"与"确定性规则"。
+`heuristic_router` / `local_only` / `human_confirmation` /
+`human_confirmation_stale` / `invalid_model_intent`），便于分辨"模型判断"与
+"确定性规则"。
+
+关于 `local_only`：分类模型若**没有** `local` 授权，而当前这句话看起来会引用本地
+内容（密钥、内网地址、`.env`、连接串……），这一句**根本不发出去**，改用本机
+关键词路由回答。不做"猜测式脱敏"——脱敏后的问题会被答错，而且让人看不出内容
+其实没发出去。想让分类器看到原文，显式授予 `local`；不想，就不要在对话里贴
+密钥。
 
 注意：M4-D 的形状校验失败**不会自动重试**，而是返回 `clarify` 让用户换句话
-（见 `ld/chat_intent.py` 模块说明）。真实模型 + 真实 Worker 的对话闭环尚未验收。
+（见 `ld/chat_intent.py` 模块说明）。真实模型 + 真实 Worker 的对话闭环见
+`scripts/t53_real_chat_e2e.py`（需 `LD_MODEL_*` 与 `serve_ctl.py start`；
+未配置时记录为 BLOCKED，不算通过）。
 
 ### 6.4 传统队列流程（仍然支持，未改变）
 
@@ -544,6 +553,7 @@ python scripts/t40_m4_checkpoint_safety.py # checkpoint 安全 / CLI 安全域�
 python scripts/t50_conversational_ld.py    # M4-D 对话闭环 / 无第二真相 / 确认门控
 python scripts/t51_intent_safety.py        # M4-D 意图安全：疑问不误提交 / 预算不可改
 python scripts/t52_conversation_security.py # M4-D 历史投影 / 暂存版本绑定 / 并发确认
+python scripts/t53_chat_outbound_safety.py   # M4-D 当前消息门控 / 长目标身份 / 签名稳定
 
 # 既有回归
 python scripts/t26_p0_fixes.py
