@@ -492,7 +492,13 @@ class LDGoalRunner:
                 # never enlarged by scheduling, restarts or resumes.
                 budget_is_per_call=True,
                 lifetime_max_decisions=self._lifetime_max_decisions,
-                lifetime_max_tasks=self._lifetime_max_tasks)
+                lifetime_max_tasks=self._lifetime_max_tasks,
+                # If the previous wake-up failed only because the model's
+                # output did not satisfy the decision schema, hand that
+                # validator error back so the retry can correct the decision
+                # instead of resampling blind.  Transport errors carry no
+                # correctable payload and are not fed back.
+                retry_feedback=self._retry_feedback(observed))
         except GoalLeaseHeld as exc:
             # Another runtime/CLI is advancing this goal right now: not a failure,
             # and not an acknowledgement — the other holder owns this state.
@@ -592,6 +598,19 @@ class LDGoalRunner:
                 "retry_in_s": round(delay, 1),
                 "escalated_to_human": escalated,
                 "signature": observed["signature"]}
+
+    def _retry_feedback(self, observed: Mapping[str, Any]) -> str | None:
+        """Validator error of the previous wake-up, when there is one to fix.
+
+        Only ``model output rejected`` errors qualify: those are generation
+        defects the model can correct.  Transport failures and stale
+        observations have no correctable payload.
+        """
+        state = self._runner.get(observed["goal_id"]) or {}
+        last_error = (state.get("last_error") or "").strip()
+        if last_error.startswith("model output rejected:"):
+            return last_error
+        return None
 
     def _observation_is_stale(self, goal: dict) -> bool:
         """Did the goal move on since this sweep observed it?"""

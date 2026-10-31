@@ -1,0 +1,633 @@
+{
+  "test": "T48-real-service-autonomous",
+  "worker_started": true,
+  "model": {
+    "endpoint_configured": true
+  },
+  "serve": {
+    "result": "started",
+    "port": 8787,
+    "pid": 42852,
+    "launcher_pid": 42852,
+    "bind": "127.0.0.1:8787",
+    "auth": "password"
+  },
+  "R1_zero_touch": {
+    "project_id": "prj-83461a8492",
+    "goal_id": "goal-f0aa879807ea",
+    "goal_ref": "sha256:f0aa879807ea9771db9fc10677ba5f8dd4b5d35121e7ff6f709afdc456bed87c",
+    "runtime_pids": [
+      12512
+    ],
+    "service_restarts": 0,
+    "goal_final": {
+      "status": "completed",
+      "decision_count": 3,
+      "model_decision_count": null,
+      "resume_count": 0,
+      "task_count": 2,
+      "lifetime_decisions": 24,
+      "last_decision": {
+        "step": 3,
+        "action": "finish",
+        "next_state": "finished",
+        "task_id": null,
+        "recovered": null
+      }
+    },
+    "scheduler": {
+      "runs": 3,
+      "advances": 3,
+      "consecutive_failures": 0,
+      "last_error": null
+    },
+    "tasks": [
+      {
+        "task_id": "cp-678d9fce3eb8",
+        "state": "succeeded",
+        "verdict": "verified",
+        "worker_job_id": "029d1fd1",
+        "session_id": "029d1fd1-8948-45ca-b703-3f281eb05c78",
+        "worktree": "<REPO>\\sandbox\\t48-real-service-9b9a5675\\r1\\.codebuddy\\worktrees\\bg-029d1fd1",
+        "head_commit": "c45541cad58b08ea6f8bfa3b5fdaaa4ff03e6662",
+        "idempotency_key": "ldg-goal-f0aa879807ea-s1",
+        "assertion_results": [
+          {
+            "kind": "file_exists",
+            "target": "configlib/__init__.py",
+            "value": null,
+            "passed": true,
+            "owned": true,
+            "observed": "changed since baseline"
+          },
+          {
+            "kind": "file_contains",
+            "target": "configlib/__init__.py",
+            "value": "def load_config",
+            "passed": true,
+            "owned": true,
+            "observed": "contains value=True, changed_since_baseline=True"
+          }
+        ],
+        "attention_flags": null,
+        "metadata": {
+          "submitted_by": "ld"
+        }
+      },
+      {
+        "task_id": "cp-ab005e78f45f",
+        "state": "succeeded",
+        "verdict": "verified",
+        "worker_job_id": "b2b8ad3a",
+        "session_id": "b2b8ad3a-9ad0-4534-a384-e326a197daab",
+        "worktree": "<REPO>\\sandbox\\t48-real-service-9b9a5675\\r1\\.codebuddy\\worktrees\\bg-b2b8ad3a",
+        "head_commit": "0c1fc7fe4d101e565b948f67b659d4de4ffca8e4",
+        "idempotency_key": "ldg-goal-f0aa879807ea-s2",
+        "assertion_results": [
+          {
+            "kind": "file_exists",
+            "target": "configlib/__init__.py",
+            "value": null,
+            "passed": true,
+            "owned": true,
+            "observed": "changed since baseline"
+          },
+          {
+            "kind": "file_contains",
+            "target": "configlib/__init__.py",
+            "value": "def validate_config(",
+            "passed": true,
+            "owned": true,
+            "observed": "contains value=True, changed_since_baseline=True"
+          },
+          {
+            "kind": "file_contains",
+            "target": "configlib/__init__.py",
+            "value": "def load_config(",
+            "passed": true,
+            "owned": true,
+            "observed": "contains value=True, changed_since_baseline=True"
+          }
+        ],
+        "attention_flags": null,
+        "metadata": {
+          "submitted_by": "ld",
+          "ld_goal_step": 2,
+          "handoff": true,
+          "source_work_item_id": "cp-678d9fce3eb8",
+          "checkpoint_ref": "c45541cad58b08ea6f8bfa3b5fdaaa4ff03e6662"
+        }
+      }
+    ],
+    "task_a_verified": true,
+    "task_b": {
+      "submitted": true,
+      "is_handoff": true,
+      "handoff_source_is_a": true,
+      "distinct_session": true,
+      "verdict": "verified"
+    },
+    "a_commit_is_ancestor_of_b_head": true,
+    "all_tests_pass_in_b_worktree": true,
+    "pytest_b": {
+      "exit": 0,
+      "tail": ".....                                                                    [100%]\n5 passed in 0.02s\n"
+    },
+    "finish": {
+      "auto_finish_decision": true,
+      "finish_task_ids": [
+        "cp-678d9fce3eb8",
+        "cp-ab005e78f45f"
+      ],
+      "goal_task_ids": [
+        "cp-678d9fce3eb8",
+        "cp-ab005e78f45f"
+      ]
+    },
+    "submission_steps": 2,
+    "main_untouched": true,
+    "timeline_tail": [
+      {
+        "t": 1793430544.9,
+        "phase": "running",
+        "goal_status": "waiting",
+        "tasks": [
+          {
+            "id": "cp-678d9fce3eb8",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-ab005e78f45f",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "t": 1793430554.9,
+        "phase": "running",
+        "goal_status": "waiting",
+        "tasks": [
+          {
+            "id": "cp-678d9fce3eb8",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-ab005e78f45f",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "t": 1793430564.9,
+        "phase": "running",
+        "goal_status": "waiting",
+        "tasks": [
+          {
+            "id": "cp-678d9fce3eb8",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-ab005e78f45f",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "t": 1793430575.0,
+        "phase": "running",
+        "goal_status": "waiting",
+        "tasks": [
+          {
+            "id": "cp-678d9fce3eb8",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-ab005e78f45f",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "t": 1793430585.0,
+        "phase": "running",
+        "goal_status": "waiting",
+        "tasks": [
+          {
+            "id": "cp-678d9fce3eb8",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-ab005e78f45f",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "t": 1793430595.0,
+        "phase": "running",
+        "goal_status": "waiting",
+        "tasks": [
+          {
+            "id": "cp-678d9fce3eb8",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-ab005e78f45f",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "t": 1793430605.0,
+        "phase": "running",
+        "goal_status": "waiting",
+        "tasks": [
+          {
+            "id": "cp-678d9fce3eb8",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-ab005e78f45f",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "t": 1793430615.0,
+        "phase": "running",
+        "goal_status": "completed",
+        "tasks": [
+          {
+            "id": "cp-678d9fce3eb8",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-ab005e78f45f",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          }
+        ]
+      }
+    ],
+    "runtime_log_tail": "{\"event\": \"runtime_starting\", \"worker\": \"codebuddy\", \"node_id\": \"local\", \"worker_instance_id\": \"local-codebuddy-default\", \"ledger\": \"<REPO>\\\\.poc-state\\\\t48\\\\r1.db\", \"known_interval_s\": 5.0, \"orphan_scan_interval_s\": 60.0, \"dispatch_interval_s\": 1.0, \"max_concurrent_tasks\": 2, \"goal_advancement\": true, \"goal_interval_s\": 3.0}\n"
+  },
+  "R2_restart_recovery": {
+    "project_id": "prj-46336e302b",
+    "goal_id": "goal-9101abe993b5",
+    "goal_ref": "sha256:9101abe993b5cd7bb55b6245fb3cc2f6eb8087dfe35fc4e6ed9bae92698556a0",
+    "runtime_pids": [
+      6996,
+      47748
+    ],
+    "service_restarts": 1,
+    "goal_final": {
+      "status": "completed",
+      "decision_count": 3,
+      "model_decision_count": null,
+      "resume_count": 0,
+      "task_count": 2,
+      "lifetime_decisions": 24,
+      "last_decision": {
+        "step": 3,
+        "action": "finish",
+        "next_state": "finished",
+        "task_id": null,
+        "recovered": null
+      }
+    },
+    "scheduler": {
+      "runs": 3,
+      "advances": 3,
+      "consecutive_failures": 0,
+      "last_error": null
+    },
+    "tasks": [
+      {
+        "task_id": "cp-61d426b9a244",
+        "state": "succeeded",
+        "verdict": "verified",
+        "worker_job_id": "6136bab1",
+        "session_id": "6136bab1-9676-4444-b305-373d94188984",
+        "worktree": "<REPO>\\sandbox\\t48-real-service-9b9a5675\\r2\\.codebuddy\\worktrees\\bg-6136bab1",
+        "head_commit": "556165d315e5859e8badf2e58fa42ff5ef9a8236",
+        "idempotency_key": "ldg-goal-9101abe993b5-s1",
+        "assertion_results": [
+          {
+            "kind": "file_exists",
+            "target": "configlib/__init__.py",
+            "value": null,
+            "passed": true,
+            "owned": true,
+            "observed": "changed since baseline"
+          },
+          {
+            "kind": "file_contains",
+            "target": "configlib/__init__.py",
+            "value": "def load_config",
+            "passed": true,
+            "owned": true,
+            "observed": "contains value=True, changed_since_baseline=True"
+          },
+          {
+            "kind": "git_commit",
+            "target": "HEAD",
+            "value": null,
+            "passed": true,
+            "owned": true,
+            "observed": "commits since baseline: ['556165d Implement load_config in configlib package']"
+          }
+        ],
+        "attention_flags": null,
+        "metadata": {
+          "submitted_by": "ld"
+        }
+      },
+      {
+        "task_id": "cp-9611f718ce61",
+        "state": "succeeded",
+        "verdict": "verified",
+        "worker_job_id": "a921f40e",
+        "session_id": "a921f40e-64b7-4c31-accb-3effcac65081",
+        "worktree": "<REPO>\\sandbox\\t48-real-service-9b9a5675\\r2\\.codebuddy\\worktrees\\bg-a921f40e",
+        "head_commit": "924f7c3e2906c69fb4ac96e161b00059472c3524",
+        "idempotency_key": "ldg-goal-9101abe993b5-s2",
+        "assertion_results": [
+          {
+            "kind": "file_contains",
+            "target": "configlib/__init__.py",
+            "value": "def validate_config",
+            "passed": true,
+            "owned": true,
+            "observed": "contains value=True, changed_since_baseline=True"
+          }
+        ],
+        "attention_flags": null,
+        "metadata": {
+          "submitted_by": "ld",
+          "ld_goal_step": 2,
+          "handoff": true,
+          "source_work_item_id": "cp-61d426b9a244",
+          "checkpoint_ref": "556165d315e5859e8badf2e58fa42ff5ef9a8236"
+        }
+      }
+    ],
+    "task_a_verified": true,
+    "task_b": {
+      "submitted": true,
+      "is_handoff": true,
+      "handoff_source_is_a": true,
+      "distinct_session": true,
+      "verdict": "verified"
+    },
+    "a_commit_is_ancestor_of_b_head": true,
+    "all_tests_pass_in_b_worktree": true,
+    "pytest_b": {
+      "exit": 0,
+      "tail": ".....                                                                    [100%]\n5 passed in 1.98s\n"
+    },
+    "finish": {
+      "auto_finish_decision": true,
+      "finish_task_ids": [
+        "cp-61d426b9a244",
+        "cp-9611f718ce61"
+      ],
+      "goal_task_ids": [
+        "cp-61d426b9a244",
+        "cp-9611f718ce61"
+      ]
+    },
+    "submission_steps": 2,
+    "main_untouched": true,
+    "timeline_tail": [
+      {
+        "t": 1793430871.1,
+        "phase": "restarted",
+        "goal_status": "waiting",
+        "tasks": [
+          {
+            "id": "cp-61d426b9a244",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-9611f718ce61",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "t": 1793430881.1,
+        "phase": "restarted",
+        "goal_status": "waiting",
+        "tasks": [
+          {
+            "id": "cp-61d426b9a244",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-9611f718ce61",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "t": 1793430891.1,
+        "phase": "restarted",
+        "goal_status": "waiting",
+        "tasks": [
+          {
+            "id": "cp-61d426b9a244",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-9611f718ce61",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "t": 1793430901.1,
+        "phase": "restarted",
+        "goal_status": "waiting",
+        "tasks": [
+          {
+            "id": "cp-61d426b9a244",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-9611f718ce61",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "t": 1793430911.1,
+        "phase": "restarted",
+        "goal_status": "waiting",
+        "tasks": [
+          {
+            "id": "cp-61d426b9a244",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-9611f718ce61",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "t": 1793430921.1,
+        "phase": "restarted",
+        "goal_status": "waiting",
+        "tasks": [
+          {
+            "id": "cp-61d426b9a244",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-9611f718ce61",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "t": 1793430931.2,
+        "phase": "restarted",
+        "goal_status": "waiting",
+        "tasks": [
+          {
+            "id": "cp-61d426b9a244",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-9611f718ce61",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "t": 1793430941.2,
+        "phase": "restarted",
+        "goal_status": "completed",
+        "tasks": [
+          {
+            "id": "cp-61d426b9a244",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          },
+          {
+            "id": "cp-9611f718ce61",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          }
+        ]
+      }
+    ],
+    "runtime_log_tail": "{\"event\": \"runtime_starting\", \"worker\": \"codebuddy\", \"node_id\": \"local\", \"worker_instance_id\": \"local-codebuddy-default\", \"ledger\": \"<REPO>\\\\.poc-state\\\\t48\\\\r2.db\", \"known_interval_s\": 5.0, \"orphan_scan_interval_s\": 60.0, \"dispatch_interval_s\": 1.0, \"max_concurrent_tasks\": 2, \"goal_advancement\": true, \"goal_interval_s\": 3.0}\n{\"event\": \"runtime_starting\", \"worker\": \"codebuddy\", \"node_id\": \"local\", \"worker_instance_id\": \"local-codebuddy-default\", \"ledger\": \"<REPO>\\\\.poc-state\\\\t48\\\\r2.db\", \"known_interval_s\": 5.0, \"orphan_scan_interval_s\": 60.0, \"dispatch_interval_s\": 1.0, \"max_concurrent_tasks\": 2, \"goal_advancement\": true, \"goal_interval_s\": 3.0}\n"
+  },
+  "checks": {
+    "R1.goal_submitted_once": true,
+    "R1.runtime_auto_woke": true,
+    "R1.ld_dispatched_a": true,
+    "R1.a_real_session": true,
+    "R1.a_verified_by_real_verifier": true,
+    "R1.auto_woke_again": true,
+    "R1.b_new_independent_session": true,
+    "R1.b_handoff_of_a": true,
+    "R1.a_commit_ancestor_of_b": true,
+    "R1.b_preset_tests_pass": true,
+    "R1.both_verified": true,
+    "R1.ld_auto_finish": true,
+    "R1.goal_completed": true,
+    "R1.report_contains_exactly_a_b": true,
+    "R1.zero_human_resumes": true,
+    "R1.no_duplicate_workitems": true,
+    "R1.no_pending_steps": true,
+    "R1.main_untouched": true,
+    "R1.no_attention_flags": true,
+    "R1.single_goal_row": true,
+    "R2.goal_submitted_once": true,
+    "R2.runtime_auto_woke": true,
+    "R2.ld_dispatched_a": true,
+    "R2.a_real_session": true,
+    "R2.a_verified_by_real_verifier": true,
+    "R2.auto_woke_again": true,
+    "R2.b_new_independent_session": true,
+    "R2.b_handoff_of_a": true,
+    "R2.a_commit_ancestor_of_b": true,
+    "R2.b_preset_tests_pass": true,
+    "R2.both_verified": true,
+    "R2.ld_auto_finish": true,
+    "R2.goal_completed": true,
+    "R2.report_contains_exactly_a_b": true,
+    "R2.zero_human_resumes": true,
+    "R2.no_duplicate_workitems": true,
+    "R2.no_pending_steps": true,
+    "R2.main_untouched": true,
+    "R2.no_attention_flags": true,
+    "R2.single_goal_row": true,
+    "R2.service_restarted_once": true,
+    "R2.restarted_service_discovered_goal": true
+  },
+  "result": "Pass"
+}

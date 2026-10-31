@@ -58,6 +58,16 @@
       "single_workitem": true,
       "adopted_existing_task": true,
       "pending_reported": true
+    },
+    "B9_validation_error_feedback": {
+      "first_attempt_failed": true,
+      "goal_stayed_advanceable": true,
+      "no_feedback_on_first_call": true,
+      "feedback_on_retry": true,
+      "correction_rule_present": true,
+      "retry_succeeded": true,
+      "task_submitted_after_retry": true,
+      "failures_reset": true
     }
   },
   "checks": {
@@ -99,7 +109,15 @@
     "B8_pending_step_priority.pending_reconciled_without_model": true,
     "B8_pending_step_priority.single_workitem": true,
     "B8_pending_step_priority.adopted_existing_task": true,
-    "B8_pending_step_priority.pending_reported": true
+    "B8_pending_step_priority.pending_reported": true,
+    "B9_validation_error_feedback.first_attempt_failed": true,
+    "B9_validation_error_feedback.goal_stayed_advanceable": true,
+    "B9_validation_error_feedback.no_feedback_on_first_call": true,
+    "B9_validation_error_feedback.feedback_on_retry": true,
+    "B9_validation_error_feedback.correction_rule_present": true,
+    "B9_validation_error_feedback.retry_succeeded": true,
+    "B9_validation_error_feedback.task_submitted_after_retry": true,
+    "B9_validation_error_feedback.failures_reset": true
   },
   "result": "Pass"
 }

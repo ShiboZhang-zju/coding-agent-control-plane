@@ -37,7 +37,11 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import json
+import shutil
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -96,6 +100,11 @@ class QueueModel:
     def decide(self, decision_input: dict) -> dict:
         self.calls.append({
             "goal_state": decision_input.get("goal_state"),
+            "previous_attempt_error": decision_input.get(
+                "previous_attempt_error"),
+            "has_correction_rule": any(
+                "previous_attempt_error" in rule
+                for rule in decision_input.get("rules", [])),
         })
         if not self._queue:
             raise RuntimeError("script exhausted")
@@ -594,6 +603,59 @@ def b8_pending_step_priority() -> dict:
         close(ctx)
 
 
+def b9_validation_error_feedback() -> dict:
+    """A schema-invalid decision is retried with the validator error fed back.
+
+    The retry is still fully validated: the model must *correct* the decision,
+    and a permanently invalid model still parks the goal (bounded retries).
+    """
+    ledger = fresh_ledger("b9")
+    goal_text = "B9 目标：校验错误反馈后重试并提交任务"
+    model = QueueModel([])
+    ctx = build(ledger, model)
+    bad_submit = {
+        "action": "submit_task", "project_id": ctx["project"]["id"],
+        "reason": "implement the goal",
+        "evidence_refs": [],
+        "parameters": {
+            "task": "实现 feature-b",
+            "idempotency_key": "t46-b9",
+            # schema violation: assertion without the required ``target``
+            "assertions": [{"kind": "file_exists"}],
+        },
+    }
+    model._queue = [bad_submit, submit_decision(ctx["project"]["id"])]
+    try:
+        goal_id, goal_ref = submit_goal(ctx, goal_text)
+        first = ctx["runner"].advance_due()
+        first_status = (ctx["goals"].statuses() or {}).get(goal_id)
+        # Backoff (base 0.2s) must elapse before the retry is admitted.
+        time.sleep(0.5)
+        second = ctx["runner"].advance_due()
+        tasks = goal_tasks(ctx, goal_ref)
+        bookkeeping = ctx["runner"]._runner.all()
+        state = next(iter(bookkeeping.values()), {})
+        first_item = (first.get("items") or [{}])[0]
+        second_item = (second.get("items") or [{}])[0]
+        return {
+            "first_attempt_failed": (
+                first_item.get("action") == "error"
+                and "model output rejected" in str(first_item.get("reason"))),
+            "goal_stayed_advanceable": first_status == "active",
+            "no_feedback_on_first_call": model.calls[0][
+                "previous_attempt_error"] is None,
+            "feedback_on_retry": (
+                "missing required fields" in str(
+                    model.calls[1]["previous_attempt_error"])),
+            "correction_rule_present": model.calls[1]["has_correction_rule"],
+            "retry_succeeded": second_item.get("action") == "advanced",
+            "task_submitted_after_retry": len(tasks) == 1,
+            "failures_reset": int(state.get("consecutive_failures") or 0) == 0,
+        }
+    finally:
+        close(ctx)
+
+
 def main() -> int:
     make_repo()
     sections = {
@@ -604,6 +666,7 @@ def main() -> int:
         "B5_restart_continues_flow": b5_restart_continues_flow(),
         "B6_inspection_result_domain_gate": b6_inspection_result_domain_gate(),
         "B8_pending_step_priority": b8_pending_step_priority(),
+        "B9_validation_error_feedback": b9_validation_error_feedback(),
     }
     checks: dict[str, bool] = {}
     for name, section in sections.items():

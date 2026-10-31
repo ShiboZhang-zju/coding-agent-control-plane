@@ -1,0 +1,92 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-3c19322270ac",
+    "project_id": "prj-ff2f66c54a",
+    "title": "实现一个无法通过验收的功能",
+    "state": "succeeded",
+    "verdict": "rejected",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "never-created.txt",
+        "value": null,
+        "passed": false,
+        "owned": null,
+        "observed": "missing"
+      }
+    ],
+    "warnings": [],
+    "finished_at": null
+  },
+  "attempt": {
+    "id": "at-8712101395",
+    "worker_job_id": "job-cp-3c19322270ac",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793427229.1429935,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 6,
+      "work_item_id": "cp-3c19322270ac",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "stub",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-ff2f66c54a",
+        "workspace_id": "ws-365b1cc20f",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "context_injected": true
+      },
+      "created_at": 1793427227.9599855
+    },
+    {
+      "id": 7,
+      "work_item_id": "cp-3c19322270ac",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-ff2f66c54a",
+        "root": "<REPO>\\sandbox\\t49-isolation-b360d2d4\\alpha",
+        "cwd": "<REPO>\\sandbox\\t49-isolation-b360d2d4\\alpha"
+      },
+      "created_at": 1793427228.1174123
+    },
+    {
+      "id": 8,
+      "work_item_id": "cp-3c19322270ac",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\t49-isolation-b360d2d4\\alpha",
+        "attempt_id": "at-8712101395",
+        "approval_id": null
+      },
+      "created_at": 1793427229.1986222
+    },
+    {
+      "id": 9,
+      "work_item_id": "cp-3c19322270ac",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "job-cp-3c19322270ac",
+        "http": null
+      },
+      "created_at": 1793427229.2590933
+    }
+  ]
+}

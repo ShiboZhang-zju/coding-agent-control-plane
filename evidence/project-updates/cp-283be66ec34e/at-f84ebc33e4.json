@@ -1,0 +1,94 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-283be66ec34e",
+    "project_id": "prj-87644ae0ea",
+    "title": "实现一个无法通过验收的功能",
+    "state": "succeeded",
+    "verdict": "rejected",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "never-created.txt",
+        "value": null,
+        "passed": false,
+        "owned": null,
+        "observed": "missing"
+      }
+    ],
+    "warnings": [],
+    "finished_at": null
+  },
+  "attempt": {
+    "id": "at-f84ebc33e4",
+    "worker_job_id": "job-cp-283be66ec34e",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793427316.1275606,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 6,
+      "work_item_id": "cp-283be66ec34e",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "stub",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-87644ae0ea",
+        "workspace_id": "ws-1550b76aec",
+        "context_version": 1,
+        "context_entry_refs": [
+          "ctx-9ac50ef6bef7"
+        ],
+        "context_injected": true
+      },
+      "created_at": 1793427315.0119913
+    },
+    {
+      "id": 7,
+      "work_item_id": "cp-283be66ec34e",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-87644ae0ea",
+        "root": "<REPO>\\sandbox\\t49-isolation-5087a51d\\alpha",
+        "cwd": "<REPO>\\sandbox\\t49-isolation-5087a51d\\alpha"
+      },
+      "created_at": 1793427315.103312
+    },
+    {
+      "id": 8,
+      "work_item_id": "cp-283be66ec34e",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\t49-isolation-5087a51d\\alpha",
+        "attempt_id": "at-f84ebc33e4",
+        "approval_id": null
+      },
+      "created_at": 1793427316.1774106
+    },
+    {
+      "id": 9,
+      "work_item_id": "cp-283be66ec34e",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "job-cp-283be66ec34e",
+        "http": null
+      },
+      "created_at": 1793427316.252429
+    }
+  ]
+}

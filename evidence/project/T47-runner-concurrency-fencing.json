@@ -12,8 +12,8 @@
       "no_duplicate_step_keys": true,
       "model_calls_bounded": true,
       "winner_model_calls": [
-        1,
-        2
+        2,
+        1
       ]
     },
     "C2_stale_escalation_cannot_overwrite": {

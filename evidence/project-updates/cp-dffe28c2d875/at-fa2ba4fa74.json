@@ -1,0 +1,100 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-dffe28c2d875",
+    "project_id": "prj-503a379dfa",
+    "title": "第一阶段：实现 configlib.load_config",
+    "state": "succeeded",
+    "verdict": "rejected",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "configlib/__init__.py",
+        "value": null,
+        "passed": false,
+        "owned": false,
+        "observed": "pre-existing and unchanged (not produced by this attempt)"
+      },
+      {
+        "kind": "file_contains",
+        "target": "configlib/__init__.py",
+        "value": "def load_config",
+        "passed": false,
+        "owned": false,
+        "observed": "contains value=False, changed_since_baseline=False"
+      }
+    ],
+    "warnings": [],
+    "finished_at": 1793429067.076
+  },
+  "attempt": {
+    "id": "at-fa2ba4fa74",
+    "worker_job_id": "84b07635",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793429028.9142156,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 1,
+      "work_item_id": "cp-dffe28c2d875",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-503a379dfa",
+        "workspace_id": "ws-14d45db673",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "context_injected": true
+      },
+      "created_at": 1793429027.1889307
+    },
+    {
+      "id": 2,
+      "work_item_id": "cp-dffe28c2d875",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-503a379dfa",
+        "root": "<REPO>\\sandbox\\t48-real-service-756843db\\r1",
+        "cwd": "<REPO>\\sandbox\\t48-real-service-756843db\\r1"
+      },
+      "created_at": 1793429027.6935227
+    },
+    {
+      "id": 3,
+      "work_item_id": "cp-dffe28c2d875",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\t48-real-service-756843db\\r1",
+        "attempt_id": "at-fa2ba4fa74",
+        "approval_id": null
+      },
+      "created_at": 1793429028.973741
+    },
+    {
+      "id": 4,
+      "work_item_id": "cp-dffe28c2d875",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "84b07635",
+        "http": 200
+      },
+      "created_at": 1793429029.1053426
+    }
+  ]
+}

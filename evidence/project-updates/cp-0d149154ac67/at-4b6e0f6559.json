@@ -1,0 +1,94 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-0d149154ac67",
+    "project_id": "prj-070b9aae4e",
+    "title": "实现一个无法通过验收的功能",
+    "state": "succeeded",
+    "verdict": "rejected",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "never-created.txt",
+        "value": null,
+        "passed": false,
+        "owned": null,
+        "observed": "missing"
+      }
+    ],
+    "warnings": [],
+    "finished_at": null
+  },
+  "attempt": {
+    "id": "at-4b6e0f6559",
+    "worker_job_id": "job-cp-0d149154ac67",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793427346.2763522,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 6,
+      "work_item_id": "cp-0d149154ac67",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "stub",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-070b9aae4e",
+        "workspace_id": "ws-d8847c300a",
+        "context_version": 1,
+        "context_entry_refs": [
+          "ctx-0f69ff3b30ef"
+        ],
+        "context_injected": true
+      },
+      "created_at": 1793427345.1843252
+    },
+    {
+      "id": 7,
+      "work_item_id": "cp-0d149154ac67",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-070b9aae4e",
+        "root": "<REPO>\\sandbox\\t49-isolation-1b7dda3f\\alpha",
+        "cwd": "<REPO>\\sandbox\\t49-isolation-1b7dda3f\\alpha"
+      },
+      "created_at": 1793427345.4344614
+    },
+    {
+      "id": 8,
+      "work_item_id": "cp-0d149154ac67",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\t49-isolation-1b7dda3f\\alpha",
+        "attempt_id": "at-4b6e0f6559",
+        "approval_id": null
+      },
+      "created_at": 1793427346.3595695
+    },
+    {
+      "id": 9,
+      "work_item_id": "cp-0d149154ac67",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "job-cp-0d149154ac67",
+        "http": null
+      },
+      "created_at": 1793427346.4089053
+    }
+  ]
+}

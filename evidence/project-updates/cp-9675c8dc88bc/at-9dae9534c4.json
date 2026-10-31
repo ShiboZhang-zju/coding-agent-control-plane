@@ -1,0 +1,94 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-9675c8dc88bc",
+    "project_id": "prj-cb86b58589",
+    "title": "实现 beta_lib 并让测试通过",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "beta_lib/generated.py",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "changed since baseline"
+      }
+    ],
+    "warnings": [],
+    "finished_at": null
+  },
+  "attempt": {
+    "id": "at-9dae9534c4",
+    "worker_job_id": "job-cp-9675c8dc88bc",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793427330.6181073,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 1,
+      "work_item_id": "cp-9675c8dc88bc",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "stub",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-cb86b58589",
+        "workspace_id": "ws-47d6a0ce10",
+        "context_version": 1,
+        "context_entry_refs": [
+          "ctx-e22b4ae117eb"
+        ],
+        "context_injected": true
+      },
+      "created_at": 1793427329.5933912
+    },
+    {
+      "id": 2,
+      "work_item_id": "cp-9675c8dc88bc",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-cb86b58589",
+        "root": "<REPO>\\sandbox\\t49-isolation-a1bd8610\\beta",
+        "cwd": "<REPO>\\sandbox\\t49-isolation-a1bd8610\\beta"
+      },
+      "created_at": 1793427329.6851323
+    },
+    {
+      "id": 3,
+      "work_item_id": "cp-9675c8dc88bc",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\t49-isolation-a1bd8610\\beta",
+        "attempt_id": "at-9dae9534c4",
+        "approval_id": null
+      },
+      "created_at": 1793427330.6890435
+    },
+    {
+      "id": 4,
+      "work_item_id": "cp-9675c8dc88bc",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "job-cp-9675c8dc88bc",
+        "http": null
+      },
+      "created_at": 1793427330.7431118
+    }
+  ]
+}

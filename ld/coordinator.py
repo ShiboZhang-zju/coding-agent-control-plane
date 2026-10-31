@@ -135,6 +135,7 @@ class LDCoordinator:
         goal_ref: str | None = None,
         submit_executor: Callable[..., dict] | None = None,
         replay_decision: Mapping[str, Any] | None = None,
+        retry_feedback: str | None = None,
     ) -> dict[str, Any]:
         """Plan and optionally execute exactly one LD action.
 
@@ -143,6 +144,11 @@ class LDCoordinator:
         external callers keep the single-turn semantics and never pass them.
         ``replay_decision`` re-executes an already persisted, validated
         decision through the same safety gates without calling the model.
+        ``retry_feedback`` carries the *validator error* of a previous
+        attempt into the model input ("previous_attempt_error"), so a retry
+        can correct a structurally invalid decision instead of resampling
+        blind.  It never bypasses validation: the corrected output goes
+        through the same schema gates.
         """
         if not isinstance(goal, str) or not goal.strip():
             raise ValueError("goal must be a non-empty string")
@@ -198,7 +204,7 @@ class LDCoordinator:
             else:
                 model_input = self._decision_input(
                     normalized_goal, projects, selected_id, brief, model_progress,
-                    goal_context=goal_context)
+                    goal_context=goal_context, feedback=retry_feedback)
                 try:
                     raw = (self._model.decide(model_input)
                            if hasattr(self._model, "decide") else self._model(model_input))
@@ -367,6 +373,7 @@ class LDCoordinator:
         brief: dict | None,
         progress: dict | None,
         goal_context: Mapping[str, Any] | None = None,
+        feedback: str | None = None,
     ) -> dict[str, Any]:
         local_allowed = "local" in self._model_domains
         project_rows = []
@@ -425,6 +432,7 @@ class LDCoordinator:
             "projects": project_rows,
             "selected_project": selected,
             **({"goal_state": dict(goal_context)} if goal_context else {}),
+            **({"previous_attempt_error": feedback[:300]} if feedback else {}),
             "security": {
                 "authorized_project_context_domains": list(self._model_domains),
                 "goal_security_domain": self._goal_security_domain,
@@ -442,7 +450,12 @@ class LDCoordinator:
                 "or unresolved control-plane state.",
                 "Use finish only with an explicit verified task associated with the "
                 "current goal; project counts are auxiliary evidence only.",
-            ],
+            ] + ([
+                "previous_attempt_error: your previous response was rejected by the "
+                "control plane's decision validator. Read the error, fix the flagged "
+                "fields, and return exactly one corrected decision that satisfies "
+                "decision_schema.",
+            ] if feedback else []),
             "decision_schema": decision_schema(),
         }
 
@@ -868,6 +881,7 @@ class LDCoordinator:
         budget_is_per_call: bool = False,
         lifetime_max_decisions: int | None = None,
         lifetime_max_tasks: int | None = None,
+        retry_feedback: str | None = None,
     ) -> dict[str, Any]:
         """Advance one persistent goal by one auditable transition at a time.
 
@@ -935,7 +949,7 @@ class LDCoordinator:
                 budget=budget,
                 max_stalled_inspections=max_stalled_inspections,
                 poll_interval_s=poll_interval_s, max_wait_s=max_wait_s,
-                lease=lease)
+                lease=lease, retry_feedback=retry_feedback)
         finally:
             lease.stop_heartbeat()
             goal_store.release_lease(goal_id, owner, lease.token)
@@ -945,6 +959,7 @@ class LDCoordinator:
         normalized_goal: str, goal_store, budget: "_GoalBudget",
         max_stalled_inspections: int, poll_interval_s: float | None,
         max_wait_s: float | None, lease: "_GoalLease",
+        retry_feedback: str | None = None,
     ) -> dict[str, Any]:
         deadline = (time.time() + max_wait_s
                     if poll_interval_s is not None and max_wait_s else None)
@@ -1003,7 +1018,11 @@ class LDCoordinator:
                     submit_executor=self._make_goal_submit_executor(
                         project_id=project_id, goal_ref=goal_ref, goal=goal,
                         max_tasks=budget.lifetime_tasks, goal_id=goal_id, step=step,
-                        goal_store=goal_store, lease=lease, replay=False))
+                        goal_store=goal_store, lease=lease, replay=False),
+                    retry_feedback=retry_feedback)
+                # Feedback is consumed by the first model call of this
+                # invocation; never let it leak into later steps' inputs.
+                retry_feedback = None
                 if result.get("model_call_failed"):
                     # Transport failure: no decision was made, so no step is
                     # opened or committed.  The goal keeps its status and the
