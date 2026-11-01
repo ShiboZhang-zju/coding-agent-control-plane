@@ -19,7 +19,7 @@ B（handoff，agent 真实 `git merge` A 的已验收 checkpoint，全部测试�
 checkpoint 安全、安全域默认值）由 T39/T40 确定性验证（含真实子进程崩溃注入）。
 新增的 **M4-E 关联召回** 直接沿现有 Project/Goal/WorkItem/Attempt/
 SessionReference/Evidence/Context 引用做两级按需读取，不新建事实库；
-T54 确定性验收已通过，本轮未运行真实模型或 Worker。
+T54 关系验收与 T55 资源/引用/分页收口均已通过，本轮未运行真实模型或 Worker。
 模型身份（端点/模型 id）不属于测试结果，不出现在代码默认值、日志或证据中。
 已知限制：真实决策模型偶发保守转人工（`--resume` 解锁）；agent job 的 worker
 权限要求项目级 `permissions.allow`（T38 fixture 已内置，见
@@ -150,7 +150,7 @@ Control Plane（公共执行治理层，与厂商无关）
 
 | 能力 | 实现位置 | 状态 |
 |---|---|---|
-| 受限 LD Tool Facade（7 个原有工具 + 2 个只读召回工具）+ 提交请求签名 | `ld/tools.py` | T32 + T54 Pass（确定性） |
+| 受限 LD Tool Facade（7 个原有工具 + 2 个只读召回工具）+ 提交请求签名 | `ld/tools.py` | T32 + T54/T55 Pass（确定性） |
 | 五种结构化动作 + 严格字段/参数校验 | `ld/decision.py` | T32 Pass |
 | 单轮 `run_once(goal, project_id=None, dry_run=False)` | `ld/coordinator.py` | T32 Pass |
 | 项目作用域、转人工门控 + 当前目标 `finish` 二次核验 | `ld/coordinator.py` | T32 Pass（本地确定性） |
@@ -168,7 +168,7 @@ Control Plane（公共执行治理层，与厂商无关）
 | 多 Runner 并发 / 租约丢失 / fenced 失败升级（两真实进程 + 独立连接） | `ld/goal_store.py::stop_goal_if`、`ld/goal_runner.py` | T47 Pass（C1–C6） |
 | 双项目失败隔离（A 拒绝转人工不阻塞 B） | `ld/goal_runner.py`（按 Goal 独立簿记） | T49 Pass（确定性，真实验证路径） |
 | 同 Ledger CLI（查询/单轮/run-goal/--resume） | `scripts/ld_cli.py` | T32/T38 Pass |
-| M4-E 两级关联召回（项目隔离、安全域、预算、重启恢复、零写入） | `ld/recall.py` + `LDTools` | T54 31 项确定性检查 Pass；未调真实模型/Worker |
+| M4-E 两级关联召回（项目隔离、硬预算、安全引用、真分页、零写入） | `ld/recall.py` + `LDTools` | T54 31 项 + T55 19 项 Pass（确定性）；未调真实模型/Worker |
 
 M4 未引入任何 Agent Framework。模型输出必须通过严格 schema 校验，模型永远
 不直接接触 Worker、SQLite、文件系统或 Shell；所有派工经
@@ -195,8 +195,12 @@ M4 未引入任何 Agent Framework。模型输出必须通过严格 schema 校�
 SessionReference/Evidence` 及 `WorkItem → Context Entry` 投影。Level 1
 只返回状态、短摘要与可展开引用；Level 2 按 `(object_type, object_id)`
 读详情。两级都有数量/内容预算，跨项目与未知 ID 显式拒绝；
-`local` Context/Evidence 未授权时不可展开，Effective Prompt 永不进入
-召回结果。确定性查询是 Fast Path；只有选择下一步时才调 LLM。
+`local` Context/Evidence 未授权时不可展开，Evidence ID/kind 也不外显；
+外部路径/URI 默认只返回指纹。召回同时限制字符、全局节点、深度和
+序列化字节，通过稳定 cursor 读完后续关系；Effective Prompt 永不进入结果。
+确定性查询是 Fast Path；只有选择下一步时才调 LLM。
+这仍是“追溯已发生什么”，不是完整的项目长期记忆治理；Markdown 导出/编辑、
+CAS 导入、候选知识晋升/失效与跨 Session 效果验证属于后续 M4-F。
 
 ---
 
@@ -550,10 +554,15 @@ python scripts/ld_cli.py --ledger $L recall <project-id> --limit 20
 python scripts/ld_cli.py --ledger $L recall <project-id> `
   --type task --id <task-id> --limit 10 --char-budget 3000
 
+# continuation.next_cursor 非空时可真正翻页；关系集变化后旧 cursor 显式失效
+python scripts/ld_cli.py --ledger $L recall <project-id> `
+  --limit 20 --cursor <next-cursor>
+
 # Level 2：按 ID 展开一个对象
 python scripts/ld_cli.py --ledger $L recall-detail <project-id> task <task-id>
 python scripts/ld_cli.py --ledger $L recall-detail <project-id> evidence evidence:42 `
-  --domains shareable
+  --domains shareable --max-total-nodes 1000 --max-depth 8 `
+  --max-output-bytes 65536
 ```
 
 Python 工具面是 `LDTools.get_recall_summary(...)` 与
@@ -561,7 +570,8 @@ Python 工具面是 `LDTools.get_recall_summary(...)` 与
 attempt / session / evidence / context_entry`。模型通过 `inspect` 调用时，
 `allowed_security_domains` 由 `LDCoordinator` 从运行配置注入，不是模型参数。
 CLI 查询 Goal 表使用 SQLite query-only 连接；不会因查询而创表、迁移或
-更新 Goal/Task/Context。
+更新 Goal/Task/Context。Cursor 是绑定对象、安全域和当前关系集的不透明令牌，
+不是权限凭证。
 
 ### 6.4 传统队列流程（仍然支持，未改变）
 
@@ -597,6 +607,7 @@ python scripts/t51_intent_safety.py        # M4-D 意图安全：疑问不误提
 python scripts/t52_conversation_security.py # M4-D 历史投影 / 暂存版本绑定 / 并发确认
 python scripts/t53_chat_outbound_safety.py   # M4-D 当前消息门控 / 长目标身份 / 签名稳定
 python scripts/t54_relational_recall.py       # M4-E 关联召回 / 隔离 / 预算 / 重启
+python scripts/t55_recall_resource_closure.py # M4-E 全局预算 / 安全引用 / 稳定分页
 python scripts/t53_real_chat_e2e.py        # M4-D 真实模型 + 真实 Worker 对话闭环
                                            # 需 LD_MODEL_* 与 serve_ctl start；否则记为 BLOCKED
 
@@ -677,7 +688,7 @@ sandbox/                        两个一次性 Git 仓库（不入库）
 | M4-B | 有界连续推进（持久化 Goal + 依赖任务确定性交接 + 恢复） | **已完成**（T39/T40 确定性含崩溃注入与租约 fencing；T38b 真实严格闭环 25/25 Pass；T38c 真实故障恢复验证） |
 | M4-C | 自动唤醒与运行时可靠性收口 | **已完成**（T41–T49） |
 | M4-D | Conversational LD | **已完成**（T50–T53） |
-| M4-E | 两级关联召回（Chain of Recall / Inline & Spill / Fast Path） | **确定性完成**（T54 31 项 Pass；未运行真实模型/Worker） |
+| M4-E | 两级关联召回（Chain of Recall / Inline & Spill / Fast Path） | **确定性完成**（T54 31 项 + T55 19 项 Pass；未运行真实模型/Worker） |
 | M5 | Distributed Workspace（多节点、远程派工、受控同步） | 未实现 |
 
 历史计划 [docs/V0.2_PLAN.md](docs/V0.2_PLAN.md) 描述的是 v0.2 阶段（本地单用户

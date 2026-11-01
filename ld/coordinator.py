@@ -676,6 +676,12 @@ class LDCoordinator:
                 object_id=decision.parameters.get("object_id"),
                 limit=decision.parameters.get("limit", 20),
                 char_budget=decision.parameters.get("char_budget", 3_000),
+                cursor=decision.parameters.get("cursor"),
+                max_total_nodes=decision.parameters.get(
+                    "max_total_nodes", 1_000),
+                max_depth=decision.parameters.get("max_depth", 8),
+                max_output_bytes=decision.parameters.get(
+                    "max_output_bytes", 65_536),
                 # The model cannot grant itself a security domain.  The
                 # coordinator supplies the operator-configured allow-list.
                 allowed_security_domains=self._model_domains,
@@ -687,6 +693,12 @@ class LDCoordinator:
                 decision.parameters["object_id"],
                 limit=decision.parameters.get("limit", 50),
                 char_budget=decision.parameters.get("char_budget", 8_000),
+                cursor=decision.parameters.get("cursor"),
+                max_total_nodes=decision.parameters.get(
+                    "max_total_nodes", 1_000),
+                max_depth=decision.parameters.get("max_depth", 8),
+                max_output_bytes=decision.parameters.get(
+                    "max_output_bytes", 65_536),
                 allowed_security_domains=self._model_domains,
             )
         if tool == "get_task_status":

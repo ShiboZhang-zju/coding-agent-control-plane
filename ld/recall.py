@@ -13,6 +13,10 @@ context state is copied, and every lookup revalidates project ownership.
 """
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
+import json
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -25,6 +29,11 @@ OBJECT_TYPES = frozenset({
     "context_entry",
 })
 SECURITY_DOMAINS = frozenset({"local", "shareable"})
+DEFAULT_MAX_TOTAL_NODES = 1_000
+DEFAULT_MAX_DEPTH = 8
+DEFAULT_MAX_OUTPUT_BYTES = 65_536
+MAX_RELATION_SCAN = 10_000
+_MAX_CURSOR_CHARS = 2_048
 
 
 class RecallError(ValueError):
@@ -43,14 +52,38 @@ class _ContentBudget:
     those are the small spill pointers needed to continue the Chain of Recall.
     """
 
-    def __init__(self, max_chars: int):
+    def __init__(self, max_chars: int, *,
+                 max_total_nodes: int = DEFAULT_MAX_TOTAL_NODES,
+                 max_depth: int = DEFAULT_MAX_DEPTH,
+                 max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES):
         if not isinstance(max_chars, int) or isinstance(max_chars, bool):
             raise RecallError("char_budget must be an integer")
         if not 128 <= max_chars <= 50_000:
             raise RecallError("char_budget must be between 128 and 50000")
+        if (not isinstance(max_total_nodes, int)
+                or isinstance(max_total_nodes, bool)
+                or not 64 <= max_total_nodes <= 10_000):
+            raise RecallError("max_total_nodes must be an integer from 64 to 10000")
+        if (not isinstance(max_depth, int) or isinstance(max_depth, bool)
+                or not 3 <= max_depth <= 32):
+            raise RecallError("max_depth must be an integer from 3 to 32")
+        if (not isinstance(max_output_bytes, int)
+                or isinstance(max_output_bytes, bool)
+                or not 1_024 <= max_output_bytes <= 1_048_576):
+            raise RecallError(
+                "max_output_bytes must be an integer from 1024 to 1048576")
         self.max_chars = max_chars
+        self.max_total_nodes = max_total_nodes
+        self.max_depth = max_depth
+        self.max_output_bytes = max_output_bytes
         self.used = 0
         self.truncated = False
+        self.nodes_used = 0
+        self.output_nodes = 0
+        self.deepest_depth = 0
+        self.output_depth = 0
+        self.output_bytes = 0
+        self.truncation_reasons: set[str] = set()
 
     @property
     def remaining(self) -> int:
@@ -62,7 +95,7 @@ class _ContentBudget:
         if len(text) <= allowance:
             self.used += len(text)
             return text
-        self.truncated = True
+        self._truncate("content_chars")
         if allowance <= 0:
             return ""
         if allowance == 1:
@@ -73,7 +106,7 @@ class _ContentBudget:
         return out
 
     def value(self, value: Any, *, per_string: int = 1_200,
-              max_items: int = 100) -> Any:
+              max_items: int = 100, _depth: int = 0) -> Any:
         """Project nested content without letting collection size bypass bounds.
 
         String content consumes ``char_budget``.  Collections also have a hard
@@ -83,42 +116,84 @@ class _ContentBudget:
         input.
         """
         max_items = max(1, int(max_items))
+        self.deepest_depth = max(self.deepest_depth, _depth)
+        if _depth > self.max_depth:
+            self._truncate("max_depth")
+            return None
+        if self.nodes_used >= self.max_total_nodes:
+            self._truncate("max_total_nodes")
+            return None
+        self.nodes_used += 1
         if isinstance(value, str):
             return self.clip(value, per_field=per_string)
         if isinstance(value, Mapping):
             items = list(value.items())
             if len(items) > max_items:
-                self.truncated = True
+                self._truncate("collection_items")
             out: dict[str, Any] = {}
             for index, (key, item) in enumerate(items[:max_items]):
-                if self.remaining <= 0:
-                    self.truncated = True
+                if (self.remaining <= 0
+                        or self.nodes_used >= self.max_total_nodes):
+                    self._truncate(
+                        "content_chars" if self.remaining <= 0
+                        else "max_total_nodes")
                     break
                 projected_key = self.clip(
                     str(key), per_field=min(200, per_string))
                 if projected_key in out:
                     projected_key = f"{projected_key}#{index}"
                 out[projected_key] = self.value(
-                    item, per_string=per_string, max_items=max_items)
+                    item, per_string=per_string, max_items=max_items,
+                    _depth=_depth + 1)
             return out
         if isinstance(value, (list, tuple)):
             if len(value) > max_items:
-                self.truncated = True
+                self._truncate("collection_items")
             out = []
             for item in value[:max_items]:
-                if self.remaining <= 0:
-                    self.truncated = True
+                if (self.remaining <= 0
+                        or self.nodes_used >= self.max_total_nodes):
+                    self._truncate(
+                        "content_chars" if self.remaining <= 0
+                        else "max_total_nodes")
                     break
                 out.append(self.value(
-                    item, per_string=per_string, max_items=max_items))
+                    item, per_string=per_string, max_items=max_items,
+                    _depth=_depth + 1))
             return out
         return value
+
+    def _truncate(self, reason: str) -> None:
+        self.truncated = True
+        self.truncation_reasons.add(reason)
+
+    def note_final_shape(self, *, nodes: int, output_bytes: int,
+                         depth: int) -> None:
+        self.output_nodes = int(nodes)
+        self.output_bytes = int(output_bytes)
+        self.output_depth = int(depth)
+        if nodes > self.max_total_nodes:
+            self._truncate("max_total_nodes")
+        if output_bytes > self.max_output_bytes:
+            self._truncate("max_output_bytes")
+        if depth > self.max_depth:
+            self._truncate("max_depth")
 
     def report(self) -> dict[str, Any]:
         return {
             "max_content_chars": self.max_chars,
             "content_chars_used": self.used,
             "content_truncated": self.truncated,
+            "max_total_nodes": self.max_total_nodes,
+            "total_nodes_used": self.output_nodes,
+            "projected_content_nodes": self.nodes_used,
+            "max_depth": self.max_depth,
+            "deepest_depth": self.output_depth,
+            "projected_content_depth": self.deepest_depth,
+            "max_output_bytes": self.max_output_bytes,
+            "output_bytes": self.output_bytes,
+            "truncated": self.truncated,
+            "truncation_reasons": sorted(self.truncation_reasons),
         }
 
 
@@ -143,6 +218,10 @@ class ProjectRecall:
         *,
         limit: int = 20,
         char_budget: int = 3_000,
+        cursor: str | None = None,
+        max_total_nodes: int = DEFAULT_MAX_TOTAL_NODES,
+        max_depth: int = DEFAULT_MAX_DEPTH,
+        max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
         allowed_security_domains: Iterable[str] | None = None,
     ) -> dict[str, Any]:
         """Level 1: one object summary and bounded direct relations."""
@@ -151,28 +230,32 @@ class ProjectRecall:
         object_id = self._normalize_object_id(project_id, object_type, object_id)
         limit = self._limit(limit)
         domains = self._domains(allowed_security_domains)
-        budget = _ContentBudget(char_budget)
+        budget = _ContentBudget(
+            char_budget, max_total_nodes=max_total_nodes,
+            max_depth=max_depth, max_output_bytes=max_output_bytes)
 
         obj = self._load(project_id, object_type, object_id, domains)
         node = self._summary_node(project, object_type, obj, domains, budget)
         all_refs = self._references(project_id, object_type, obj, domains)
-        refs = self._dedupe_refs(all_refs)[:limit]
+        refs, total, next_cursor = self._page_refs(
+            project_id, object_type, object_id, all_refs, limit, cursor,
+            domains)
         node["refs"] = refs
-        node["related_total"] = len(self._dedupe_refs(all_refs))
-        node["related_omitted"] = max(0, node["related_total"] - len(refs))
+        node["related_total"] = total
+        node["related_omitted"] = max(0, total - len(refs))
 
         related = []
         for ref in refs:
             if not ref.get("expandable") or budget.remaining <= 0:
                 if budget.remaining <= 0:
-                    budget.truncated = True
+                    budget._truncate("content_chars")
                 continue
             child = self._load(
                 project_id, ref["object_type"], ref["object_id"], domains)
             related.append(self._summary_node(
                 project, ref["object_type"], child, domains, budget))
 
-        return {
+        response = {
             "schema_version": RECALL_SCHEMA_VERSION,
             "level": 1,
             "project_id": project_id,
@@ -180,10 +263,12 @@ class ProjectRecall:
             "related": related,
             "continuation": {
                 "expand_by": "object_type + object_id",
-                "has_more": node["related_omitted"] > 0 or budget.truncated,
+                "order": "object_type,object_id,relation",
+                "has_more": next_cursor is not None,
+                "next_cursor": next_cursor,
             },
-            "budget": budget.report(),
         }
+        return self._finalize_response(response, budget)
 
     def detail(
         self,
@@ -193,6 +278,10 @@ class ProjectRecall:
         *,
         limit: int = 50,
         char_budget: int = 8_000,
+        cursor: str | None = None,
+        max_total_nodes: int = DEFAULT_MAX_TOTAL_NODES,
+        max_depth: int = DEFAULT_MAX_DEPTH,
+        max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
         allowed_security_domains: Iterable[str] | None = None,
     ) -> dict[str, Any]:
         """Level 2: expand one durable object after ownership/security checks."""
@@ -201,19 +290,22 @@ class ProjectRecall:
         object_id = self._normalize_object_id(project_id, object_type, object_id)
         limit = self._limit(limit)
         domains = self._domains(allowed_security_domains)
-        budget = _ContentBudget(char_budget)
+        budget = _ContentBudget(
+            char_budget, max_total_nodes=max_total_nodes,
+            max_depth=max_depth, max_output_bytes=max_output_bytes)
 
         obj = self._load(project_id, object_type, object_id, domains)
         node = self._summary_node(project, object_type, obj, domains, budget)
-        all_refs = self._dedupe_refs(
-            self._references(project_id, object_type, obj, domains))
-        refs = all_refs[:limit]
+        all_refs = self._references(project_id, object_type, obj, domains)
+        refs, total, next_cursor = self._page_refs(
+            project_id, object_type, object_id, all_refs, limit, cursor,
+            domains)
         node["refs"] = refs
-        node["related_total"] = len(all_refs)
-        node["related_omitted"] = max(0, len(all_refs) - len(refs))
+        node["related_total"] = total
+        node["related_omitted"] = max(0, total - len(refs))
         payload = self._detail_payload(
             project_id, object_type, obj, domains, budget, limit)
-        return {
+        response = {
             "schema_version": RECALL_SCHEMA_VERSION,
             "level": 2,
             "project_id": project_id,
@@ -221,10 +313,12 @@ class ProjectRecall:
             "detail": payload,
             "continuation": {
                 "expand_by": "object_type + object_id",
-                "has_more": node["related_omitted"] > 0 or budget.truncated,
+                "order": "object_type,object_id,relation",
+                "has_more": next_cursor is not None,
+                "next_cursor": next_cursor,
             },
-            "budget": budget.report(),
         }
+        return self._finalize_response(response, budget)
 
     # ------------------------------------------------------------------ #
     # scope / loading
@@ -280,6 +374,189 @@ class ProjectRecall:
     @staticmethod
     def _domain_allowed(domain: str, domains: set[str] | None) -> bool:
         return domains is None or domain in domains
+
+    def _page_refs(
+        self,
+        project_id: str,
+        object_type: str,
+        object_id: str,
+        refs: list[dict],
+        limit: int,
+        cursor: str | None,
+        domains: set[str] | None,
+    ) -> tuple[list[dict], int, str | None]:
+        """Return one stable relation page and a mutation-detecting cursor."""
+        ordered = sorted(
+            self._dedupe_refs(refs),
+            key=lambda ref: (
+                str(ref.get("object_type") or ""),
+                str(ref.get("object_id") or ""),
+                str(ref.get("relation") or ""),
+            ))
+        if len(ordered) > MAX_RELATION_SCAN:
+            raise RecallError(
+                f"relation scan exceeds maximum {MAX_RELATION_SCAN}; narrow the "
+                "object scope before recalling")
+        identity = [[
+            ref.get("object_type"), ref.get("object_id"), ref.get("relation"),
+            ref.get("security_domain"), bool(ref.get("expandable")),
+        ] for ref in ordered]
+        digest = hashlib.sha256(json.dumps(
+            identity, ensure_ascii=False, sort_keys=False,
+            separators=(",", ":")).encode("utf-8")).hexdigest()
+        scope = hashlib.sha256(json.dumps({
+            "project_id": project_id,
+            "object_type": object_type,
+            "object_id": object_id,
+            "domains": None if domains is None else sorted(domains),
+        }, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":")).encode("utf-8")).hexdigest()
+        offset = 0
+        if cursor is not None:
+            decoded = self._decode_cursor(cursor)
+            if decoded.get("v") != 1 or decoded.get("scope") != scope:
+                raise RecallAccessError(
+                    "recall cursor does not belong to this object/security scope")
+            if decoded.get("digest") != digest:
+                raise RecallError(
+                    "recall cursor is stale because the relation set changed")
+            offset = decoded.get("offset")
+            if (not isinstance(offset, int) or isinstance(offset, bool)
+                    or not 0 <= offset <= len(ordered)):
+                raise RecallError("recall cursor has an invalid offset")
+        page = ordered[offset:offset + limit]
+        next_offset = offset + len(page)
+        next_cursor = None
+        if next_offset < len(ordered):
+            next_cursor = self._encode_cursor({
+                "v": 1, "scope": scope, "digest": digest,
+                "offset": next_offset,
+            })
+        return page, len(ordered), next_cursor
+
+    @staticmethod
+    def _encode_cursor(payload: Mapping[str, Any]) -> str:
+        raw = json.dumps(
+            dict(payload), sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    @staticmethod
+    def _decode_cursor(cursor: str) -> dict[str, Any]:
+        if (not isinstance(cursor, str) or not cursor
+                or len(cursor) > _MAX_CURSOR_CHARS):
+            raise RecallError("cursor must be a bounded non-empty string")
+        try:
+            padded = cursor + "=" * (-len(cursor) % 4)
+            raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+            value = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeError, json.JSONDecodeError,
+                binascii.Error) as exc:
+            raise RecallError("cursor is not a valid recall cursor") from exc
+        if not isinstance(value, dict):
+            raise RecallError("cursor is not a valid recall cursor")
+        return value
+
+    def _finalize_response(self, response: dict[str, Any],
+                           budget: _ContentBudget) -> dict[str, Any]:
+        """Enforce hard serialized-byte and whole-response node ceilings.
+
+        Detailed projections already truncate content incrementally.  This
+        final guard covers the envelope itself (IDs, refs and numeric leaves),
+        which cannot safely be accounted for by ``_ContentBudget.value``.
+        """
+        response = dict(response)
+        for _ in range(4):
+            response["budget"] = budget.report()
+            nodes = self._node_count(response)
+            output_bytes = self._json_bytes(response)
+            depth = self._json_depth(response)
+            if (nodes > budget.max_total_nodes
+                    or output_bytes > budget.max_output_bytes
+                    or depth > budget.max_depth):
+                return self._minimal_response(response, budget)
+            previous = (
+                budget.output_nodes, budget.output_bytes, budget.output_depth)
+            budget.note_final_shape(
+                nodes=nodes, output_bytes=output_bytes, depth=depth)
+            if previous == (nodes, output_bytes, depth):
+                return response
+        response["budget"] = budget.report()
+        return response
+
+    def _minimal_response(self, response: dict[str, Any],
+                          budget: _ContentBudget) -> dict[str, Any]:
+        if self._node_count(response) > budget.max_total_nodes:
+            budget._truncate("max_total_nodes")
+        if self._json_bytes(response) > budget.max_output_bytes:
+            budget._truncate("max_output_bytes")
+        if self._json_depth(response) > budget.max_depth:
+            budget._truncate("max_depth")
+        node = response.get("object") or {}
+        total = int(node.get("related_total") or 0)
+        minimal_node = {
+            key: node.get(key)
+            for key in ("object_type", "object_id", "status", "expandable")
+        }
+        minimal_node.update({
+            "refs": [], "related_total": total,
+            "related_omitted": total,
+        })
+        continuation = dict(response.get("continuation") or {})
+        minimal = {
+            "schema_version": response.get("schema_version"),
+            "level": response.get("level"),
+            "project_id": response.get("project_id"),
+            "object": minimal_node,
+            "continuation": continuation,
+        }
+        if response.get("level") == 1:
+            minimal["related"] = []
+        else:
+            minimal["detail"] = {
+                "omitted": True, "reason": "response_budget_exceeded"}
+        for _ in range(4):
+            minimal["budget"] = budget.report()
+            nodes = self._node_count(minimal)
+            output_bytes = self._json_bytes(minimal)
+            depth = self._json_depth(minimal)
+            previous = (
+                budget.output_nodes, budget.output_bytes, budget.output_depth)
+            budget.note_final_shape(
+                nodes=nodes, output_bytes=output_bytes, depth=depth)
+            if (nodes <= budget.max_total_nodes
+                    and output_bytes <= budget.max_output_bytes
+                    and depth <= budget.max_depth
+                    and previous == (nodes, output_bytes, depth)):
+                return minimal
+        # The validated minimums make this practically unreachable; retaining
+        # an explicit failure is safer than returning an object over budget.
+        raise RecallError("response budget is too small for the recall envelope")
+
+    @classmethod
+    def _node_count(cls, value: Any) -> int:
+        if isinstance(value, Mapping):
+            return 1 + sum(cls._node_count(item) for item in value.values())
+        if isinstance(value, (list, tuple)):
+            return 1 + sum(cls._node_count(item) for item in value)
+        return 1
+
+    @staticmethod
+    def _json_bytes(value: Any) -> int:
+        return len(json.dumps(
+            value, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), default=str).encode("utf-8"))
+
+    @classmethod
+    def _json_depth(cls, value: Any, depth: int = 0) -> int:
+        if isinstance(value, Mapping):
+            return max(
+                [depth, *(cls._json_depth(item, depth + 1)
+                           for item in value.values())])
+        if isinstance(value, (list, tuple)):
+            return max(
+                [depth, *(cls._json_depth(item, depth + 1)
+                           for item in value)])
+        return depth
 
     def _load(self, project_id: str, object_type: str, object_id: str,
               domains: set[str] | None) -> dict:
@@ -479,7 +756,7 @@ class ProjectRecall:
                     domains: set[str] | None) -> list[dict]:
         if object_type == "project":
             refs = [self._ref("goal", goal["goal_id"], "has_goal")
-                    for goal in self.goals.find_by_project(project_id)]
+                    for goal in self._project_goals(project_id)]
             refs.extend(
                 self._ref("task", task["task_id"], "has_task")
                 for task in self._project_tasks(project_id))
@@ -497,7 +774,7 @@ class ProjectRecall:
                     for task in tasks]
         if object_type == "task":
             task_id = obj["task_id"]
-            attempts = self.store.attempts(task_id)
+            attempts = self._attempts(task_id)
             refs = [self._ref("attempt", item["id"], "has_attempt")
                     for item in attempts]
             for attempt in attempts:
@@ -506,13 +783,14 @@ class ProjectRecall:
                     self._load(project_id, "session", session["id"], domains)
                     refs.append(self._ref(
                         "session", session["id"], "has_session_reference"))
-            for evidence in self.store.evidence(task_id):
+            for evidence in self._evidence_rows(task_id):
                 self._validate_evidence_link(
                     project_id, f"evidence:{evidence['id']}", evidence)
                 domain = self._evidence_domain(evidence)
+                if not self._domain_allowed(domain, domains):
+                    continue
                 refs.append(self._ref(
                     "evidence", f"evidence:{evidence['id']}", "has_evidence",
-                    expandable=self._domain_allowed(domain, domains),
                     security_domain=domain))
             for entry_id in obj.get("context_entry_refs") or []:
                 entry = self._task_context_entry(
@@ -536,9 +814,9 @@ class ProjectRecall:
                         project_id, kind, str(metadata[key]), domains)
                     refs.append(self._ref(kind, metadata[key], relation))
             if metadata.get("checkpoint_ref"):
-                refs.append(self._ref(
-                    "checkpoint", metadata["checkpoint_ref"], "handoff_checkpoint",
-                    expandable=False))
+                refs.append(self._external_ref(
+                    metadata["checkpoint_ref"], "checkpoint",
+                    "handoff_checkpoint"))
             return refs
         if object_type == "attempt":
             refs = [self._ref("task", obj["work_item_id"], "attempt_of")]
@@ -546,15 +824,16 @@ class ProjectRecall:
             if session:
                 self._load(project_id, "session", session["id"], domains)
                 refs.append(self._ref("session", session["id"], "ran_in_session"))
-            for evidence in self.store.evidence(obj["work_item_id"]):
+            for evidence in self._evidence_rows(obj["work_item_id"]):
                 if evidence.get("attempt_id") != obj["id"]:
                     continue
                 self._validate_evidence_link(
                     project_id, f"evidence:{evidence['id']}", evidence)
                 domain = self._evidence_domain(evidence)
+                if not self._domain_allowed(domain, domains):
+                    continue
                 refs.append(self._ref(
                     "evidence", f"evidence:{evidence['id']}", "produced_evidence",
-                    expandable=self._domain_allowed(domain, domains),
                     security_domain=domain))
             return refs
         if object_type == "session":
@@ -579,27 +858,78 @@ class ProjectRecall:
                 self._load(project_id, "task", task_id, domains)
                 refs.append(self._ref("task", task_id, "context_source_task"))
         for evidence_ref in obj.get("evidence_refs") or []:
-            refs.append(self._ref(
-                "evidence_ref", evidence_ref, "context_evidence_reference",
-                expandable=False, security_domain=obj.get("security_domain")))
+            refs.append(self._external_ref(
+                evidence_ref, "evidence_ref", "context_evidence_reference",
+                security_domain=obj.get("security_domain")))
         return refs
+
+    @staticmethod
+    def _external_ref(value: Any, object_type: str, relation: str, *,
+                      security_domain: str | None = None,
+                      include_raw: bool = False) -> dict[str, Any]:
+        raw = str(value)
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        out = {
+            "object_type": object_type,
+            "object_id": f"external-ref:sha256:{digest}",
+            "relation": relation,
+            "expandable": False,
+            "reference_kind": "external",
+            "reference_summary": "external reference; raw value omitted",
+        }
+        if security_domain:
+            out["security_domain"] = security_domain
+        if include_raw:
+            out["raw_reference"] = raw
+        return out
 
     def _visible_context_entries(self, project_id: str,
                                  domains: set[str] | None) -> list[dict]:
-        return [entry for entry in self.store.context_entries(project_id)
+        return [entry for entry in self._context_rows(project_id)
                 if self._domain_allowed(
                     str(entry.get("security_domain") or "local"), domains)]
 
     def _project_tasks(self, project_id: str) -> list[dict]:
         """All project tasks; response limits are applied after relationships.
 
-        ``work_items_for_project`` is an indexed SQL read.  Passing SQLite's
-        maximum signed limit avoids the old UI-oriented 200-row cap silently
-        severing an older Goal -> WorkItem relation; only the returned recall
-        envelope is bounded by ``limit`` and ``char_budget``.
+        ``work_items_for_project`` is an indexed SQL read.  ``+1`` distinguishes
+        an exact maximum from overflow, which fails closed instead of silently
+        severing an older Goal -> WorkItem relation or scanning without bound.
         """
-        return self.store.work_items_for_project(
-            project_id, limit=2_147_483_647)
+        return self._bounded_rows(
+            self.store.work_items_for_project(
+                project_id, limit=MAX_RELATION_SCAN + 1),
+            "project WorkItem")
+
+    def _project_goals(self, project_id: str) -> list[dict]:
+        return self._bounded_rows(
+            self.goals.find_by_project(
+                project_id, limit=MAX_RELATION_SCAN + 1),
+            "project Goal")
+
+    def _context_rows(self, project_id: str) -> list[dict]:
+        return self._bounded_rows(
+            self.store.context_entries(
+                project_id, limit=MAX_RELATION_SCAN + 1),
+            "project Context Entry")
+
+    def _attempts(self, task_id: str) -> list[dict]:
+        return self._bounded_rows(
+            self.store.attempts(task_id, limit=MAX_RELATION_SCAN + 1),
+            "task Attempt")
+
+    def _evidence_rows(self, task_id: str) -> list[dict]:
+        return self._bounded_rows(
+            self.store.evidence(task_id, limit=MAX_RELATION_SCAN + 1),
+            "task Evidence")
+
+    @staticmethod
+    def _bounded_rows(rows: list[dict], label: str) -> list[dict]:
+        if len(rows) > MAX_RELATION_SCAN:
+            raise RecallError(
+                f"{label} scan exceeds maximum {MAX_RELATION_SCAN}; narrow the "
+                "object scope before recalling")
+        return rows
 
     def _task_context_entry(self, project_id: str, task_id: str,
                             entry_id: str) -> dict:
@@ -649,7 +979,7 @@ class ProjectRecall:
             progress = self.service.get_project_progress(
                 project_id, allowed_security_domains=(domains if domains is not None
                                                        else None))
-            all_entries = self.store.context_entries(project_id)
+            all_entries = self._context_rows(project_id)
             visible = self._visible_context_entries(project_id, domains)
             out = {
                 "project_id": project_id,
@@ -657,7 +987,7 @@ class ProjectRecall:
                 "default_adapter": obj.get("default_adapter"),
                 "context_version": self.store.context_version(project_id),
                 "task_counts": progress.get("counts") or {},
-                "goal_count": len(self.goals.find_by_project(project_id)),
+                "goal_count": len(self._project_goals(project_id)),
                 "context_visibility": {
                     "visible": len(visible),
                     "omitted": len(all_entries) - len(visible),
@@ -722,18 +1052,27 @@ class ProjectRecall:
                 "worker_success_is_verification": False,
             }
             out["why_attention"] = self._why_attention(status, budget, local)
-            out["attempt_count"] = len(self.store.attempts(obj["task_id"]))
-            out["evidence_count"] = len(self.store.evidence(obj["task_id"]))
+            out["attempt_count"] = len(self._attempts(obj["task_id"]))
+            evidence_rows = self._evidence_rows(obj["task_id"])
+            visible_evidence = [
+                item for item in evidence_rows
+                if self._domain_allowed(self._evidence_domain(item), domains)]
+            out["evidence_count"] = len(visible_evidence)
             out["handoff"] = bool(metadata.get("handoff"))
             out["handoff_source"] = budget.value({
                 key: metadata.get(key)
                 for key in (
                     "source_work_item_id", "source_attempt_id",
-                    "source_session_reference_id", "checkpoint_ref",
-                    "handoff_signature",
+                    "source_session_reference_id", "handoff_signature",
                 )
                 if metadata.get(key) is not None
             }, per_string=800, max_items=limit)
+            if metadata.get("checkpoint_ref") is not None:
+                out["checkpoint_reference"] = budget.value(
+                    self._external_ref(
+                        metadata["checkpoint_ref"], "checkpoint",
+                        "handoff_checkpoint", include_raw=domains is None),
+                    per_string=50_000, max_items=limit)
             context_entries = []
             for entry_id in obj.get("context_entry_refs") or []:
                 entry = self._task_context_entry(
@@ -793,15 +1132,14 @@ class ProjectRecall:
                 self._load(project_id, "session", session["id"], domains)
             out["session_reference_id"] = session.get("id") if session else None
             evidence_rows = [
-                item for item in self.store.evidence(obj["work_item_id"])
+                item for item in self._evidence_rows(obj["work_item_id"])
                 if item.get("attempt_id") == obj["id"]]
             visible_evidence = [
                 item for item in evidence_rows
                 if self._domain_allowed(self._evidence_domain(item), domains)]
             out["evidence_ids"] = [
                 f"evidence:{item['id']}" for item in visible_evidence[:limit]]
-            out["evidence_omitted_count"] = (
-                len(evidence_rows) - len(out["evidence_ids"]))
+            out["evidence_ids_limited"] = len(visible_evidence) > limit
             return out
         if object_type == "session":
             out = {key: obj.get(key) for key in (
@@ -830,7 +1168,7 @@ class ProjectRecall:
                 "created_at": obj.get("created_at"),
             }
         revisions = self.store.context_revisions(obj["id"])
-        return {
+        detail = {
             "entry_id": obj.get("id"),
             "project_id": obj.get("project_id"),
             "kind": obj.get("kind"),
@@ -841,9 +1179,13 @@ class ProjectRecall:
                 max_items=limit),
             "verification": obj.get("verification"),
             "security_domain": obj.get("security_domain"),
-            "source": budget.clip(obj.get("source"), per_field=500),
             "evidence_refs": budget.value(
-                (obj.get("evidence_refs") or [])[:limit], per_string=500,
+                [self._external_ref(
+                    item, "evidence_ref", "context_evidence_reference",
+                    security_domain=obj.get("security_domain"),
+                    include_raw=domains is None)
+                 for item in (obj.get("evidence_refs") or [])[:limit]],
+                per_string=50_000,
                 max_items=limit),
             "version": obj.get("version"),
             "revision_count": len(revisions),
@@ -856,6 +1198,17 @@ class ProjectRecall:
             "created_at": obj.get("created_at"),
             "updated_at": obj.get("updated_at"),
         }
+        source = str(obj.get("source") or "")
+        if source.startswith("task:") or domains is None:
+            detail["source"] = budget.clip(source, per_field=50_000)
+        elif source:
+            detail["source_reference"] = budget.value(
+                self._external_ref(
+                    source, "source_ref", "context_source",
+                    security_domain=obj.get("security_domain")),
+                per_string=500, max_items=limit)
+            detail["source_omitted"] = True
+        return detail
 
     @staticmethod
     def _event_projection(event: dict, budget: _ContentBudget) -> dict:

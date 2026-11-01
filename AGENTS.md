@@ -246,11 +246,18 @@
 - **Level 1 只给权威摘要与可展开 ID，Level 2 才读指定详情。** 返回数量与
   内容字符必须有界；长正文不得默认注入模型。Effective Prompt 始终不进入
   召回结果。
+- **预算是整个返回包的硬边界。** 除字符预算外，还必须限制全局节点数、
+  嵌套深度和序列化字节数；不得使每层 `max_items` 或数字叶子绕过总预算。
+- **`has_more` 必须可继续读。** 分页使用绑定项目/对象/安全域/关系集的不透明
+  cursor；稳定排序下不得重复或遗漏，关系变化后旧 cursor 必须显式失效。
 - **所有对象先验项目归属。** 未知 ID 显式报错；跨项目 Goal/Task/Attempt/
   Session/Evidence/Context 必须拒绝，不得以空结果掩盖调用错误。
 - **安全域由调用方授权，模型不能自报。** 直接展开未授权 `local` Context
   或 Evidence 必须拒绝；摘要视图不得含本地正文、Goal 文本、任务原文、
   Worker/Session 本地身份或 Evidence payload。
+- **外部引用不是内部 ID。** Context `evidence_refs` 与 checkpoint 路径/URI 默认只返回
+  定长指纹；原值只能在本地 operator 的 Level 2 详情中读取，且仍受全局预算。
+  未授权 `local` Evidence 连 ID/kind 也不返回。
 - **召回查询零副作用。** 不得增加 WorkItem/Goal/Context revision，不得更新
   `updated_at`；CLI 使用 query-only Goal 连接，不得为一次查询创建或迁移表。
 - **Fast Path / Slow Path 仍然分离。** ID 解析、归属校验、状态投影、预算截断

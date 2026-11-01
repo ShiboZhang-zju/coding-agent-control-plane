@@ -98,9 +98,9 @@ completed，零人工介入）**；故障恢复与副作用拒绝路径另由 T3
 
 | # | 位置 | 影响 / 当前处理 | 复现 / 验证 | 状态 |
 |---|---|---|---|---|
-| M4E-R01 | `project_context_entries.evidence_refs` / `ld/recall.py` | Context 条目的 `evidence_refs` 历史上是任意证据路径/引用，不是 Ledger `evidence.id`。召回会原样展示来源引用并标记 `expandable=false`，不猜测路径与数据库行的对应关系。 | 新建 Context 条目使用 `evidence/project/foo.json`，查 Level 1；应能看到引用但不能伪造为可展开 Ledger Evidence。 | 设计如此；T54 覆盖 |
-| M4E-R02 | `ld/recall.py` / `scripts/t54_relational_recall.py` | T54 只证明确定性 ID 展开、预算、项目/安全域隔离与重启恢复；没有证明真实 LLM 会选对展开路径，也没有评测语义相关性。 | 配置真实模型，给定需要两次以上展开才可回答的历史问题，断言模型仅根据授权召回结果回答，且不泄露 `local`。 | BLOCKED：本轮按要求不运行真实模型/Worker |
-| M4E-R03 | `ld/recall.py::_project_tasks()` | 最小实现会从本地 SQLite 读出项目的全部 WorkItem 再按 Goal ref 过滤，返回仍受 `limit` / `char_budget` 约束。在百万级任务库上读放大尚未评测。 | 构造大型 Ledger 测查询时延/内存；若真实规模需要，优先增加可派生的 goal-ref 索引投影，不新建第二份任务真相。 | 已知性能边界；当前数据规模可接受 |
+| M4E-R01 | `project_context_entries.evidence_refs` / `ld/recall.py` | Context 条目的 `evidence_refs` 历史上是任意路径/URI，不是 Ledger `evidence.id`。T55 后 Level 1/模型视图只返回定长指纹；本地 operator Level 2 可在全局预算内审计原值，仍不猜测其与 Ledger Evidence 的对应。 | 新建含超长本地路径的 Context 条目，比较 shareable 与 operator 视图。 | 设计如此；T55 Pass |
+| M4E-R02 | `ld/recall.py` / `scripts/t54_relational_recall.py` / `scripts/t55_recall_resource_closure.py` | T54/T55 只证明确定性 ID 展开、硬预算、真分页、项目/安全域隔离与重启恢复；没有证明真实 LLM 会选对展开路径，也没有评测语义相关性。 | 配置真实模型，给定需要两次以上展开才可回答的历史问题，断言模型仅根据授权召回结果回答，且不泄露 `local`。 | BLOCKED：本轮未运行真实模型/Worker |
+| M4E-R03 | `ld/recall.py::_project_tasks()` | Goal → WorkItem 仍先按项目读取再过滤；T55 后扫描最多 10,000 行，超限显式拒绝，不再做无界读放大。大型 Ledger 上的性能仍未评测。 | 构造大型 Ledger 测查询时延/内存；若真实规模需要，优先增加可派生的 goal-ref 索引投影，不新建第二份任务真相。 | P2 性能边界；已有 fail-closed 扫描上限 |
 
 ## 处理原则
 

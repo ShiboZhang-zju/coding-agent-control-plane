@@ -1,0 +1,30 @@
+{
+  "test": "T55 M4-E recall resource closure",
+  "worker_started": false,
+  "real_model_called": false,
+  "fixture": "<REPO>/sandbox/t55-recall-closure",
+  "note": "Deterministic only. Proves hard output bounds, safe external reference projection and stable cursor pagination; it does not validate semantic retrieval by a real model.",
+  "checks": {
+    "multi_page_all_goal_ids_reachable": true,
+    "multi_page_has_no_duplicates": true,
+    "multi_page_order_is_stable": true,
+    "cursor_is_bounded": true,
+    "cursor_scope_is_enforced": true,
+    "malformed_cursor_is_rejected": true,
+    "stale_cursor_is_rejected": true,
+    "external_refs_use_fixed_fingerprint": true,
+    "model_view_hides_external_raw_values": true,
+    "operator_detail_can_audit_raw_reference": true,
+    "unauthorized_local_evidence_id_is_hidden": true,
+    "whole_response_byte_limit_is_hard": true,
+    "whole_response_node_limit_is_hard": true,
+    "whole_response_depth_limit_is_hard": true,
+    "deep_payload_is_marked_truncated": true,
+    "reported_output_bytes_are_exact": true,
+    "relation_scan_limit_fails_closed": true,
+    "cli_cursor_reads_next_page": true,
+    "queries_have_zero_state_side_effects": true
+  },
+  "result": "PASS",
+  "failed": []
+}

@@ -164,7 +164,8 @@ def _validate_inspect(project_id: str | None, parameters: dict[str, Any]) -> dic
     _reject_unknown(
         parameters,
         {"tool", "task_id", "limit", "object_type", "object_id",
-         "char_budget"},
+         "char_budget", "cursor", "max_total_nodes", "max_depth",
+         "max_output_bytes"},
         "parameters")
     _require(parameters, {"tool"}, "parameters")
     tool = _nonempty_string(parameters["tool"], "parameters.tool")
@@ -201,12 +202,33 @@ def _validate_inspect(project_id: str | None, parameters: dict[str, Any]) -> dic
             out["char_budget"] = _integer(
                 parameters["char_budget"], "parameters.char_budget",
                 minimum=128, maximum=50_000)
+        if "cursor" in parameters:
+            cursor = _nonempty_string(parameters["cursor"], "parameters.cursor")
+            if len(cursor) > 2_048:
+                raise DecisionValidationError(
+                    "parameters.cursor must be at most 2048 characters")
+            out["cursor"] = cursor
+        if "max_total_nodes" in parameters:
+            out["max_total_nodes"] = _integer(
+                parameters["max_total_nodes"], "parameters.max_total_nodes",
+                minimum=64, maximum=10_000)
+        if "max_depth" in parameters:
+            out["max_depth"] = _integer(
+                parameters["max_depth"], "parameters.max_depth",
+                minimum=3, maximum=32)
+        if "max_output_bytes" in parameters:
+            out["max_output_bytes"] = _integer(
+                parameters["max_output_bytes"], "parameters.max_output_bytes",
+                minimum=1_024, maximum=1_048_576)
     elif tool in _PROJECT_READ_TOOLS:
         if project_id is None:
             raise DecisionPolicyError(f"{tool} requires project_id")
         if "task_id" in parameters:
             raise DecisionPolicyError(f"{tool} does not accept task_id")
-        recall_only = {"object_type", "object_id", "char_budget"} & set(parameters)
+        recall_only = {
+            "object_type", "object_id", "char_budget", "cursor",
+            "max_total_nodes", "max_depth", "max_output_bytes",
+        } & set(parameters)
         if recall_only:
             raise DecisionPolicyError(
                 f"{tool} does not accept recall parameters: "
@@ -218,7 +240,10 @@ def _validate_inspect(project_id: str | None, parameters: dict[str, Any]) -> dic
                                     minimum=1, maximum=200)
     else:
         _require(parameters, {"task_id"}, "parameters")
-        recall_only = {"object_type", "object_id", "char_budget"} & set(parameters)
+        recall_only = {
+            "object_type", "object_id", "char_budget", "cursor",
+            "max_total_nodes", "max_depth", "max_output_bytes",
+        } & set(parameters)
         if recall_only:
             raise DecisionPolicyError(
                 f"{tool} does not accept recall parameters: "
@@ -421,7 +446,11 @@ def decision_schema() -> dict[str, Any]:
                                "object_id": "string (recall expansion id)",
                                "limit": "integer 1..200 (tool-specific)",
                                "char_budget": (
-                                   "integer 128..50000 (recall tools only)")},
+                                   "integer 128..50000 (recall tools only)"),
+                               "cursor": "opaque string (recall tools only)",
+                               "max_total_nodes": "integer 64..10000",
+                               "max_depth": "integer 3..32",
+                               "max_output_bytes": "integer 1024..1048576"},
             },
             "submit_task": {
                 "requires_project_id": True,

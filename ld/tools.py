@@ -200,12 +200,18 @@ class LDTools:
         object_id: str | None = None,
         limit: int = 20,
         char_budget: int = 3_000,
+        cursor: str | None = None,
+        max_total_nodes: int = 1_000,
+        max_depth: int = 8,
+        max_output_bytes: int = 65_536,
         allowed_security_domains: Iterable[str] | None = None,
     ) -> dict:
         """Level-1 authoritative summary with bounded expandable references."""
         return self._recall().summary(
             project_id, object_type, object_id, limit=limit,
-            char_budget=char_budget,
+            char_budget=char_budget, cursor=cursor,
+            max_total_nodes=max_total_nodes, max_depth=max_depth,
+            max_output_bytes=max_output_bytes,
             allowed_security_domains=allowed_security_domains)
 
     def get_recall_detail(
@@ -216,12 +222,18 @@ class LDTools:
         *,
         limit: int = 50,
         char_budget: int = 8_000,
+        cursor: str | None = None,
+        max_total_nodes: int = 1_000,
+        max_depth: int = 8,
+        max_output_bytes: int = 65_536,
         allowed_security_domains: Iterable[str] | None = None,
     ) -> dict:
         """Level-2 expansion of one project-owned durable object."""
         return self._recall().detail(
             project_id, object_type, object_id, limit=limit,
-            char_budget=char_budget,
+            char_budget=char_budget, cursor=cursor,
+            max_total_nodes=max_total_nodes, max_depth=max_depth,
+            max_output_bytes=max_output_bytes,
             allowed_security_domains=allowed_security_domains)
 
     def submit_project_task(

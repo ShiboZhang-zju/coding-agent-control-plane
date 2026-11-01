@@ -95,6 +95,10 @@ def build_parser() -> argparse.ArgumentParser:
     recall.add_argument("--id", dest="object_id", default=None)
     recall.add_argument("--limit", type=int, default=20)
     recall.add_argument("--char-budget", type=int, default=3000)
+    recall.add_argument("--cursor", default=None)
+    recall.add_argument("--max-total-nodes", type=int, default=1000)
+    recall.add_argument("--max-depth", type=int, default=8)
+    recall.add_argument("--max-output-bytes", type=int, default=65536)
     recall.add_argument(
         "--domains", default=None,
         help=("comma-separated content domains; omit for the local operator view"))
@@ -108,6 +112,10 @@ def build_parser() -> argparse.ArgumentParser:
     recall_detail.add_argument("object_id")
     recall_detail.add_argument("--limit", type=int, default=50)
     recall_detail.add_argument("--char-budget", type=int, default=8000)
+    recall_detail.add_argument("--cursor", default=None)
+    recall_detail.add_argument("--max-total-nodes", type=int, default=1000)
+    recall_detail.add_argument("--max-depth", type=int, default=8)
+    recall_detail.add_argument("--max-output-bytes", type=int, default=65536)
     recall_detail.add_argument(
         "--domains", default=None,
         help=("comma-separated content domains; omit for the local operator view"))
@@ -337,11 +345,19 @@ def main() -> int:
                         project["id"], object_type=args.object_type,
                         object_id=args.object_id, limit=args.limit,
                         char_budget=args.char_budget,
+                        cursor=args.cursor,
+                        max_total_nodes=args.max_total_nodes,
+                        max_depth=args.max_depth,
+                        max_output_bytes=args.max_output_bytes,
                         allowed_security_domains=domains)
                 else:
                     result = recall_tools.get_recall_detail(
                         project["id"], args.object_type, args.object_id,
                         limit=args.limit, char_budget=args.char_budget,
+                        cursor=args.cursor,
+                        max_total_nodes=args.max_total_nodes,
+                        max_depth=args.max_depth,
+                        max_output_bytes=args.max_output_bytes,
                         allowed_security_domains=domains)
             finally:
                 goal_reader.close()

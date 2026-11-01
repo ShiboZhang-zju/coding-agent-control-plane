@@ -1402,10 +1402,13 @@ class TaskStore:
         return cur.rowcount == 1
 
     @_synchronized
-    def attempts(self, task_id: str) -> list[dict]:
-        rows = self._conn.execute(
-            "SELECT * FROM attempts WHERE work_item_id=? ORDER BY created_at ASC", (task_id,)
-        ).fetchall()
+    def attempts(self, task_id: str, limit: int | None = None) -> list[dict]:
+        sql = "SELECT * FROM attempts WHERE work_item_id=? ORDER BY created_at ASC"
+        params: list[Any] = [task_id]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        rows = self._conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
     @_synchronized
@@ -1463,9 +1466,13 @@ class TaskStore:
         self._conn.commit()
 
     @_synchronized
-    def evidence(self, task_id: str) -> list[dict]:
-        rows = self._conn.execute(
-            "SELECT * FROM evidence WHERE work_item_id=? ORDER BY id ASC", (task_id,)).fetchall()
+    def evidence(self, task_id: str, limit: int | None = None) -> list[dict]:
+        sql = "SELECT * FROM evidence WHERE work_item_id=? ORDER BY id ASC"
+        params: list[Any] = [task_id]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        rows = self._conn.execute(sql, params).fetchall()
         out = []
         for r in rows:
             d = dict(r)
@@ -1678,7 +1685,8 @@ class TaskStore:
 
     @_synchronized
     def context_entries(self, project_id: str, *, kind: str | None = None,
-                        include_shared: bool = True) -> list[dict]:
+                        include_shared: bool = True,
+                        limit: int | None = None) -> list[dict]:
         sql = "SELECT * FROM project_context_entries WHERE project_id=?"
         params: list[Any] = [project_id]
         if kind:
@@ -1687,6 +1695,9 @@ class TaskStore:
         if not include_shared:
             sql += " AND security_domain='local'"
         sql += " ORDER BY kind ASC, updated_at DESC"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(int(limit))
         rows = self._conn.execute(sql, params).fetchall()
         return [self._row_to_context_entry(r) for r in rows]
 

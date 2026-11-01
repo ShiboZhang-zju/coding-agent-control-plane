@@ -225,11 +225,16 @@ class LDGoalStore:
                 "SELECT * FROM ld_goals WHERE goal_id=?", (goal_id,)).fetchone()
         return self._row_to_goal(row) if row else None
 
-    def find_by_project(self, project_id: str) -> list[dict]:
+    def find_by_project(self, project_id: str,
+                        limit: int | None = None) -> list[dict]:
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT * FROM ld_goals WHERE project_id=? ORDER BY updated_at DESC",
-                (project_id,)).fetchall()
+            sql = ("SELECT * FROM ld_goals WHERE project_id=? "
+                   "ORDER BY updated_at DESC")
+            params: list[Any] = [project_id]
+            if limit is not None:
+                sql += " LIMIT ?"
+                params.append(int(limit))
+            rows = self._conn.execute(sql, params).fetchall()
         return [self._row_to_goal(row) for row in rows]
 
     def all_goals(self) -> list[dict]:
