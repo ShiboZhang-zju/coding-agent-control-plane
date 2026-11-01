@@ -294,7 +294,7 @@ class ContextBuilder:
             "unverified_constraints": (
                 "UNVERIFIED CONSTRAINTS / NOTES (not mandatory)"),
             "architecture": "ARCHITECTURE",
-            "knowledge": "VERIFIED KNOWLEDGE",
+            "knowledge": "PROJECT KNOWLEDGE (verification-labelled)",
             "progress": "PROJECT PROGRESS / PRECONDITIONS",
             "decisions": "DECISIONS AND RATIONALE",
         }

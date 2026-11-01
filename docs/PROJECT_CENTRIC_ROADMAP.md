@@ -28,7 +28,7 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 | **M4-C** | 自动唤醒与运行时可靠性收口 | M4-B | **已完成**（T41–T49，含 T48 真实常驻服务双任务零人工闭环） |
 | **M4-D** | Conversational LD（自然语言查询 / 提交 Goal / 阻塞解释 / 显式确认恢复） | M4-C | **已完成**（T50/T51/T52 确定性 + T53 真实模型与真实 Worker 对话闭环） |
 | **M4-E** | 关联召回（Chain of Recall + Inline & Spill + Fast/Slow Path） | M4-D | **确定性完成**（T54 31 项 + T55 19 项 Pass；未运行真实模型/Worker） |
-| **M4-F** | Markdown Project Memory MVP（导出/预览/显式 CAS 单条应用） | M4-E | **确定性完成**（T56–T59；未运行真实模型/Worker） |
+| **M4-F** | Markdown Project Memory MVP（导出/预览/显式 CAS 单条应用） | M4-E | **确定性完成**（T56–T60；未运行真实模型/Worker） |
 | M5 | Distributed Workspace | M1–M4 | 未实现 |
 
 依赖是**功能依赖**而非排期依赖。M4-B 的依赖任务交接走控制平面确定性
@@ -751,7 +751,7 @@ T55 首次运行在“operator 审计超长原引用”上失败，保留为
 
 ---
 
-## M4-F — Markdown Project Memory MVP ✅ 确定性验收（T56–T59）
+## M4-F — Markdown Project Memory MVP ✅ 确定性验收（T56–T60）
 
 ### 权威关系
 
@@ -765,7 +765,7 @@ Human edits Markdown Entry
 ```
 
 SQLite `project_context_entries / project_context_revisions` 始终是唯一权威状态。
-Markdown 位于 `.poc-state/projects/<project-id>/memory/`，只是本地编辑文件与派生视图：
+Markdown 默认位于 `<ledger-dir>/projects/<project-id>/memory/`，只是本地编辑文件与派生视图：
 
 - `PROJECT.md`：项目/Context 的只读概览。
 - `CURRENT.md`：由 Ledger/Goal/WorkItem 派生的只读当前状态。
@@ -782,8 +782,13 @@ Markdown 位于 `.poc-state/projects/<project-id>/memory/`，只是本地编辑�
   Markdown 代码、链接或命令，不新增 YAML 运行时依赖。
 - 导出使用同目录临时文件 + 原子替换，拒绝路径穿越和符号链接逃逸；导出零 Ledger
   副作用。`CURRENT.md` 不能通过导入修改任务或 Goal。
+- 导出在写任何文件前预检所有 Entry；存在未应用本地编辑时整次拒绝，
+  只有显式 `--force` 才能用 SQLite 投影覆盖。默认目录与 Ledger 父目录绑定；
+  `--memory-root` 是受信本地路径覆盖。
 - Verified hard constraints 完整进入专用强制区；candidate/unverified constraints
   进入明确的非强制 notes 区，不能满足 verified prerequisite。
+- Knowledge 统一标题为 `PROJECT KNOWLEDGE (verification-labelled)`，条目仍保留
+  `[CANDIDATE]` / `[UNVERIFIED]` 标签，不将混合可信度内容误称为 verified。
 - M2 自动 knowledge 明确标为 task-specific execution evidence、candidate 和
   `m2-auto/execution-evidence/task-specific`，不把断言成功称为通用工程规律。
 
@@ -795,6 +800,8 @@ Markdown 位于 `.poc-state/projects/<project-id>/memory/`，只是本地编辑�
   路径/符号链接和 CLI 闭环。
 - T59：19/19 Pass，Markdown 更新进入新 WorkItem，旧 Effective Prompt 冻结，
   项目隔离与 stale import 拒绝；这是确定性 ContextBuilder 验收，不是真实 Worker。
+- T60：16/16 Pass，未应用编辑拒绝与全文件零部分写入、显式 force、
+  Ledger 默认路径隔离、CLI memory root 和 Knowledge 可信度标题。
 
 ### 尚未实现
 

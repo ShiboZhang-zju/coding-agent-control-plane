@@ -1,0 +1,46 @@
+{
+  "test": "T60 Markdown export safety and ledger-bound paths",
+  "worker_started": false,
+  "real_model_called": false,
+  "fixture": "<REPO>/sandbox/t60-memory-export-safety",
+  "checks": {
+    "default_root_is_bound_to_ledger_a": false,
+    "default_root_is_bound_to_ledger_b": false,
+    "same_project_id_is_isolated_by_ledger": false,
+    "divergent_entry_refuses_export": false,
+    "conflict_preserves_every_existing_file": false,
+    "conflict_does_not_create_new_entry": false,
+    "force_overwrites_from_sqlite": false,
+    "unchanged_repeat_export_is_stable": true,
+    "cli_memory_root_is_used": false,
+    "cli_export_refuses_without_force": false,
+    "cli_force_overwrites_local_edit": false,
+    "cli_preview_and_apply_share_memory_root": false,
+    "knowledge_header_is_verification_labelled": false,
+    "candidate_remains_explicitly_untrusted": true,
+    "misleading_verified_knowledge_header_is_absent": false,
+    "no_worker_or_model_was_started": true
+  },
+  "observed_errors": {
+    "api_conflict": null,
+    "api_force": "ProjectMemoryMarkdown.export() got an unexpected keyword argument 'force'",
+    "api_stable": null,
+    "cli_refuse_exit": 2
+  },
+  "result": "FAIL",
+  "failed": [
+    "default_root_is_bound_to_ledger_a",
+    "default_root_is_bound_to_ledger_b",
+    "same_project_id_is_isolated_by_ledger",
+    "divergent_entry_refuses_export",
+    "conflict_preserves_every_existing_file",
+    "conflict_does_not_create_new_entry",
+    "force_overwrites_from_sqlite",
+    "cli_memory_root_is_used",
+    "cli_export_refuses_without_force",
+    "cli_force_overwrites_local_edit",
+    "cli_preview_and_apply_share_memory_root",
+    "knowledge_header_is_verification_labelled",
+    "misleading_verified_knowledge_header_is_absent"
+  ]
+}

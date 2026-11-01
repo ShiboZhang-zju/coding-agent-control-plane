@@ -1,0 +1,32 @@
+{
+  "test": "T60 Markdown export safety and ledger-bound paths",
+  "worker_started": false,
+  "real_model_called": false,
+  "fixture": "<REPO>/sandbox/t60-memory-export-safety",
+  "checks": {
+    "default_root_is_bound_to_ledger_a": true,
+    "default_root_is_bound_to_ledger_b": true,
+    "same_project_id_is_isolated_by_ledger": true,
+    "divergent_entry_refuses_export": true,
+    "conflict_preserves_every_existing_file": true,
+    "conflict_does_not_create_new_entry": true,
+    "force_overwrites_from_sqlite": true,
+    "unchanged_repeat_export_is_stable": true,
+    "cli_memory_root_is_used": true,
+    "cli_export_refuses_without_force": true,
+    "cli_force_overwrites_local_edit": true,
+    "cli_preview_and_apply_share_memory_root": true,
+    "knowledge_header_is_verification_labelled": true,
+    "candidate_remains_explicitly_untrusted": true,
+    "misleading_verified_knowledge_header_is_absent": true,
+    "no_worker_or_model_was_started": true
+  },
+  "observed_errors": {
+    "api_conflict": "refusing to overwrite divergent Markdown entry files: <HOME>/Documents/ChatGPT/一人管理agent/.poc-state/t60-ledger-a/projects/proj-t60-shared/memory/entries/ctx-6b41842eaa45.md; apply or preserve the local edits, or explicitly re-export with force=True / --force to discard them",
+    "api_force": null,
+    "api_stable": null,
+    "cli_refuse_exit": 2
+  },
+  "result": "PASS",
+  "failed": []
+}

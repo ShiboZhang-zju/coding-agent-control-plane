@@ -267,7 +267,7 @@
 
 ### 5.7 Markdown Project Memory 边界（M4-F 引入）
 
-- **SQLite 是唯一权威。** Markdown 只是 `.poc-state/projects/<project-id>/memory/`
+- **SQLite 是唯一权威。** Markdown 默认是 `<ledger-dir>/projects/<project-id>/memory/`
   下的本地编辑文件和派生视图；不得建立 watch 同步、第二份版本或任务状态。
 - **只有单条 candidate/unverified Entry 可编辑。** MVP 仅允许 `title/body/tags`；
   `id/project_id/kind/verification/security_domain/source/evidence_refs/version`
@@ -281,6 +281,11 @@
 - **文件边界 fail-closed。** Front Matter 只接受安全确定性子集；禁止对象反序列化、
   路径穿越、符号链接逃逸和 Markdown 命令执行。导出必须临时文件 + 原子替换，
   并保持 Context version/revision 零写入。
+- **重复导出不得丢未应用编辑。** 写任何生成视图或 Entry 前，必须预检所有
+  已存在的 Entry；任一文件与 SQLite 投影不同时整次拒绝。只有人显式使用
+  `memory-export --force` 才能丢弃本地编辑。
+- **Memory root 默认绑定 Ledger。** 自定义 `--ledger` 必须自动导出到该 DB 父目录的
+  `projects/`；`--memory-root` 是显式本地覆盖，不得指向公开共享或未受控 Git 目录。
 - **新知识只影响新任务。** 已提交 WorkItem 的 Effective Prompt 永远冻结；应用成功
   后仅新提交任务读取新 `context_version`，并记录实际 `context_entry_refs`。
 - **自动候选不是工程规律。** M2 自动 knowledge 只能表述为 task-specific execution

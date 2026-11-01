@@ -21,7 +21,8 @@ checkpoint 安全、安全域默认值）由 T39/T40 确定性验证（含真实
 SessionReference/Evidence/Context 引用做两级按需读取，不新建事实库；
 T54 关系验收与 T55 资源/引用/分页收口均已通过，本轮未运行真实模型或 Worker。
 **M4-F Markdown Project Memory MVP** 复用同一 SQLite Project Context，提供本地
-导出、严格差异预览和显式 CAS 应用；T56–T59 确定性验收通过，但未运行真实模型、
+导出、严格差异预览和显式 CAS 应用；T56–T60 共 83 项确定性检查通过，
+含未应用编辑保护、Ledger 路径隔离与知识可信度标签；但未运行真实模型、
 CodeBuddy 或真实多 Session 复用测试。
 模型身份（端点/模型 id）不属于测试结果，不出现在代码默认值、日志或证据中。
 已知限制：真实决策模型偶发保守转人工（`--resume` 解锁）；agent job 的 worker
@@ -172,7 +173,7 @@ Control Plane（公共执行治理层，与厂商无关）
 | 双项目失败隔离（A 拒绝转人工不阻塞 B） | `ld/goal_runner.py`（按 Goal 独立簿记） | T49 Pass（确定性，真实验证路径） |
 | 同 Ledger CLI（查询/单轮/run-goal/--resume） | `scripts/ld_cli.py` | T32/T38 Pass |
 | M4-E 两级关联召回（项目隔离、硬预算、安全引用、真分页、零写入） | `ld/recall.py` + `LDTools` | T54 31 项 + T55 19 项 Pass（确定性）；未调真实模型/Worker |
-| M4-F Markdown Project Memory（导出/预览/确认/CAS 单条应用） | `controlplane/project_memory_md.py` + Control Plane CLI | T56/T57 各 11 项、T58 26 项、T59 19 项 Pass（确定性）；未调真实模型/Worker |
+| M4-F Markdown Project Memory（导出/预览/确认/CAS 单条应用） | `controlplane/project_memory_md.py` + Control Plane CLI | T56/T57 各 11 项、T58 26 项、T59 19 项、T60 16 项 Pass（确定性）；未调真实模型/Worker |
 
 M4 未引入任何 Agent Framework。模型输出必须通过严格 schema 校验，模型永远
 不直接接触 Worker、SQLite、文件系统或 Shell；所有派工经
@@ -393,7 +394,7 @@ add a health endpoint
 # VERIFIED HARD CONSTRAINTS (must be obeyed)
 - no network: Do not add network calls to this repository.
 
-# VERIFIED KNOWLEDGE
+# PROJECT KNOWLEDGE (verification-labelled)
 - test command [CANDIDATE]: Run `python -m pytest` before claiming success.
 
 # RULES
@@ -581,8 +582,9 @@ CLI 查询 Goal 表使用 SQLite query-only 连接；不会因查询而创表、
 ### 6.3d M4-F Markdown Project Memory
 
 Markdown 是本地、可编辑的 Project Context 投影，**不是新的权威状态库**；SQLite
-仍决定知识版本、任务状态和执行结果。默认文件只写到
-`.poc-state/projects/<project-id>/memory/`，不会放进项目的公开 Git 目录。
+仍决定知识版本、任务状态和执行结果。默认文件写到
+`<ledger-dir>/projects/<project-id>/memory/`；对默认 `.poc-state/ledger.db` 仍是
+`.poc-state/projects/...`，不会放进项目的公开 Git 目录。
 
 ```powershell
 $L = ".poc-state/ledger.db"
@@ -600,14 +602,18 @@ python scripts/controlplane_cli.py --ledger $L memory-apply <project-id> `
   --entry .poc-state/projects/<project-id>/memory/entries/<entry-id>.md `
   --confirm-preview <preview-digest>
 
-# 4) CAS 冲突时重新导出、重新编辑和预览，不覆盖新版本
-python scripts/controlplane_cli.py --ledger $L memory-export <project-id>
+# 4) 普通重导出会拒绝覆盖未应用的本地编辑。只在确认丢弃本地文件时使用 --force
+python scripts/controlplane_cli.py --ledger $L memory-export <project-id> --force
 
 # 5) 只有此后新提交的任务读取新 Context；查看实际版本和 Entry 引用
 python scripts/controlplane_cli.py --ledger $L project submit <project-id> `
   "continue with the updated project knowledge" --idempotency-key memory-v2
 python scripts/controlplane_cli.py --ledger $L provenance <new-task-id>
 ```
+
+三个 `memory-*` 命令都支持 `--memory-root <private-local-path>` 显式覆盖；
+同一套文件必须使用相同覆盖路径。不要指向公开共享目录或项目的未受控
+Git 目录，因为 Entry 可能包含 `local` 安全域内容。
 
 MVP 绝不允许 Markdown 修改 `id`、`project_id`、`kind`、`verification`、
 `security_domain`、`source`、`evidence_refs`、`version`，不允许修改 verified Entry，
@@ -736,7 +742,7 @@ sandbox/                        两个一次性 Git 仓库（不入库）
 | M4-C | 自动唤醒与运行时可靠性收口 | **已完成**（T41–T49） |
 | M4-D | Conversational LD | **已完成**（T50–T53） |
 | M4-E | 两级关联召回（Chain of Recall / Inline & Spill / Fast Path） | **确定性完成**（T54 31 项 + T55 19 项 Pass；未运行真实模型/Worker） |
-| M4-F | Markdown Project Memory MVP（导出/预览/显式 CAS 应用/注入验收） | **确定性完成**（T56–T59；未运行真实模型/Worker） |
+| M4-F | Markdown Project Memory MVP（导出/预览/显式 CAS 应用/注入验收） | **确定性完成**（T56–T60；未运行真实模型/Worker） |
 | M5 | Distributed Workspace（多节点、远程派工、受控同步） | 未实现 |
 
 历史计划 [docs/V0.2_PLAN.md](docs/V0.2_PLAN.md) 描述的是 v0.2 阶段（本地单用户

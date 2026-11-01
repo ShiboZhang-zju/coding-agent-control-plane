@@ -104,6 +104,11 @@ completed，零人工介入）**；故障恢复与副作用拒绝路径另由 T3
 
 ## M4-F Markdown Project Memory 的剩余限制（2026-11-01）
 
+本轮 T60 已收口三个日常使用风险：普通重导出不再覆盖 divergent Entry
+（只有显式 `--force` 才丢弃）；默认路径绑定 `<ledger-dir>/projects`；
+Knowledge 章节不再将 candidate/unverified 条目误称为 verified。
+证据：`evidence/project/T60-memory-export-safety.json`（16/16 Pass）。
+
 | # | 位置 | 影响 / 当前处理 | 复现 / 验证 | 状态 |
 |---|---|---|---|---|
 | M4F-R01 | `controlplane/project_memory_md.py` | MVP 一次只预览/应用一条 Entry，不提供整项目多文件原子事务或后台 watch；这是避免把 Markdown 变成第二份状态。 | 同时编辑两条文件，分别 preview/apply；第二条若遇到 Context version 漂移，应重新导出/预览。 | 设计边界；T58 单条 CAS Pass |

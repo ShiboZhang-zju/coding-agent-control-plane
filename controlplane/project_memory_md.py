@@ -55,6 +55,10 @@ class ProjectMemoryPolicyError(ProjectMemoryError):
     """A requested Markdown change crosses the editable-field boundary."""
 
 
+class ProjectMemoryConflictError(ProjectMemoryError):
+    """A re-export would overwrite unapplied local Entry edits."""
+
+
 class ProjectMemoryMarkdown:
     """Deterministic export and single-entry preview over ProjectContextStore."""
 
@@ -64,8 +68,9 @@ class ProjectMemoryMarkdown:
         self.store = service.store
         self.context = ProjectContextStore(self.store)
         self.goals = goal_store
-        self.base_dir = Path(
-            base_dir if base_dir is not None else ".poc-state/projects")
+        self.base_dir = (
+            Path(base_dir) if base_dir is not None
+            else Path(self.store.path).parent / "projects")
 
     # ------------------------------------------------------------------ #
     # paths and atomic output
@@ -152,7 +157,7 @@ class ProjectMemoryMarkdown:
     # ------------------------------------------------------------------ #
     # deterministic export
     # ------------------------------------------------------------------ #
-    def export(self, project_id: str) -> dict[str, Any]:
+    def export(self, project_id: str, *, force: bool = False) -> dict[str, Any]:
         project = self.store.get_project(project_id)
         if not project:
             raise KeyError(f"no project {project_id}")
@@ -167,13 +172,36 @@ class ProjectMemoryMarkdown:
         )
         project_text = self._render_project(project, context, entries)
         current_text = self._render_current(project_id)
-        self._atomic_write(memory / "PROJECT.md", project_text)
-        self._atomic_write(memory / "CURRENT.md", current_text)
-        written = []
+        entry_outputs: list[tuple[Path, str]] = []
+        conflicts: list[Path] = []
         for entry in entries:
             self._safe_component(str(entry["id"]), "context entry id")
             path = entries_dir / f"{entry['id']}.md"
-            self._atomic_write(path, self._render_entry(entry))
+            content = self._render_entry(entry)
+            entry_outputs.append((path, content))
+            if path.is_symlink():
+                raise ProjectMemoryAccessError(
+                    f"refusing to inspect symlinked memory file: {path}")
+            if path.exists():
+                if not path.is_file():
+                    raise ProjectMemoryAccessError(
+                        f"memory entry path is not a regular file: {path}")
+                if path.read_bytes() != content.encode("utf-8"):
+                    conflicts.append(path)
+        if conflicts and not force:
+            rendered = ", ".join(str(path.resolve()) for path in conflicts)
+            raise ProjectMemoryConflictError(
+                "refusing to overwrite divergent Markdown entry files: "
+                f"{rendered}; apply or preserve the local edits, or explicitly "
+                "re-export with force=True / --force to discard them")
+
+        # Preflight every Entry before replacing any generated view or Entry.
+        # This prevents a detected local edit from leaving a half-exported tree.
+        self._atomic_write(memory / "PROJECT.md", project_text)
+        self._atomic_write(memory / "CURRENT.md", current_text)
+        written = []
+        for path, content in entry_outputs:
+            self._atomic_write(path, content)
             written.append(str(path.resolve()))
         return {
             "project_id": project_id,

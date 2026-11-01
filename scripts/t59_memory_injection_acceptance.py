@@ -137,7 +137,7 @@ def main() -> int:
     old_after = store.get(old_task["task_id"])
 
     # Prepare a stale Markdown edit, then let a concurrent SQLite writer win.
-    memory.export(project["id"])
+    memory.export(project["id"], force=True)
     candidate_path = (
         memory.memory_dir(project["id"]) / "entries" / f"{candidate['id']}.md")
     stale_text = replace_once(

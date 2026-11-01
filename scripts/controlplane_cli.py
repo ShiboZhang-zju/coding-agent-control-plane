@@ -128,9 +128,11 @@ def _run_memory_command(args, plane: ControlPlane, store: TaskStore) -> int:
     goals = LDGoalStore(store.path, read_only=True)
     try:
         memory = ProjectMemoryMarkdown(
-            ProjectService(service_plane), goal_store=goals)
+            ProjectService(service_plane), goal_store=goals,
+            base_dir=args.memory_root)
         if args.command == "memory-export":
-            emit(memory.export(project["id"]), compact=args.compact)
+            emit(memory.export(project["id"], force=args.force),
+                 compact=args.compact)
             return 0
         if args.command == "memory-preview":
             preview = memory.preview(project["id"], args.entry)
@@ -466,15 +468,27 @@ def build_parser() -> argparse.ArgumentParser:
     memory_export = sub.add_parser(
         "memory-export", help="export SQLite Project Context as local Markdown")
     memory_export.add_argument("project")
+    memory_export.add_argument(
+        "--memory-root", type=Path, default=None,
+        help="override the default <ledger-directory>/projects root")
+    memory_export.add_argument(
+        "--force", action="store_true",
+        help="discard divergent local Entry edits and export SQLite content")
     memory_preview = sub.add_parser(
         "memory-preview", help="validate and preview one editable memory entry")
     memory_preview.add_argument("project")
     memory_preview.add_argument("--entry", required=True, type=Path)
+    memory_preview.add_argument(
+        "--memory-root", type=Path, default=None,
+        help="override the default <ledger-directory>/projects root")
     memory_apply = sub.add_parser(
         "memory-apply", help="apply one explicitly confirmed Markdown preview")
     memory_apply.add_argument("project")
     memory_apply.add_argument("--entry", required=True, type=Path)
     memory_apply.add_argument("--confirm-preview", required=True)
+    memory_apply.add_argument(
+        "--memory-root", type=Path, default=None,
+        help="override the default <ledger-directory>/projects root")
 
     sub.add_parser("list", help="list work items")
     show = sub.add_parser("show", help="show one work item with attempts/events")

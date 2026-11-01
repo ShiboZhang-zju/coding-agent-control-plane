@@ -189,7 +189,7 @@ def main() -> int:
             project["id"], candidate_path, confirmed["preview_digest"]))
 
     # Re-export the newly authoritative versions before negative edits.
-    memory.export(project["id"])
+    memory.export(project["id"], force=True)
     candidate_path = memory_dir / "entries" / f"{candidate['id']}.md"
     current_text = candidate_path.read_text(encoding="utf-8")
 
@@ -293,7 +293,7 @@ def main() -> int:
     cli_export = json.loads(subprocess.run([
         sys.executable, str(ROOT / "scripts" / "controlplane_cli.py"),
         "--ledger", str(LEDGER), "--compact", "memory-export",
-        project["id"],
+        project["id"], "--force",
     ], check=True, text=True, capture_output=True).stdout)
     cli_path = next(
         Path(path) for path in cli_export["entry_files"]
