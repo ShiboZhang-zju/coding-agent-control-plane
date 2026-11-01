@@ -1,0 +1,27 @@
+{
+  "test": "T57 constraint verification semantics",
+  "worker_started": false,
+  "real_model_called": false,
+  "fixture": "<REPO>/sandbox/t57-constraint-semantics",
+  "checks": {
+    "verified_header_is_explicit": false,
+    "unverified_header_is_separate": false,
+    "verified_constraint_is_complete_despite_budget": true,
+    "candidate_not_in_hard_section": false,
+    "unverified_not_in_hard_section": false,
+    "candidate_is_marked_untrusted": false,
+    "unverified_is_marked_untrusted": true,
+    "constraints_are_not_duplicated": true,
+    "verified_constraint_satisfies_requirement": true,
+    "candidate_constraint_does_not_satisfy_requirement": true,
+    "candidate_tag_does_not_satisfy_prerequisite": true
+  },
+  "result": "FAIL",
+  "failed": [
+    "verified_header_is_explicit",
+    "unverified_header_is_separate",
+    "candidate_not_in_hard_section",
+    "unverified_not_in_hard_section",
+    "candidate_is_marked_untrusted"
+  ]
+}

@@ -492,6 +492,17 @@ class ProjectRecall:
         if self._json_depth(response) > budget.max_depth:
             budget._truncate("max_depth")
         node = response.get("object") or {}
+        continuation = dict(response.get("continuation") or {})
+        # A cursor advances past the current page.  If the hard response budget
+        # forces us to erase that page's refs, returning the already-advanced
+        # cursor would make those object IDs unreachable to a well-behaved
+        # client.  Fail closed so it can retry the *same* cursor with a smaller
+        # limit or a larger owner-authorized budget.
+        if node.get("refs") and continuation.get("next_cursor") is not None:
+            raise RecallError(
+                "recall relation page cannot fit the response budget without "
+                "skipping references; reduce limit or increase the allowed "
+                "response budget, then retry the same cursor")
         total = int(node.get("related_total") or 0)
         minimal_node = {
             key: node.get(key)
@@ -501,7 +512,6 @@ class ProjectRecall:
             "refs": [], "related_total": total,
             "related_omitted": total,
         })
-        continuation = dict(response.get("continuation") or {})
         minimal = {
             "schema_version": response.get("schema_version"),
             "level": response.get("level"),

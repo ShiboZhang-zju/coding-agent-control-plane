@@ -1,0 +1,29 @@
+{
+  "test": "T56 recall pagination budget and inspect continuity",
+  "worker_started": false,
+  "real_model_called": false,
+  "fixture": "<REPO>/sandbox/t56-recall-pagination",
+  "checks": {
+    "normal_first_page_has_cursor": true,
+    "budget_degraded_middle_page_fails_closed": false,
+    "failed_page_returns_no_cursor_object": false,
+    "retry_from_original_cursor_recovers_expected_ids": true,
+    "inspect_summary_is_structured": false,
+    "inspect_summary_is_bounded": true,
+    "inspect_summary_keeps_object_identity": false,
+    "inspect_summary_keeps_status": false,
+    "inspect_summary_keeps_evidence_identity": false,
+    "inspect_summary_marks_truncation": false,
+    "inspect_summary_survives_json_roundtrip": true
+  },
+  "result": "FAIL",
+  "failed": [
+    "budget_degraded_middle_page_fails_closed",
+    "failed_page_returns_no_cursor_object",
+    "inspect_summary_is_structured",
+    "inspect_summary_keeps_object_identity",
+    "inspect_summary_keeps_status",
+    "inspect_summary_keeps_evidence_identity",
+    "inspect_summary_marks_truncation"
+  ]
+}

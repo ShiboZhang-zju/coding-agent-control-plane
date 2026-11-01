@@ -32,8 +32,6 @@ from pathlib import Path
 from typing import Iterable
 
 from controlplane.project_context import (
-    KINDS,
-    MANDATORY_KINDS,
     ProjectContextStore,
     is_hard_constraint,
 )
@@ -57,6 +55,8 @@ KIND_BUDGET_SHARE = {
 #: Order sections appear in the prompt. Stable on purpose.
 SECTION_ORDER = ("background", "constraints", "architecture", "knowledge",
                  "progress", "decisions")
+RENDER_ORDER = ("background", "constraints", "unverified_constraints",
+                "architecture", "knowledge", "progress", "decisions")
 
 _WORD_RE = re.compile(r"[A-Za-z0-9_\-]{3,}|[\u4e00-\u9fff]{2,}")
 
@@ -222,10 +222,19 @@ class ContextBuilder:
         sections: dict[str, list[dict]] = {}
         for kind in SECTION_ORDER:
             entries = by_kind.get(kind, [])
-            if kind in MANDATORY_KINDS:
-                # Hard constraints are never truncated away: dropping one is a
-                # silent policy change, which is worse than a long prompt.
-                sections[kind] = list(entries)
+            if kind == "constraints":
+                # Only verified constraints are policy.  They are injected in
+                # full even when that exceeds the ordinary relevance budget;
+                # silently dropping one would change the project's rules.
+                sections[kind] = [
+                    entry for entry in entries if is_hard_constraint(entry)]
+                notes, kind_warnings = self._select(
+                    [entry for entry in entries
+                     if not is_hard_constraint(entry)],
+                    task_tokens, wanted_tags,
+                    max(200, int(budget * KIND_BUDGET_SHARE["constraints"])))
+                sections["unverified_constraints"] = notes
+                warnings.extend(kind_warnings)
                 continue
             share = KIND_BUDGET_SHARE.get(kind, 0.1)
             chosen, kind_warnings = self._select(
@@ -281,13 +290,15 @@ class ContextBuilder:
 
         titles = {
             "background": "PROJECT BACKGROUND",
-            "constraints": "HARD CONSTRAINTS (must be obeyed)",
+            "constraints": "VERIFIED HARD CONSTRAINTS (must be obeyed)",
+            "unverified_constraints": (
+                "UNVERIFIED CONSTRAINTS / NOTES (not mandatory)"),
             "architecture": "ARCHITECTURE",
             "knowledge": "VERIFIED KNOWLEDGE",
             "progress": "PROJECT PROGRESS / PRECONDITIONS",
             "decisions": "DECISIONS AND RATIONALE",
         }
-        for kind in SECTION_ORDER:
+        for kind in RENDER_ORDER:
             entries = sections.get(kind) or []
             if not entries:
                 continue
@@ -315,8 +326,11 @@ class ContextBuilder:
             out.append("")
 
         out.append("# RULES")
-        out.append("- Obey every HARD CONSTRAINT above; if one conflicts with the "
-                   "task, stop and report the conflict instead of working around it.")
+        out.append("- Obey every VERIFIED HARD CONSTRAINT above; if one conflicts "
+                   "with the task, stop and report the conflict instead of working "
+                   "around it.")
+        out.append("- UNVERIFIED CONSTRAINTS / NOTES are not mandatory rules and "
+                   "must not satisfy a verified prerequisite.")
         out.append("- Entries marked [CANDIDATE] or [UNVERIFIED] are unconfirmed: "
                    "verify them before relying on them.")
         out.append("- Do not invent project facts that are not stated above.")

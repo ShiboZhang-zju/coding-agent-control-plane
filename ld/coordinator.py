@@ -1182,17 +1182,109 @@ class LDCoordinator:
                                    lease.token)
         return status
 
-    @staticmethod
-    def _inspection_summary(result: dict) -> str | None:
-        """Bounded JSON snapshot of an inspect result (never prompts/keys)."""
+    @classmethod
+    def _inspection_summary(cls, result: dict) -> dict[str, Any] | None:
+        """Bounded, valid JSON structure for the next inspect decision.
+
+        A raw string slice can cut JSON in the middle of an ID or value.  Keep
+        the authoritative shape instead: identity/status/evidence fields are
+        projected first, long payloads are clipped, and the result remains a
+        normal JSON object that survives the GoalStore round-trip.
+        """
         if result.get("action") != "inspect":
             return None
-        try:
-            payload = json.dumps(result.get("result"), ensure_ascii=False,
-                                 default=str)
-        except (TypeError, ValueError):
+        raw = result.get("result")
+        if not isinstance(raw, Mapping):
             return None
-        return payload[:1200]
+        projected, truncated = cls._project_inspection_value(raw)
+        if not isinstance(projected, dict):
+            return None
+        projected["truncated"] = bool(truncated)
+        if cls._inspection_json_bytes(projected) <= 1_500:
+            return projected
+
+        # Stable fallback: retain the fields required to continue the query,
+        # never an arbitrary prefix of the serialized payload.
+        obj = raw.get("object") if isinstance(raw.get("object"), Mapping) else {}
+        detail = raw.get("detail") if isinstance(raw.get("detail"), Mapping) else {}
+        continuation = (raw.get("continuation")
+                        if isinstance(raw.get("continuation"), Mapping) else {})
+        fallback = {
+            "schema_version": raw.get("schema_version"),
+            "level": raw.get("level"),
+            "project_id": raw.get("project_id"),
+            "object": {key: obj.get(key) for key in (
+                "object_type", "object_id", "status", "expandable",
+                "related_total", "related_omitted") if key in obj},
+            "detail": {key: detail.get(key) for key in (
+                "evidence_id", "work_item_id", "attempt_id", "entry_id",
+                "task_id", "project_id", "state", "verdict", "queue_status",
+                "kind", "verification", "security_domain",
+                "session_reference_id", "context_version") if key in detail},
+            "continuation": {key: continuation.get(key) for key in (
+                "has_more", "next_cursor") if key in continuation},
+            "truncated": True,
+        }
+        if cls._inspection_json_bytes(fallback) > 1_500:
+            # Cursor size is independently bounded by the recall validator, but
+            # an unusually large one must not evict object identity.
+            fallback["continuation"].pop("next_cursor", None)
+            fallback["continuation"]["cursor_omitted"] = True
+        return fallback
+
+    @classmethod
+    def _project_inspection_value(
+        cls, value: Any, *, depth: int = 0,
+    ) -> tuple[Any, bool]:
+        if depth > 4:
+            return None, True
+        if isinstance(value, str):
+            if len(value) <= 240:
+                return value, False
+            return value[:239] + "…", True
+        if value is None or isinstance(value, (bool, int, float)):
+            return value, False
+        if isinstance(value, Mapping):
+            priority = {
+                name: index for index, name in enumerate((
+                    "schema_version", "level", "project_id", "object",
+                    "object_type", "object_id", "status", "detail",
+                    "evidence_id", "work_item_id", "attempt_id", "entry_id",
+                    "task_id", "state", "verdict", "queue_status", "kind",
+                    "verification", "security_domain", "evidence_refs",
+                    "evidence_ids", "session_reference_id", "context_version",
+                    "counts", "blocked_tasks", "narrative_progress",
+                    "continuation", "has_more", "next_cursor"))}
+            items = sorted(
+                value.items(),
+                key=lambda item: (priority.get(str(item[0]), 10_000),
+                                  str(item[0])))
+            out: dict[str, Any] = {}
+            truncated = len(items) > 18
+            for key, item in items[:18]:
+                child, clipped = cls._project_inspection_value(
+                    item, depth=depth + 1)
+                out[str(key)] = child
+                truncated = truncated or clipped
+            return out, truncated
+        if isinstance(value, (list, tuple)):
+            out = []
+            truncated = len(value) > 6
+            for item in value[:6]:
+                child, clipped = cls._project_inspection_value(
+                    item, depth=depth + 1)
+                out.append(child)
+                truncated = truncated or clipped
+            return out, truncated
+        text = str(value)
+        return (text if len(text) <= 240 else text[:239] + "…",
+                len(text) > 240)
+
+    @staticmethod
+    def _inspection_json_bytes(value: Any) -> int:
+        return len(json.dumps(
+            value, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), default=str).encode("utf-8"))
 
     @staticmethod
     def _goal_transition_fields(goal: dict, result: dict,
