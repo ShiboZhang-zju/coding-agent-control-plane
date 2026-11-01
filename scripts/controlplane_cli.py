@@ -113,6 +113,30 @@ _PROJECT_CONTEXT_COMMANDS = (
     "brief", "progress", "tasks", "context", "workspaces", "sessions",
     "context-add", "context-update", "context-verify", "context-sync-task",
     "context-update-log", "submit", "handoff-prepare", "handoff-submit")
+_MEMORY_COMMANDS = ("memory-export", "memory-preview")
+
+
+def _run_memory_command(args, plane: ControlPlane, store: TaskStore) -> int:
+    """Human-operated Markdown projection over the existing context store."""
+    from controlplane.project_memory_md import ProjectMemoryMarkdown
+    from controlplane.project_service import ProjectService
+    from ld.goal_store import LDGoalStore
+
+    project = plane.project(args.project)
+    service_plane = ControlPlane(
+        AdapterRef(project.get("default_adapter") or "codebuddy"), store)
+    goals = LDGoalStore(store.path, read_only=True)
+    try:
+        memory = ProjectMemoryMarkdown(
+            ProjectService(service_plane), goal_store=goals)
+        if args.command == "memory-export":
+            emit(memory.export(project["id"]), compact=args.compact)
+            return 0
+        preview = memory.preview(project["id"], args.entry)
+        emit(preview, compact=args.compact)
+        return 0 if preview["can_apply"] else 3
+    finally:
+        goals.close()
 
 
 def _run_project_command(args, plane: ControlPlane, store: TaskStore) -> int:
@@ -434,6 +458,14 @@ def build_parser() -> argparse.ArgumentParser:
         "provenance", help="original task, effective prompt and context refs")
     provenance.add_argument("task_id")
 
+    memory_export = sub.add_parser(
+        "memory-export", help="export SQLite Project Context as local Markdown")
+    memory_export.add_argument("project")
+    memory_preview = sub.add_parser(
+        "memory-preview", help="validate and preview one editable memory entry")
+    memory_preview.add_argument("project")
+    memory_preview.add_argument("--entry", required=True, type=Path)
+
     sub.add_parser("list", help="list work items")
     show = sub.add_parser("show", help="show one work item with attempts/events")
     show.add_argument("task_id")
@@ -487,6 +519,10 @@ def main() -> int:
                     project["id"], args.project_command == "enable")
             emit(project_view(result), compact=args.compact)
             return 0
+
+        if args.command in _MEMORY_COMMANDS:
+            plane = ControlPlane(AdapterRef("ledger-only"), store)
+            return _run_memory_command(args, plane, store)
 
         if args.command == "enqueue":
             cwd = Path(args.cwd).expanduser().resolve()
