@@ -1711,44 +1711,53 @@ class TaskStore:
         successful CAS always leaves an auditable snapshot of the previous state.
         """
         self.assert_writable("update_context_entry")
-        row = self._conn.execute(
-            "SELECT * FROM project_context_entries WHERE id=?", (entry_id,)).fetchone()
-        if not row:
-            raise KeyError(f"no context entry {entry_id}")
-        if int(row["version"]) != int(expected_version):
-            return None
-        previous = self._row_to_context_entry(row)
-        allowed = {"kind", "title", "body", "tags", "verification",
-                   "security_domain", "source", "evidence_refs"}
-        unknown = set(changes) - allowed
-        if unknown:
-            raise ValueError("unsupported context fields: " + ", ".join(sorted(unknown)))
-        now = time.time()
-        new_version = self._bump_context_version(row["project_id"])
-        sets, values = [], {}
-        for key, value in changes.items():
-            if key in ("tags", "evidence_refs"):
-                values[key] = _dump(value or [])
-            else:
-                values[key] = value
-            sets.append(f"{key} = :{key}")
-        values["version"] = new_version
-        values["updated_at"] = now
-        values["id"] = entry_id
-        sets += ["version = :version", "updated_at = :updated_at"]
-        cur = self._conn.execute(
-            f"UPDATE project_context_entries SET {', '.join(sets)} "
-            "WHERE id = :id AND version = :expected", {**values,
-                                                       "expected": expected_version})
-        if cur.rowcount != 1:
-            self._conn.rollback()
-            return None
-        self._conn.execute(
-            "INSERT INTO project_context_revisions (entry_id, project_id, version,"
-            " snapshot, changed_at, changed_by, note) VALUES (?,?,?,?,?,?,?)",
-            (entry_id, row["project_id"], expected_version, _dump(previous),
-             now, changed_by, note))
-        self._conn.commit()
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = self._conn.execute(
+                "SELECT * FROM project_context_entries WHERE id=?",
+                (entry_id,)).fetchone()
+            if not row:
+                raise KeyError(f"no context entry {entry_id}")
+            if int(row["version"]) != int(expected_version):
+                self._conn.rollback()
+                return None
+            previous = self._row_to_context_entry(row)
+            allowed = {"kind", "title", "body", "tags", "verification",
+                       "security_domain", "source", "evidence_refs"}
+            unknown = set(changes) - allowed
+            if unknown:
+                raise ValueError(
+                    "unsupported context fields: " + ", ".join(sorted(unknown)))
+            now = time.time()
+            new_version = self._bump_context_version(row["project_id"])
+            sets, values = [], {}
+            for key, value in changes.items():
+                if key in ("tags", "evidence_refs"):
+                    values[key] = _dump(value or [])
+                else:
+                    values[key] = value
+                sets.append(f"{key} = :{key}")
+            values["version"] = new_version
+            values["updated_at"] = now
+            values["id"] = entry_id
+            sets += ["version = :version", "updated_at = :updated_at"]
+            cur = self._conn.execute(
+                f"UPDATE project_context_entries SET {', '.join(sets)} "
+                "WHERE id = :id AND version = :expected",
+                {**values, "expected": expected_version})
+            if cur.rowcount != 1:
+                self._conn.rollback()
+                return None
+            self._conn.execute(
+                "INSERT INTO project_context_revisions (entry_id, project_id, version,"
+                " snapshot, changed_at, changed_by, note) VALUES (?,?,?,?,?,?,?)",
+                (entry_id, row["project_id"], expected_version, _dump(previous),
+                 now, changed_by, note))
+            self._conn.commit()
+        except BaseException:
+            if self._conn.in_transaction:
+                self._conn.rollback()
+            raise
         return self.get_context_entry(entry_id)
 
     @_synchronized

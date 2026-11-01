@@ -7,6 +7,7 @@ not watch files, execute Markdown, or create a second memory state.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -17,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from controlplane.project_context import (
+    ContextVersionConflict,
     KINDS,
     SECURITY_DOMAINS,
     VERIFICATIONS,
@@ -298,6 +300,60 @@ class ProjectMemoryMarkdown:
     # strict parse and preview
     # ------------------------------------------------------------------ #
     def preview(self, project_id: str, entry_file: str | Path) -> dict[str, Any]:
+        preview, _document, _current = self._preview_state(
+            project_id, entry_file)
+        return preview
+
+    def apply(self, project_id: str, entry_file: str | Path,
+              confirm_preview: str) -> dict[str, Any]:
+        """Apply one explicitly confirmed candidate/unverified Entry edit."""
+        if not isinstance(confirm_preview, str) or not confirm_preview.strip():
+            raise ProjectMemoryPolicyError(
+                "memory apply requires --confirm-preview <digest>")
+        preview, document, current = self._preview_state(
+            project_id, entry_file)
+        if preview["version_conflict"]:
+            raise ContextVersionConflict(
+                preview["entry_id"], preview["markdown_version"],
+                preview["sqlite_version"])
+        if preview["policy_errors"]:
+            raise ProjectMemoryPolicyError("; ".join(preview["policy_errors"]))
+        if not preview["changed_fields"]:
+            raise ProjectMemoryPolicyError("memory entry has no editable changes")
+        expected_digest = preview.get("preview_digest") or ""
+        if not hmac.compare_digest(confirm_preview.strip(), expected_digest):
+            raise ProjectMemoryPolicyError(
+                "confirmed preview digest does not match the current file; "
+                "run memory-preview again")
+        fields = document["fields"]
+        changes: dict[str, Any] = {}
+        if "title" in preview["changed_fields"]:
+            changes["title"] = fields["title"]
+        if "body" in preview["changed_fields"]:
+            changes["body"] = document["body"]
+        if "tags" in preview["changed_fields"]:
+            changes["tags"] = list(fields["tags"])
+        updated = self.context.update_context_entry(
+            project_id, preview["entry_id"], preview["markdown_version"],
+            changes, changed_by="markdown-memory",
+            note=f"applied confirmed Markdown preview {expected_digest}")
+        revisions = self.context.revisions(project_id, preview["entry_id"])
+        return {
+            "project_id": project_id,
+            "entry_id": preview["entry_id"],
+            "changed_fields": preview["changed_fields"],
+            "previous_version": int(current.get("version") or 0),
+            "updated_version": int(updated.get("version") or 0),
+            "context_version": self.store.context_version(project_id),
+            "revision_count": len(revisions),
+            "preview_digest": expected_digest,
+            "applied": True,
+            "markdown_requires_reexport": True,
+        }
+
+    def _preview_state(
+        self, project_id: str, entry_file: str | Path,
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         if not self.store.get_project(project_id):
             raise KeyError(f"no project {project_id}")
         path = self._entry_path(project_id, entry_file)
@@ -352,7 +408,7 @@ class ProjectMemoryMarkdown:
         digest = self._sha256(json.dumps(
             digest_payload, ensure_ascii=False, sort_keys=True,
             separators=(",", ":"))) if can_apply else None
-        return {
+        preview = {
             "project_id": project_id,
             "entry_id": entry_id,
             "entry_file": str(path),
@@ -370,6 +426,7 @@ class ProjectMemoryMarkdown:
                 if can_apply else
                 "refuse without modifying SQLite"),
         }
+        return preview, document, current
 
     @classmethod
     def _parse_entry(cls, path: Path) -> dict[str, Any]:

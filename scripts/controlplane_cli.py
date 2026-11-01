@@ -113,7 +113,7 @@ _PROJECT_CONTEXT_COMMANDS = (
     "brief", "progress", "tasks", "context", "workspaces", "sessions",
     "context-add", "context-update", "context-verify", "context-sync-task",
     "context-update-log", "submit", "handoff-prepare", "handoff-submit")
-_MEMORY_COMMANDS = ("memory-export", "memory-preview")
+_MEMORY_COMMANDS = ("memory-export", "memory-preview", "memory-apply")
 
 
 def _run_memory_command(args, plane: ControlPlane, store: TaskStore) -> int:
@@ -132,9 +132,14 @@ def _run_memory_command(args, plane: ControlPlane, store: TaskStore) -> int:
         if args.command == "memory-export":
             emit(memory.export(project["id"]), compact=args.compact)
             return 0
-        preview = memory.preview(project["id"], args.entry)
-        emit(preview, compact=args.compact)
-        return 0 if preview["can_apply"] else 3
+        if args.command == "memory-preview":
+            preview = memory.preview(project["id"], args.entry)
+            emit(preview, compact=args.compact)
+            return 0 if preview["can_apply"] else 3
+        emit(memory.apply(
+            project["id"], args.entry, args.confirm_preview),
+            compact=args.compact)
+        return 0
     finally:
         goals.close()
 
@@ -465,6 +470,11 @@ def build_parser() -> argparse.ArgumentParser:
         "memory-preview", help="validate and preview one editable memory entry")
     memory_preview.add_argument("project")
     memory_preview.add_argument("--entry", required=True, type=Path)
+    memory_apply = sub.add_parser(
+        "memory-apply", help="apply one explicitly confirmed Markdown preview")
+    memory_apply.add_argument("project")
+    memory_apply.add_argument("--entry", required=True, type=Path)
+    memory_apply.add_argument("--confirm-preview", required=True)
 
     sub.add_parser("list", help="list work items")
     show = sub.add_parser("show", help="show one work item with attempts/events")
