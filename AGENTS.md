@@ -237,6 +237,25 @@
 - **CLI 不猜会话。** 一次性命令必须显式 `--conversation` / `--new`，或单操作员
   显式 `--continue-latest`；交互式会话自带粘性。
 
+### 5.6 关联召回边界（M4-E 引入）
+
+- **召回是只读关系投影，不是新的 Memory 真相。** `ld/recall.py` 只沿现有
+  `Project → Goal → WorkItem → Attempt → SessionReference/Evidence` 与
+  `WorkItem → Context Entry` 引用展开；不得复制 Ledger、新建任务状态或
+  引入向量/图数据库。
+- **Level 1 只给权威摘要与可展开 ID，Level 2 才读指定详情。** 返回数量与
+  内容字符必须有界；长正文不得默认注入模型。Effective Prompt 始终不进入
+  召回结果。
+- **所有对象先验项目归属。** 未知 ID 显式报错；跨项目 Goal/Task/Attempt/
+  Session/Evidence/Context 必须拒绝，不得以空结果掩盖调用错误。
+- **安全域由调用方授权，模型不能自报。** 直接展开未授权 `local` Context
+  或 Evidence 必须拒绝；摘要视图不得含本地正文、Goal 文本、任务原文、
+  Worker/Session 本地身份或 Evidence payload。
+- **召回查询零副作用。** 不得增加 WorkItem/Goal/Context revision，不得更新
+  `updated_at`；CLI 使用 query-only Goal 连接，不得为一次查询创建或迁移表。
+- **Fast Path / Slow Path 仍然分离。** ID 解析、归属校验、状态投影、预算截断
+  均为确定性 Fast Path；只有 LD 需要决定下一步时才调用 LLM。
+
 ## 6. 派发与审批规则（M1 补充）
 - 入队即冻结 Effective Prompt。已入队任务的内容不得因上下文更新而改变。
 - `task_digest` 必须绑定实际执行内容；项目任务的 digest 还包含

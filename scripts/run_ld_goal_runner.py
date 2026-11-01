@@ -114,7 +114,8 @@ def main() -> int:
                 AdapterRef(adapter_name), store, require_registered_projects=True))
 
         tools = LDTools(read_service,
-                        submission_service_factory=submission_service)
+                        submission_service_factory=submission_service,
+                        goal_store=goal_store)
         model = _model_from_args(args)
         domain_spec = args.model_domains or os.environ.get("LD_MODEL_DOMAINS", "")
         domains = tuple(item.strip() for item in domain_spec.split(",")

@@ -27,7 +27,8 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 | **M4-B** | 有界连续推进（持久化 Goal + 依赖任务确定性交接 + 恢复） | M3 + M4-A | **已完成**（T39/T40 确定性含崩溃注入与租约 fencing；T38b 真实模型严格闭环 25/25 Pass；T38c 真实故障恢复与副作用拒绝验证） |
 | **M4-C** | 自动唤醒与运行时可靠性收口 | M4-B | **已完成**（T41–T49，含 T48 真实常驻服务双任务零人工闭环） |
 | **M4-D** | Conversational LD（自然语言查询 / 提交 Goal / 阻塞解释 / 显式确认恢复） | M4-C | **已完成**（T50/T51/T52 确定性 + T53 真实模型与真实 Worker 对话闭环） |
-| M4-E | Markdown Project Memory（导出/编辑/校验导入、候选晋升、去重、失效） | M4-D | 未开始 |
+| **M4-E** | 关联召回（Chain of Recall + Inline & Spill + Fast/Slow Path） | M4-D | **确定性完成**（T54 31 项 Pass；未运行真实模型/Worker） |
+| M4-F | Markdown Project Memory（导出/编辑/校验导入、候选晋升、去重、失效） | M4-E | 待规划 |
 | M5 | Distributed Workspace | M1–M4 | 未实现 |
 
 依赖是**功能依赖**而非排期依赖。M4-B 的依赖任务交接走控制平面确定性
@@ -238,7 +239,7 @@ Handoff 状态机或第二份验收真相。
 
 | 交付物 | 实现位置 | 安全/语义边界 | 当前状态 |
 |---|---|---|---|
-| LD Tool Facade | `ld/tools.py` | 仅 7 个工具；不开放 context 写、approve/deny、Handoff、Policy、直接 Worker 派发；提交签名绑定 Workspace/Assertions/执行意图但不绑定 Context Version | T32 Pass |
+| LD Tool Facade | `ld/tools.py` | M4-A 原始 7 个工具；M4-E 新增 2 个只读召回工具。不开放 context 写、approve/deny、Handoff、Policy、直接 Worker 派发；提交签名绑定 Workspace/Assertions/执行意图但不绑定 Context Version | T32 + T54 Pass（确定性） |
 | 任务状态确定性投影 | `ProjectService.get_task_status()` | Worker state 与 control-plane verdict 分离，不暴露/修改 Effective Prompt；投影 LD goal/signature 引用 | T32 Pass |
 | 结构化决策 | `ld/decision.py` | `inspect / submit_task / wait / request_human / finish`；严格拒绝未知字段与命令参数 | T32 Pass |
 | 单轮协调器 | `ld/coordinator.py::LDCoordinator.run_once()` | 可注入最小模型接口；无模型明确返回 `model_not_configured` | T32 Pass |
@@ -643,10 +644,84 @@ Human Owner ──自然语言──> LDChat（意图分类 + 确定性渲染）
 ### 明确不做
 
 - 不做第二套 LD、第二套调度或第二套审批；对话层没有 Worker/SQLite 直接访问。
-- 不把聊天内容写成项目知识（M4-E 才讨论导入流程，且必须经校验与确认）。
+- 不把聊天内容写成项目知识（Markdown 导入提案已顺延到 M4-F，且必须经校验与确认）。
 - 不做自动审批：`needs_approval` 仍必须在控制平面显式处理。
 - 不做 Web UI；先保证 CLI/服务接口是唯一逻辑。
 - 不宣称真实模型对话闭环已验收：T50–T52 的意图分类器都是脚本化/关键词的。
+
+---
+
+## M4-E — 最小关联召回 ✅ 确定性验收（T54）
+
+### 目标
+
+让 LD 不读全部历史对话，而是沿现有对象 ID 找回与问题有关的真实状态：
+
+```text
+Project → Goal → WorkItem → Attempt → SessionReference / Evidence
+                            └→ Context Entry → source / evidence_refs
+```
+
+这是 Ledger / Goal Store / Project Context 的只读投影，不是新的 Agent Memory、
+事实数据库或状态机。
+
+### 交付
+
+| 交付物 | 实现位置 | 边界 |
+|---|---|---|
+| 统一只读关系投影 | `ld/recall.py::ProjectRecall` | 复用现有 ID/表/索引，不新增 Schema |
+| Level 1 摘要 | `ProjectRecall.summary()` | ID / 类型 / 状态 / 短摘要 / 可展开引用 |
+| Level 2 详情 | `ProjectRecall.detail()` | 按 `(object_type, object_id)` 展开一个对象 |
+| LD 只读工具 | `LDTools.get_recall_summary/detail` | 不增加 Shell/文件系统/SQLite 直连权限 |
+| 结构化决策接入 | `ld/decision.py` + `LDCoordinator._inspect()` | 仅作为 `inspect`；安全域由协调器注入 |
+| Conversational LD 接入 | `ld/chat.py::_task_status()` | 任务问答可报 Attempt / Session / Evidence ID，不注入长正文 |
+| Query-only CLI | `scripts/ld_cli.py recall / recall-detail` | Goal 连接使用 SQLite `query_only`，查询不迁移表 |
+| ID 精确读取 | `TaskStore.get_attempt/get_session_reference/get_evidence` | 只读，不重新解释状态 |
+
+### 读取契约
+
+- **Chain of Recall**：每次只展开一层持久关系，可用返回 ID 继续下钻。
+- **Inline & Spill**：状态、短摘要和引用内联；长 body / Evidence payload / 决策原因
+  按需读取，同时受 `limit` 与 `char_budget` 约束。
+- **Fast Path / Slow Path**：对象查找、归属、状态、预算和安全域过滤全为确定性
+  Fast Path；只有选下一个动作时才调 LLM。
+- 未知 ID 显式 `KeyError`；错误项目归属与未授权直接展开显式
+  `RecallAccessError`，不返回伪装的空结果。
+- 模型不能在决策中指定 `allowed_security_domains`；该授权只来自运行配置。
+- Effective Prompt 始终不返回。无 `local` 授权时也不返回 Goal 正文、任务原文、
+  Worker/Session 本地身份、本地 Context 正文或本地 Evidence payload。
+
+### T54 确定性退出条件
+
+`evidence/project/T54-relational-recall.json`：31 项检查全部 Pass，覆盖：
+
+1. Project → Goal → Task → Attempt 及 Session / Evidence 关系。
+2. Context Entry → source task / evidence refs 和 verification 溯源。
+3. Level 1 / Level 2 对象身份一致。
+4. 未知 ID 与跨项目访问显式拒绝。
+5. `shareable` 视图不泄露 `local` Context / Evidence / 任务正文。
+6. 查询前后 WorkItem / Goal `updated_at`、Context version/revision 与任务数不变。
+7. 重启后仍能用原 ID 找回 Goal / Task / verdict。
+8. 长历史下返回数量、内容字符预算和 continuation 生效。
+9. LD 结构化 `inspect` 真正走召回工具，并由协调器强制安全域。
+10. 嵌套 payload 的集合数量同样受限，且召回专用参数不能混入其他工具。
+
+本轮**没有调用真实模型，也没有启动真实 Worker**。T54 证明确定性召回与
+安全边界，不证明语义检索质量、真实模型会正确选择展开路径，也不证明远程执行。
+
+### 与后续阶段的关系
+
+- **Event Routing** 可直接把 `(project_id, object_type, object_id)` 作为唤醒指针；
+  被唤醒的 LD 仍从 Ledger 重读真实状态，事件不承载第二份事实。
+- **M5 Remote Worker** 可复用同一 SessionReference / Attempt / Evidence 展开接口；
+  远程只需补节点可达性与 `shareable` 同步规则，`local` 仍在源节点拒绝。
+
+### 未实现
+
+- 向量检索、知识图谱数据库、自由语义 rerank。
+- Router Agent / Project Agent / 多 LD 协商。
+- 召回结果自动写回 Context、自动提升 verification 或自动放宽权限。
+- Markdown 导出/编辑/校验导入；该提案顺延到 M4-F，不与召回实现混在一起。
 
 ---
 

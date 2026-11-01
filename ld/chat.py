@@ -509,7 +509,11 @@ class LDChat:
         if unknown:
             raise ValueError(
                 "unknown model security domains: " + ", ".join(sorted(unknown)))
-        self._tools = tools
+        # Chat already owns the durable Goal store.  Bind it to the restricted
+        # tool facade so task/goal questions can use the same read-only
+        # relational recall path as model-driven ``inspect`` decisions.
+        self._tools = (tools.with_goal_store(goal_store)
+                       if hasattr(tools, "with_goal_store") else tools)
         self._goals = goal_store
         self._chats = chat_store
         self._model = intent_model
@@ -903,7 +907,31 @@ class LDChat:
                          "control plane from the declared assertions; the Worker's "
                          "own final state is not a success claim. A resubmission "
                          "needs the underlying failure fixed, not a retry.")
-        return "\n".join(lines), {"task": status}, [], None
+        recall = self._safe(
+            "get_recall_summary",
+            lambda: self._tools.get_recall_summary(
+                status.get("project_id"), object_type="task",
+                object_id=status["task_id"], limit=50, char_budget=1_500),
+            None)
+        recall_refs = ((recall or {}).get("object") or {}).get("refs") or []
+        attempts = [ref for ref in recall_refs
+                    if ref.get("object_type") == "attempt"]
+        sessions = [ref for ref in recall_refs
+                    if ref.get("object_type") == "session"]
+        evidence = [ref for ref in recall_refs
+                    if ref.get("object_type") == "evidence"]
+        if recall is not None:
+            lines.append("")
+            lines.append(
+                f"Recall links: {len(attempts)} attempt(s), "
+                f"{len(sessions)} session reference(s), "
+                f"{len(evidence)} Ledger evidence row(s). Use their ids for "
+                "an on-demand detail read; long history is not injected here.")
+        return "\n".join(lines), {
+            "task": status,
+            "recall_refs": recall_refs,
+            "recall_schema_version": (recall or {}).get("schema_version"),
+        }, [], None
 
     def _knowledge_query(self, intent, conversation, message):
         project_id = intent.project_id
@@ -935,6 +963,8 @@ class LDChat:
             lines.append(f"  {body[:400]}")
             if entry.get("evidence_refs"):
                 lines.append("  evidence: " + ", ".join(entry["evidence_refs"][:5]))
+            if entry.get("source"):
+                lines.append(f"  source: {str(entry['source'])[:200]}")
         lines.append("")
         lines.append("Only entries marked 'verified' may be treated as a trusted "
                      "rule. Candidate knowledge is a proposal until evidence is "

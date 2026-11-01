@@ -4,6 +4,7 @@ from ld.coordinator import LDCoordinator
 from ld.decision import LDAction, LDDecision, DecisionValidationError
 from ld.goal_store import GoalLeaseHeld, GoalStoreError, LDGoalStore, goal_identity
 from ld.model import OpenAIChatModel
+from ld.recall import ProjectRecall, RecallAccessError, RecallError
 from ld.tools import LDTools
 
 __all__ = [
@@ -16,5 +17,8 @@ __all__ = [
     "LDGoalStore",
     "LDTools",
     "OpenAIChatModel",
+    "ProjectRecall",
+    "RecallAccessError",
+    "RecallError",
     "goal_identity",
 ]

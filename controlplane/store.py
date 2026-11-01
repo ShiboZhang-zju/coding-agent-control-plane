@@ -1038,6 +1038,17 @@ class TaskStore:
         return dict(row) if row else None
 
     @_synchronized
+    def get_session_reference(self, reference_id: str) -> dict | None:
+        """Read one durable SessionReference by id.
+
+        SessionReference remains an execution relation, not a source of task
+        truth.  The caller must still validate its project/task/attempt chain.
+        """
+        row = self._conn.execute(
+            "SELECT * FROM session_references WHERE id=?", (reference_id,)).fetchone()
+        return dict(row) if row else None
+
+    @_synchronized
     def attempt_for_worker_job(self, worker_job_id: str) -> dict | None:
         """The most recent Attempt bound to one Worker job (read-only lookup).
 
@@ -1398,6 +1409,18 @@ class TaskStore:
         return [dict(r) for r in rows]
 
     @_synchronized
+    def get_attempt(self, attempt_id: str) -> dict | None:
+        """Read one Attempt by its durable id.
+
+        Relational recall needs an id-addressable read path; scanning every
+        WorkItem would be both slower and easier to scope incorrectly.  This is
+        deliberately read-only and does not reinterpret Attempt state.
+        """
+        row = self._conn.execute(
+            "SELECT * FROM attempts WHERE id=?", (attempt_id,)).fetchone()
+        return dict(row) if row else None
+
+    @_synchronized
     def close_attempt(self, attempt_id: str, state: str) -> None:
         self._conn.execute("UPDATE attempts SET state=?, ended_at=? WHERE id=?",
                            (state, time.time(), attempt_id))
@@ -1449,6 +1472,17 @@ class TaskStore:
             d["payload"] = _load(d.get("payload"), {})
             out.append(d)
         return out
+
+    @_synchronized
+    def get_evidence(self, evidence_id: int) -> dict | None:
+        """Read one Ledger Evidence row by id without changing task truth."""
+        row = self._conn.execute(
+            "SELECT * FROM evidence WHERE id=?", (int(evidence_id),)).fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        item["payload"] = _load(item.get("payload"), {})
+        return item
 
     @_synchronized
     def record_approval(self, task_id: str, decision: str, note: str = "",

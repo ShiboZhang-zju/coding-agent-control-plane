@@ -60,7 +60,7 @@ def build_goal_runner(plane: ControlPlane, store: TaskStore, args,
     domain_spec = args.model_domains or os.environ.get("LD_MODEL_DOMAINS", "")
     domains = tuple(item.strip() for item in domain_spec.split(",") if item.strip())
     coordinator = LDCoordinator(
-        LDTools(ProjectService(plane)), model,
+        LDTools(ProjectService(plane), goal_store=goal_store), model,
         model_authorized_security_domains=domains)
     return LDGoalRunner(
         coordinator, goal_store,

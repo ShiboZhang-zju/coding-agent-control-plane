@@ -86,6 +86,32 @@ def build_parser() -> argparse.ArgumentParser:
     brief = sub.add_parser("brief", help="show one deterministic project brief")
     brief.add_argument("project", help="project id or name")
 
+    recall = sub.add_parser(
+        "recall", help="level-1 relational summary with expandable ids")
+    recall.add_argument("project", help="project id or name")
+    recall.add_argument("--type", dest="object_type", default="project",
+                        choices=("project", "goal", "task", "attempt", "session",
+                                 "evidence", "context_entry"))
+    recall.add_argument("--id", dest="object_id", default=None)
+    recall.add_argument("--limit", type=int, default=20)
+    recall.add_argument("--char-budget", type=int, default=3000)
+    recall.add_argument(
+        "--domains", default=None,
+        help=("comma-separated content domains; omit for the local operator view"))
+
+    recall_detail = sub.add_parser(
+        "recall-detail", help="level-2 expansion of one durable object id")
+    recall_detail.add_argument("project", help="project id or name")
+    recall_detail.add_argument("object_type",
+                               choices=("project", "goal", "task", "attempt",
+                                        "session", "evidence", "context_entry"))
+    recall_detail.add_argument("object_id")
+    recall_detail.add_argument("--limit", type=int, default=50)
+    recall_detail.add_argument("--char-budget", type=int, default=8000)
+    recall_detail.add_argument(
+        "--domains", default=None,
+        help=("comma-separated content domains; omit for the local operator view"))
+
     for name, help_text in (
         ("preview", "validate and display one LD decision without executing it"),
         ("run-once", "validate and execute one allowed LD action"),
@@ -297,6 +323,30 @@ def main() -> int:
             project = read_plane.project(args.project)
             emit(tools.get_project_brief(project["id"]), compact=args.compact)
             return 0
+        if args.command in ("recall", "recall-detail"):
+            project = read_plane.project(args.project)
+            domains = (None if args.domains is None else tuple(
+                item.strip() for item in args.domains.split(",") if item.strip()))
+            # Query-only connection: the CLI must not create/migrate Goal tables
+            # merely because the operator inspected history.
+            goal_reader = LDGoalStore(store.path, read_only=True)
+            try:
+                recall_tools = tools.with_goal_store(goal_reader)
+                if args.command == "recall":
+                    result = recall_tools.get_recall_summary(
+                        project["id"], object_type=args.object_type,
+                        object_id=args.object_id, limit=args.limit,
+                        char_budget=args.char_budget,
+                        allowed_security_domains=domains)
+                else:
+                    result = recall_tools.get_recall_detail(
+                        project["id"], args.object_type, args.object_id,
+                        limit=args.limit, char_budget=args.char_budget,
+                        allowed_security_domains=domains)
+            finally:
+                goal_reader.close()
+            emit(result, compact=args.compact)
+            return 0
         if args.command in ("conversations", "conversation"):
             chats = LDChatStore(store.path)
             try:
@@ -358,7 +408,10 @@ def main() -> int:
                 return 3
             goal_store = LDGoalStore(store.path)
             try:
-                report = coordinator.run_goal(
+                goal_coordinator = LDCoordinator(
+                    tools.with_goal_store(goal_store), model,
+                    model_authorized_security_domains=domains)
+                report = goal_coordinator.run_goal(
                     args.goal, args.project, goal_store,
                     max_decisions=args.max_decisions,
                     max_tasks=args.max_tasks,

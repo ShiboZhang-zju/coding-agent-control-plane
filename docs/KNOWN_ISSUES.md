@@ -94,6 +94,14 @@ completed，零人工介入）**；故障恢复与副作用拒绝路径另由 T3
 | M3-11 | `scripts/controlplane_cli.py::_run_project_command()` | Project 子命令已改为按 `default_adapter` 创建只有名称的 Service Plane，但尚未回归；如回归失败，项目任务可被错误标记为 `ledger-only` 而不被 Runtime claim。 | 用非 `ledger-only` 的 `default_adapter` 注册项目，CLI submit/handoff-submit 后检查 WorkItem `adapter`，再运行对应 Runtime claim。 | 已验证；T33 Pass（adapter=stub、Runtime claim 可取、ledger-only 不能 claim） |
 | M3-12 | `controlplane/store.py::session_references()` | 旧 Ledger 中 `legacy_placeholder` 与项目/工作区/任务删除后的悬挂状态投影尚未用历史数据验证，可能误报“可交接”或隐藏旧脏数据。 | 构造 NULL 历史占位、缺失 Workspace/WorkItem 的 reference，查询 Session Registry 投影并检查显式状态。 | 已验证；T33 Pass |
 
+## M4-E 关联召回的剩余限制（2026-11-01）
+
+| # | 位置 | 影响 / 当前处理 | 复现 / 验证 | 状态 |
+|---|---|---|---|---|
+| M4E-R01 | `project_context_entries.evidence_refs` / `ld/recall.py` | Context 条目的 `evidence_refs` 历史上是任意证据路径/引用，不是 Ledger `evidence.id`。召回会原样展示来源引用并标记 `expandable=false`，不猜测路径与数据库行的对应关系。 | 新建 Context 条目使用 `evidence/project/foo.json`，查 Level 1；应能看到引用但不能伪造为可展开 Ledger Evidence。 | 设计如此；T54 覆盖 |
+| M4E-R02 | `ld/recall.py` / `scripts/t54_relational_recall.py` | T54 只证明确定性 ID 展开、预算、项目/安全域隔离与重启恢复；没有证明真实 LLM 会选对展开路径，也没有评测语义相关性。 | 配置真实模型，给定需要两次以上展开才可回答的历史问题，断言模型仅根据授权召回结果回答，且不泄露 `local`。 | BLOCKED：本轮按要求不运行真实模型/Worker |
+| M4E-R03 | `ld/recall.py::_project_tasks()` | 最小实现会从本地 SQLite 读出项目的全部 WorkItem 再按 Goal ref 过滤，返回仍受 `limit` / `char_budget` 约束。在百万级任务库上读放大尚未评测。 | 构造大型 Ledger 测查询时延/内存；若真实规模需要，优先增加可派生的 goal-ref 索引投影，不新建第二份任务真相。 | 已知性能边界；当前数据规模可接受 |
+
 ## 处理原则
 
 - 任何"已修复/Pass"结论都必须指向可重现测试与脱敏证据；stub/确定性 Pass 不等于

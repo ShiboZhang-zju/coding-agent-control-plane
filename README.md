@@ -17,6 +17,9 @@ B（handoff，agent 真实 `git merge` A 的已验收 checkpoint，全部测试�
 故障恢复与副作用拒绝路径另由 T38c 真实验证（含 Verifier 在断言全绿时正确拒绝
 有越界副作用的任务）。可靠性收口（步号冲突、崩溃窗口、租约 fencing、
 checkpoint 安全、安全域默认值）由 T39/T40 确定性验证（含真实子进程崩溃注入）。
+新增的 **M4-E 关联召回** 直接沿现有 Project/Goal/WorkItem/Attempt/
+SessionReference/Evidence/Context 引用做两级按需读取，不新建事实库；
+T54 确定性验收已通过，本轮未运行真实模型或 Worker。
 模型身份（端点/模型 id）不属于测试结果，不出现在代码默认值、日志或证据中。
 已知限制：真实决策模型偶发保守转人工（`--resume` 解锁）；agent job 的 worker
 权限要求项目级 `permissions.allow`（T38 fixture 已内置，见
@@ -91,7 +94,8 @@ Control Plane（公共执行治理层，与厂商无关）
 | **Durable project context** | 背景/约束/知识/决策持久化在 SQLite，重启后仍在，不依赖会话内存。 |
 | **Context injection before execution** | 派发前由 `ContextBuilder` 生成 Effective Prompt；Coding Agent 一上岗就带着项目知识。 |
 | **Evidence-based progress** | `get_project_progress()` 从 Ledger 的任务与验收状态派生，不靠 LLM 总结判断成败。 |
-| **Session-independent continuity** | 项目状态持久在 Context + Ledger；SessionReference 只记录关系，不承载真相。真实换 Session 接续待 M3 验证。 |
+| **Session-independent continuity** | 项目状态持久在 Context + Ledger；SessionReference 只记录关系，不承载真相。 |
+| **Relational recall, not copied memory** | 沿持久 ID 逐层展开 Goal / Task / Attempt / Session / Evidence；摘要内联，长内容留在外部按需读取。 |
 | **Separation of decision and execution** | LD 决定"做什么/优先级"，Control Plane 决定"怎么可靠地做/是否算做成功"。 |
 | **Structured LD decisions** | 模型只能返回五种结构化动作；未知字段与 Python/Shell 控制命令在工具调用前被拒绝。 |
 | **Security-domain awareness** | 条目区分 `local` / `shareable`；模型必须显式获得安全域授权，未授权内容不进入决策输入。 |
@@ -102,8 +106,8 @@ Control Plane（公共执行治理层，与厂商无关）
 
 ## 4. 当前已实现能力
 
-已验证项只引用真实 `evidence/**/*.json`；M3 仍统一标为“功能已实现、未验证”；
-M4-A 只把 T32 实际覆盖的确定性边界标为 Pass，整体仍未完成验收。
+已验证项只引用真实 `evidence/**/*.json`；确定性/stub 与真实
+模型/Worker 证据分开标注，不用前者代替后者。
 
 ### 4.1 Control Plane（PoC / v0.2，已验证）
 
@@ -146,7 +150,7 @@ M4-A 只把 T32 实际覆盖的确定性边界标为 Pass，整体仍未完成�
 
 | 能力 | 实现位置 | 状态 |
 |---|---|---|
-| 受限 LD Tool Facade（7 个工具）+ 提交请求签名 | `ld/tools.py` | T32 Pass |
+| 受限 LD Tool Facade（7 个原有工具 + 2 个只读召回工具）+ 提交请求签名 | `ld/tools.py` | T32 + T54 Pass（确定性） |
 | 五种结构化动作 + 严格字段/参数校验 | `ld/decision.py` | T32 Pass |
 | 单轮 `run_once(goal, project_id=None, dry_run=False)` | `ld/coordinator.py` | T32 Pass |
 | 项目作用域、转人工门控 + 当前目标 `finish` 二次核验 | `ld/coordinator.py` | T32 Pass（本地确定性） |
@@ -164,6 +168,7 @@ M4-A 只把 T32 实际覆盖的确定性边界标为 Pass，整体仍未完成�
 | 多 Runner 并发 / 租约丢失 / fenced 失败升级（两真实进程 + 独立连接） | `ld/goal_store.py::stop_goal_if`、`ld/goal_runner.py` | T47 Pass（C1–C6） |
 | 双项目失败隔离（A 拒绝转人工不阻塞 B） | `ld/goal_runner.py`（按 Goal 独立簿记） | T49 Pass（确定性，真实验证路径） |
 | 同 Ledger CLI（查询/单轮/run-goal/--resume） | `scripts/ld_cli.py` | T32/T38 Pass |
+| M4-E 两级关联召回（项目隔离、安全域、预算、重启恢复、零写入） | `ld/recall.py` + `LDTools` | T54 31 项确定性检查 Pass；未调真实模型/Worker |
 
 M4 未引入任何 Agent Framework。模型输出必须通过严格 schema 校验，模型永远
 不直接接触 Worker、SQLite、文件系统或 Shell；所有派工经
@@ -184,6 +189,14 @@ M4 未引入任何 Agent Framework。模型输出必须通过严格 schema 校�
 `run_due(force=True)` 等外部驱动 0 次、A verified → 自动唤醒 → B 以 handoff
 接续 A 的 checkpoint（新 Session、HEAD 祖先可证）→ B verified → LD 自动
 `finish`（`completed`），外加服务进程重启后自动发现 Waiting Goal 续推。
+
+**M4-E：按对象关系找回历史，而不是把全部历史塞给模型。**
+`ProjectRecall` 沿现有稳定 ID 构建 `Project → Goal → WorkItem → Attempt →
+SessionReference/Evidence` 及 `WorkItem → Context Entry` 投影。Level 1
+只返回状态、短摘要与可展开引用；Level 2 按 `(object_type, object_id)`
+读详情。两级都有数量/内容预算，跨项目与未知 ID 显式拒绝；
+`local` Context/Evidence 未授权时不可展开，Effective Prompt 永不进入
+召回结果。确定性查询是 Fast Path；只有选择下一步时才调 LLM。
 
 ---
 
@@ -527,6 +540,29 @@ $env:LD_MODEL_DOMAINS  = "shareable"      # 想让分类器看到 local 内容�
 `scripts/t53_real_chat_e2e.py`（需 `LD_MODEL_*` 与 `serve_ctl.py start`；
 未配置时记录为 BLOCKED，不算通过）。
 
+### 6.3c M4-E 关联召回（Inline & Spill）
+
+```powershell
+$L = ".poc-state/ledger.db"
+
+# Level 1：只读权威摘要 + 可继续展开的 ID
+python scripts/ld_cli.py --ledger $L recall <project-id> --limit 20
+python scripts/ld_cli.py --ledger $L recall <project-id> `
+  --type task --id <task-id> --limit 10 --char-budget 3000
+
+# Level 2：按 ID 展开一个对象
+python scripts/ld_cli.py --ledger $L recall-detail <project-id> task <task-id>
+python scripts/ld_cli.py --ledger $L recall-detail <project-id> evidence evidence:42 `
+  --domains shareable
+```
+
+Python 工具面是 `LDTools.get_recall_summary(...)` 与
+`LDTools.get_recall_detail(...)`。`object_type` 支持 `project / goal / task /
+attempt / session / evidence / context_entry`。模型通过 `inspect` 调用时，
+`allowed_security_domains` 由 `LDCoordinator` 从运行配置注入，不是模型参数。
+CLI 查询 Goal 表使用 SQLite query-only 连接；不会因查询而创表、迁移或
+更新 Goal/Task/Context。
+
 ### 6.4 传统队列流程（仍然支持，未改变）
 
 ```powershell
@@ -560,6 +596,7 @@ python scripts/t50_conversational_ld.py    # M4-D 对话闭环 / 无第二真相
 python scripts/t51_intent_safety.py        # M4-D 意图安全：疑问不误提交 / 预算不可改
 python scripts/t52_conversation_security.py # M4-D 历史投影 / 暂存版本绑定 / 并发确认
 python scripts/t53_chat_outbound_safety.py   # M4-D 当前消息门控 / 长目标身份 / 签名稳定
+python scripts/t54_relational_recall.py       # M4-E 关联召回 / 隔离 / 预算 / 重启
 python scripts/t53_real_chat_e2e.py        # M4-D 真实模型 + 真实 Worker 对话闭环
                                            # 需 LD_MODEL_* 与 serve_ctl start；否则记为 BLOCKED
 
@@ -615,7 +652,8 @@ ld/decision.py                 【M4-A】结构化决策 Schema 与确定性校�
 ld/model.py                    【M4-A】OpenAI-compatible 真实决策模型（无 SDK）
 ld/goal_store.py               【M4-B】持久化 Goal 状态与决策历史（同 Ledger）
 ld/coordinator.py              【M4-A/B】单轮 run_once + 有界连续 run_goal
-scripts/ld_cli.py              【M4-A/B】查询/单轮/run-goal/--resume
+ld/recall.py                   【M4-E】基于现有 ID 的两级只读关联召回
+scripts/ld_cli.py              【M4-A–E】查询/单轮/run-goal/chat/recall
 docs/KNOWN_ISSUES.md           已知问题、修复状态与复现方法
 docs/PROJECT_CENTRIC_ROADMAP.md M1–M5 路线图与退出条件
 docs/V0.2_PLAN.md               历史计划（v0.2 阶段，已完成其范围）
@@ -637,6 +675,9 @@ sandbox/                        两个一次性 Git 仓库（不入库）
 | M3 | Session Registry / Handoff（单机多 Session） | **已完成**（T33 确定性 + T34 真实 Worker；git commit checkpoint 的"worktree 关闭后可达"未覆盖） |
 | M4-A | Minimal LD（受限工具 + 结构化决策 + 单轮协调） | **已完成**（T32/T36 确定性 + T38a 真实模型/Worker 单轮） |
 | M4-B | 有界连续推进（持久化 Goal + 依赖任务确定性交接 + 恢复） | **已完成**（T39/T40 确定性含崩溃注入与租约 fencing；T38b 真实严格闭环 25/25 Pass；T38c 真实故障恢复验证） |
+| M4-C | 自动唤醒与运行时可靠性收口 | **已完成**（T41–T49） |
+| M4-D | Conversational LD | **已完成**（T50–T53） |
+| M4-E | 两级关联召回（Chain of Recall / Inline & Spill / Fast Path） | **确定性完成**（T54 31 项 Pass；未运行真实模型/Worker） |
 | M5 | Distributed Workspace（多节点、远程派工、受控同步） | 未实现 |
 
 历史计划 [docs/V0.2_PLAN.md](docs/V0.2_PLAN.md) 描述的是 v0.2 阶段（本地单用户

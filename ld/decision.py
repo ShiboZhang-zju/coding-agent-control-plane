@@ -44,11 +44,18 @@ _READ_TOOLS = {
     "get_project_tasks",
     "get_task_status",
     "get_task_provenance",
+    "get_recall_summary",
+    "get_recall_detail",
 }
 _PROJECT_READ_TOOLS = {
     "get_project_brief", "get_project_progress", "get_project_tasks",
 }
 _TASK_READ_TOOLS = {"get_task_status", "get_task_provenance"}
+_RECALL_READ_TOOLS = {"get_recall_summary", "get_recall_detail"}
+_RECALL_OBJECT_TYPES = {
+    "project", "goal", "task", "attempt", "session", "evidence",
+    "context_entry",
+}
 _ASSERTION_FIELDS = {"kind", "target", "value", "description"}
 _ASSERTION_KINDS = {
     "file_exists", "file_contains", "git_commit", "git_clean", "path_absent",
@@ -154,7 +161,11 @@ def _validate_assertions(value: Any) -> list[dict[str, Any]]:
 
 
 def _validate_inspect(project_id: str | None, parameters: dict[str, Any]) -> dict:
-    _reject_unknown(parameters, {"tool", "task_id", "limit"}, "parameters")
+    _reject_unknown(
+        parameters,
+        {"tool", "task_id", "limit", "object_type", "object_id",
+         "char_budget"},
+        "parameters")
     _require(parameters, {"tool"}, "parameters")
     tool = _nonempty_string(parameters["tool"], "parameters.tool")
     if tool not in _READ_TOOLS:
@@ -165,11 +176,41 @@ def _validate_inspect(project_id: str | None, parameters: dict[str, Any]) -> dic
             raise DecisionPolicyError("list_projects requires project_id=null")
         if set(parameters) != {"tool"}:
             raise DecisionPolicyError("list_projects accepts no parameters besides tool")
+    elif tool in _RECALL_READ_TOOLS:
+        if project_id is None:
+            raise DecisionPolicyError(f"{tool} requires project_id")
+        if "task_id" in parameters:
+            raise DecisionPolicyError(f"{tool} does not accept task_id")
+        object_type = _nonempty_string(
+            parameters.get("object_type", "project"),
+            "parameters.object_type")
+        if object_type not in _RECALL_OBJECT_TYPES:
+            raise DecisionPolicyError(
+                f"unsupported recall object_type: {object_type}")
+        out["object_type"] = object_type
+        if "object_id" in parameters:
+            out["object_id"] = _nonempty_string(
+                parameters["object_id"], "parameters.object_id")
+        elif tool == "get_recall_detail" or object_type != "project":
+            raise DecisionValidationError(
+                f"{tool} requires object_id for object_type={object_type}")
+        if "limit" in parameters:
+            out["limit"] = _integer(
+                parameters["limit"], "parameters.limit", minimum=1, maximum=100)
+        if "char_budget" in parameters:
+            out["char_budget"] = _integer(
+                parameters["char_budget"], "parameters.char_budget",
+                minimum=128, maximum=50_000)
     elif tool in _PROJECT_READ_TOOLS:
         if project_id is None:
             raise DecisionPolicyError(f"{tool} requires project_id")
         if "task_id" in parameters:
             raise DecisionPolicyError(f"{tool} does not accept task_id")
+        recall_only = {"object_type", "object_id", "char_budget"} & set(parameters)
+        if recall_only:
+            raise DecisionPolicyError(
+                f"{tool} does not accept recall parameters: "
+                + ", ".join(sorted(recall_only)))
         if "limit" in parameters:
             if tool != "get_project_tasks":
                 raise DecisionPolicyError(f"{tool} does not accept limit")
@@ -177,6 +218,11 @@ def _validate_inspect(project_id: str | None, parameters: dict[str, Any]) -> dic
                                     minimum=1, maximum=200)
     else:
         _require(parameters, {"task_id"}, "parameters")
+        recall_only = {"object_type", "object_id", "char_budget"} & set(parameters)
+        if recall_only:
+            raise DecisionPolicyError(
+                f"{tool} does not accept recall parameters: "
+                + ", ".join(sorted(recall_only)))
         if "limit" in parameters:
             raise DecisionValidationError(f"{tool} does not accept limit")
         out["task_id"] = _nonempty_string(parameters["task_id"], "parameters.task_id")
@@ -371,7 +417,11 @@ def decision_schema() -> dict[str, Any]:
             "inspect": {
                 "parameters": {"tool": sorted(_READ_TOOLS),
                                "task_id": "string (task tools only)",
-                               "limit": "integer 1..200 (get_project_tasks only)"},
+                               "object_type": sorted(_RECALL_OBJECT_TYPES),
+                               "object_id": "string (recall expansion id)",
+                               "limit": "integer 1..200 (tool-specific)",
+                               "char_budget": (
+                                   "integer 128..50000 (recall tools only)")},
             },
             "submit_task": {
                 "requires_project_id": True,

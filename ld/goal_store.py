@@ -39,6 +39,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 GOAL_STATUSES = ("active", "waiting", "needs_human", "completed", "failed")
@@ -149,19 +150,27 @@ class LDGoalStore:
     """Durable goal rows + two-phase decision history in the ledger file."""
 
     def __init__(self, ledger_path, *, lease_s: float = 120.0,
-                 fault_hook: Callable[[str], None] | None = None):
+                 fault_hook: Callable[[str], None] | None = None,
+                 read_only: bool = False):
         self._lease_s = float(lease_s)
         self._fault_hook = fault_hook
         self._lock = threading.RLock()
         self.path = str(ledger_path)
-        self._conn = sqlite3.connect(str(ledger_path), timeout=15,
+        self.read_only = bool(read_only)
+        target = (Path(ledger_path).resolve().as_uri() + "?mode=ro"
+                  if self.read_only else str(ledger_path))
+        self._conn = sqlite3.connect(target, timeout=15,
                                      check_same_thread=False,
-                                     isolation_level=None)
+                                     isolation_level=None,
+                                     uri=self.read_only)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA busy_timeout=15000")
-        self._conn.executescript(_SCHEMA)
-        self._migrate()
+        if self.read_only:
+            self._conn.execute("PRAGMA query_only=ON")
+        else:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.executescript(_SCHEMA)
+            self._migrate()
 
     @property
     def lease_s(self) -> float:

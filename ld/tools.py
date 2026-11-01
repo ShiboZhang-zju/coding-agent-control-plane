@@ -15,6 +15,7 @@ from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
 from controlplane.project_service import ProjectService
+from ld.recall import ProjectRecall
 
 _ASSERTION_FIELDS = {"kind", "target", "value", "description"}
 _ASSERTION_KINDS = {
@@ -96,14 +97,34 @@ class LDTools:
         service: ProjectService,
         *,
         submission_service_factory: Callable[[str], ProjectService] | None = None,
+        goal_store: Any | None = None,
     ):
         self._service = service
         self._submission_service_factory = submission_service_factory
+        self._goal_store = goal_store
 
     @property
     def service(self) -> ProjectService:
         """The wrapped service (read-side helpers for goal advancement)."""
         return self._service
+
+    def with_goal_store(self, goal_store: Any) -> "LDTools":
+        """Return the same capability surface with read-only Goal recall wired.
+
+        Keeping the store injectable avoids opening SQLite from a tool call and
+        is what makes recall queries genuinely side-effect free.
+        """
+        return LDTools(
+            self._service,
+            submission_service_factory=self._submission_service_factory,
+            goal_store=goal_store,
+        )
+
+    def _recall(self) -> ProjectRecall:
+        if self._goal_store is None:
+            raise RuntimeError(
+                "relational recall requires an injected LDGoalStore")
+        return ProjectRecall(self._service, self._goal_store)
 
     def list_projects(self) -> list[dict]:
         return self._service.list_projects()
@@ -170,6 +191,38 @@ class LDTools:
             "effective_prompt_omitted": True,
             "original_task_omitted": True,
         }
+
+    def get_recall_summary(
+        self,
+        project_id: str,
+        *,
+        object_type: str = "project",
+        object_id: str | None = None,
+        limit: int = 20,
+        char_budget: int = 3_000,
+        allowed_security_domains: Iterable[str] | None = None,
+    ) -> dict:
+        """Level-1 authoritative summary with bounded expandable references."""
+        return self._recall().summary(
+            project_id, object_type, object_id, limit=limit,
+            char_budget=char_budget,
+            allowed_security_domains=allowed_security_domains)
+
+    def get_recall_detail(
+        self,
+        project_id: str,
+        object_type: str,
+        object_id: str,
+        *,
+        limit: int = 50,
+        char_budget: int = 8_000,
+        allowed_security_domains: Iterable[str] | None = None,
+    ) -> dict:
+        """Level-2 expansion of one project-owned durable object."""
+        return self._recall().detail(
+            project_id, object_type, object_id, limit=limit,
+            char_budget=char_budget,
+            allowed_security_domains=allowed_security_domains)
 
     def submit_project_task(
         self,

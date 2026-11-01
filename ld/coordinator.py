@@ -669,6 +669,26 @@ class LDCoordinator:
         if tool == "get_project_tasks":
             return self._tools.get_project_tasks(
                 decision.project_id or "", limit=decision.parameters.get("limit", 200))
+        if tool == "get_recall_summary":
+            return self._tools.get_recall_summary(
+                decision.project_id or "",
+                object_type=decision.parameters.get("object_type", "project"),
+                object_id=decision.parameters.get("object_id"),
+                limit=decision.parameters.get("limit", 20),
+                char_budget=decision.parameters.get("char_budget", 3_000),
+                # The model cannot grant itself a security domain.  The
+                # coordinator supplies the operator-configured allow-list.
+                allowed_security_domains=self._model_domains,
+            )
+        if tool == "get_recall_detail":
+            return self._tools.get_recall_detail(
+                decision.project_id or "",
+                decision.parameters["object_type"],
+                decision.parameters["object_id"],
+                limit=decision.parameters.get("limit", 50),
+                char_budget=decision.parameters.get("char_budget", 8_000),
+                allowed_security_domains=self._model_domains,
+            )
         if tool == "get_task_status":
             result = self._tools.get_task_status(decision.parameters["task_id"])
         else:
