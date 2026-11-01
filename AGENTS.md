@@ -276,6 +276,9 @@
 - **应用必须是显式两阶段。** `memory-preview` 生成绑定文件内容与 SQLite 版本的
   稳定 digest；`memory-apply --confirm-preview` 必须重新解析、重算并通过现有
   `ProjectContextStore.update_context_entry()` CAS。不得直写 context 表。
+- **Apply 只可刷新当前 Entry。** SQLite CAS 成功后，仅当该 Markdown 文件仍与
+  确认时字节一致，才原子刷新其 `version` 行；期间发生的新编辑必须保留并在
+  回执中明确报告。不得因一条 apply 自动 force 重导出整个项目。
 - **派生视图不可回写执行状态。** `PROJECT.md` / `CURRENT.md` 由 SQLite/Ledger/
   Goal 投影，不能用于改变 WorkItem、Attempt、Verdict、审批或 Goal。
 - **文件边界 fail-closed。** Front Matter 只接受安全确定性子集；禁止对象反序列化、

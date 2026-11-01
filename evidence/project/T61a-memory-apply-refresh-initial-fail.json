@@ -1,0 +1,31 @@
+{
+  "test": "T61 applied Markdown Entry refresh",
+  "worker_started": false,
+  "real_model_called": false,
+  "fixture": "<REPO>/sandbox/t61-memory-apply-refresh",
+  "checks": {
+    "apply_updates_sqlite": true,
+    "unchanged_file_is_refreshed": false,
+    "refresh_changes_only_version_line": false,
+    "refreshed_file_has_current_version": false,
+    "apply_does_not_touch_other_entry": true,
+    "ordinary_export_after_apply_succeeds": false,
+    "late_edit_does_not_rollback_sqlite": true,
+    "late_edit_is_preserved": true,
+    "late_edit_is_reported": false,
+    "no_worker_or_model_was_started": true
+  },
+  "observed": {
+    "normal_export_error": "refusing to overwrite divergent Markdown entry files: <HOME>/Documents/ChatGPT/一人管理agent/.poc-state/t61-memory-root/prj-3f9cb6d8db/memory/entries/ctx-7a30eba1602a.md; apply or preserve the local edits, or explicitly re-export with force=True / --force to discard them",
+    "first_refresh_status": null,
+    "late_edit_status": null
+  },
+  "result": "FAIL",
+  "failed": [
+    "unchanged_file_is_refreshed",
+    "refresh_changes_only_version_line",
+    "refreshed_file_has_current_version",
+    "ordinary_export_after_apply_succeeds",
+    "late_edit_is_reported"
+  ]
+}

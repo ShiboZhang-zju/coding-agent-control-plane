@@ -365,6 +365,9 @@ class ProjectMemoryMarkdown:
             project_id, preview["entry_id"], preview["markdown_version"],
             changes, changed_by="markdown-memory",
             note=f"applied confirmed Markdown preview {expected_digest}")
+        refreshed, refresh_status, refresh_message = self._refresh_applied_entry(
+            Path(preview["entry_file"]), document["raw_bytes"],
+            preview["markdown_version"], int(updated.get("version") or 0))
         revisions = self.context.revisions(project_id, preview["entry_id"])
         return {
             "project_id": project_id,
@@ -376,8 +379,78 @@ class ProjectMemoryMarkdown:
             "revision_count": len(revisions),
             "preview_digest": expected_digest,
             "applied": True,
-            "markdown_requires_reexport": True,
+            "markdown_refreshed": refreshed,
+            "markdown_refresh_status": refresh_status,
+            "markdown_refresh_message": refresh_message,
+            "markdown_requires_reexport": not refreshed,
         }
+
+    def _refresh_applied_entry(
+        self, path: Path, expected_bytes: bytes, previous_version: int,
+        updated_version: int,
+    ) -> tuple[bool, str, str]:
+        """Refresh only the confirmed file's version after the SQLite CAS.
+
+        The database commit remains authoritative. If the operator changes the
+        file after the confirmed read, preserve it and report the divergence
+        instead of overwriting a newer local edit.
+        """
+        try:
+            if path.is_symlink() or not path.is_file():
+                return (
+                    False, "preserved_file_unavailable_after_apply",
+                    "SQLite was updated, but the Markdown Entry path became "
+                    "missing or unsafe and was not replaced.")
+            current_bytes = path.read_bytes()
+            if not hmac.compare_digest(current_bytes, expected_bytes):
+                return (
+                    False, "preserved_file_changed_after_apply",
+                    "SQLite was updated, but the Markdown Entry changed after "
+                    "the confirmed preview and was preserved.")
+            refreshed_text = self._replace_front_matter_version(
+                expected_bytes, previous_version, updated_version)
+            self._atomic_write(path, refreshed_text)
+        except (OSError, UnicodeError, ProjectMemoryError) as exc:
+            return (
+                False, "preserved_refresh_failed_after_apply",
+                "SQLite was updated, but the Markdown Entry version could not "
+                f"be refreshed ({type(exc).__name__}); the file was preserved.")
+        return (
+            True, "refreshed",
+            "SQLite was updated and this unchanged Markdown Entry now records "
+            "the new version.")
+
+    @staticmethod
+    def _replace_front_matter_version(
+        raw: bytes, previous_version: int, updated_version: int,
+    ) -> str:
+        text = raw.decode("utf-8")
+        lines = text.splitlines(keepends=True)
+        if not lines or lines[0].rstrip("\r\n") != "---":
+            raise ProjectMemoryFormatError(
+                "memory entry must start with '---'")
+        closing = next(
+            (index for index, line in enumerate(lines[1:], start=1)
+             if line.rstrip("\r\n") == "---"),
+            None,
+        )
+        if closing is None:
+            raise ProjectMemoryFormatError("memory entry has no closing '---'")
+        pattern = re.compile(
+            rf"version:[ \t]*{re.escape(str(previous_version))}[ \t]*\Z")
+        matches = [
+            index for index in range(1, closing)
+            if pattern.fullmatch(lines[index].rstrip("\r\n"))
+        ]
+        if len(matches) != 1:
+            raise ProjectMemoryFormatError(
+                "memory entry version line changed after preview")
+        index = matches[0]
+        original = lines[index]
+        line_without_ending = original.rstrip("\r\n")
+        ending = original[len(line_without_ending):]
+        lines[index] = f"version: {updated_version}{ending}"
+        return "".join(lines)
 
     def _preview_state(
         self, project_id: str, entry_file: str | Path,
@@ -459,9 +532,11 @@ class ProjectMemoryMarkdown:
     @classmethod
     def _parse_entry(cls, path: Path) -> dict[str, Any]:
         try:
-            text = path.read_text(encoding="utf-8")
+            raw_bytes = path.read_bytes()
+            text = raw_bytes.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ProjectMemoryFormatError("memory entry must be UTF-8") from exc
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
         if not text.startswith("---\n"):
             raise ProjectMemoryFormatError("memory entry must start with '---'")
         closing = text.find("\n---\n", 4)
@@ -475,7 +550,11 @@ class ProjectMemoryMarkdown:
         normalized_body = cls._normalize_body(body)
         if not normalized_body.strip():
             raise ProjectMemoryFormatError("memory entry body must not be empty")
-        return {"fields": fields, "body": normalized_body}
+        return {
+            "fields": fields,
+            "body": normalized_body,
+            "raw_bytes": raw_bytes,
+        }
 
     @classmethod
     def _parse_front_matter(cls, front: str) -> dict[str, Any]:

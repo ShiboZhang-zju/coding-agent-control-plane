@@ -28,7 +28,7 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 | **M4-C** | 自动唤醒与运行时可靠性收口 | M4-B | **已完成**（T41–T49，含 T48 真实常驻服务双任务零人工闭环） |
 | **M4-D** | Conversational LD（自然语言查询 / 提交 Goal / 阻塞解释 / 显式确认恢复） | M4-C | **已完成**（T50/T51/T52 确定性 + T53 真实模型与真实 Worker 对话闭环） |
 | **M4-E** | 关联召回（Chain of Recall + Inline & Spill + Fast/Slow Path） | M4-D | **确定性完成**（T54 31 项 + T55 19 项 Pass；未运行真实模型/Worker） |
-| **M4-F** | Markdown Project Memory MVP（导出/预览/显式 CAS 单条应用） | M4-E | **确定性完成**（T56–T60；未运行真实模型/Worker） |
+| **M4-F** | Markdown Project Memory MVP（导出/预览/显式 CAS 单条应用） | M4-E | **确定性完成**（T56–T61；未运行真实模型/Worker） |
 | M5 | Distributed Workspace | M1–M4 | 未实现 |
 
 依赖是**功能依赖**而非排期依赖。M4-B 的依赖任务交接走控制平面确定性
@@ -751,7 +751,7 @@ T55 首次运行在“operator 审计超长原引用”上失败，保留为
 
 ---
 
-## M4-F — Markdown Project Memory MVP ✅ 确定性验收（T56–T60）
+## M4-F — Markdown Project Memory MVP ✅ 确定性验收（T56–T61）
 
 ### 权威关系
 
@@ -778,6 +778,9 @@ Markdown 默认位于 `<ledger-dir>/projects/<project-id>/memory/`，只是本�
   `evidence_refs` / `version` 任一漂移均拒绝；verified Entry 内容修改也拒绝。
 - `memory-apply` 重新解析文件、重算预览摘要并使用现有 CAS；SQLite 或文件变化后
   旧确认失效。一次只应用一条 Entry，不做多文件事务或后台同步。
+- CAS 成功后只在当前 Entry 文件仍与确认内容字节一致时刷新其
+  `version` 行；期间发生的新编辑保留并通过 `markdown_refresh_status` 报告，
+  不自动 force 其他 Entry。
 - Front Matter 使用严格、安全、确定性的 YAML 子集；不反序列化对象，不执行
   Markdown 代码、链接或命令，不新增 YAML 运行时依赖。
 - 导出使用同目录临时文件 + 原子替换，拒绝路径穿越和符号链接逃逸；导出零 Ledger
@@ -802,6 +805,8 @@ Markdown 默认位于 `<ledger-dir>/projects/<project-id>/memory/`，只是本�
   项目隔离与 stale import 拒绝；这是确定性 ContextBuilder 验收，不是真实 Worker。
 - T60：16/16 Pass，未应用编辑拒绝与全文件零部分写入、显式 force、
   Ledger 默认路径隔离、CLI memory root 和 Knowledge 可信度标题。
+- T61：10/10 Pass，apply 后单 Entry 版本刷新、普通重导出、其他 Entry 零写入，
+  以及 apply 期间二次编辑的保留与显式回执。
 
 ### 尚未实现
 

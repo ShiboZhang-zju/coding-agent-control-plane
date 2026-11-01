@@ -1,0 +1,25 @@
+{
+  "test": "T61 applied Markdown Entry refresh",
+  "worker_started": false,
+  "real_model_called": false,
+  "fixture": "<REPO>/sandbox/t61-memory-apply-refresh",
+  "checks": {
+    "apply_updates_sqlite": true,
+    "unchanged_file_is_refreshed": true,
+    "refresh_changes_only_version_line": true,
+    "refreshed_file_has_current_version": true,
+    "apply_does_not_touch_other_entry": true,
+    "ordinary_export_after_apply_succeeds": true,
+    "late_edit_does_not_rollback_sqlite": true,
+    "late_edit_is_preserved": true,
+    "late_edit_is_reported": true,
+    "no_worker_or_model_was_started": true
+  },
+  "observed": {
+    "normal_export_error": null,
+    "first_refresh_status": "refreshed",
+    "late_edit_status": "preserved_file_changed_after_apply"
+  },
+  "result": "PASS",
+  "failed": []
+}

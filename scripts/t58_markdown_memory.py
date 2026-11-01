@@ -17,7 +17,6 @@ sys.path.insert(0, str(ROOT))
 from controlplane.plane import ControlPlane  # noqa: E402
 from controlplane.project_context import (  # noqa: E402
     ContextError,
-    ContextVersionConflict,
 )
 from controlplane.project_memory_md import (  # noqa: E402
     ProjectMemoryAccessError,
@@ -184,12 +183,12 @@ def main() -> int:
     updated = service.context.get_entry(project["id"], candidate["id"])
     protected_after = {key: updated.get(key) for key in protected_before}
     repeated_apply = caught(
-        ContextVersionConflict,
+        ProjectMemoryPolicyError,
         lambda: memory.apply(
             project["id"], candidate_path, confirmed["preview_digest"]))
 
     # Re-export the newly authoritative versions before negative edits.
-    memory.export(project["id"], force=True)
+    memory.export(project["id"])
     candidate_path = memory_dir / "entries" / f"{candidate['id']}.md"
     current_text = candidate_path.read_text(encoding="utf-8")
 
@@ -341,7 +340,7 @@ def main() -> int:
             and updated["tags"] == ["memory", "reviewed"]
             and applied["revision_count"] == 1),
         "protected_fields_survive_apply": protected_before == protected_after,
-        "repeated_old_version_is_conflict": bool(repeated_apply),
+        "repeated_confirmed_apply_is_rejected": bool(repeated_apply),
         "verification_change_is_refused": (
             not verification_preview["can_apply"]
             and "verification" in verification_preview["protected_changes"]),

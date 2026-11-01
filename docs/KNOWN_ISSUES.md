@@ -108,6 +108,9 @@ completed，零人工介入）**；故障恢复与副作用拒绝路径另由 T3
 （只有显式 `--force` 才丢弃）；默认路径绑定 `<ledger-dir>/projects`；
 Knowledge 章节不再将 candidate/unverified 条目误称为 verified。
 证据：`evidence/project/T60-memory-export-safety.json`（16/16 Pass）。
+后续 T61 又收口 apply 后的单文件版本同步：只在该 Entry 未被再次修改时刷新
+`version`；若已变化则保留文件并明确回执，不会强制重导出其他 Entry。
+证据：`evidence/project/T61-memory-apply-refresh.json`（10/10 Pass）。
 
 | # | 位置 | 影响 / 当前处理 | 复现 / 验证 | 状态 |
 |---|---|---|---|---|
