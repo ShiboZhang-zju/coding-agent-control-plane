@@ -1,0 +1,31 @@
+{
+  "test": "T59 Markdown memory injection acceptance",
+  "worker_started": false,
+  "real_model_called": false,
+  "fixture": "<REPO>/sandbox/t59-memory-injection",
+  "checks": {
+    "old_task_contains_original_candidate": true,
+    "old_task_prompt_is_frozen": true,
+    "markdown_preview_and_apply_succeeded": true,
+    "new_task_contains_markdown_update": true,
+    "candidate_is_explicitly_untrusted": true,
+    "verified_hard_constraint_is_complete": true,
+    "unverified_constraint_is_not_hard": true,
+    "verified_requirement_is_satisfied_only_by_verified": true,
+    "new_task_records_new_context_version": true,
+    "new_task_records_actual_entry_refs": true,
+    "cross_project_knowledge_is_absent": true,
+    "stale_markdown_import_is_rejected": true,
+    "failed_import_does_not_replace_winner": true,
+    "task_after_conflict_reads_winner_only": true,
+    "task_after_conflict_records_winner_version": true,
+    "m2_auto_entry_is_candidate": true,
+    "m2_auto_entry_is_identifiable": true,
+    "m2_assertion_is_not_a_reusable_law": false,
+    "no_worker_or_model_was_started": true
+  },
+  "result": "FAIL",
+  "failed": [
+    "m2_assertion_is_not_a_reusable_law"
+  ]
+}

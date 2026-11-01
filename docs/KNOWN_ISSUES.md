@@ -102,6 +102,16 @@ completed，零人工介入）**；故障恢复与副作用拒绝路径另由 T3
 | M4E-R02 | `ld/recall.py` / `scripts/t54_relational_recall.py` / `scripts/t55_recall_resource_closure.py` | T54/T55 只证明确定性 ID 展开、硬预算、真分页、项目/安全域隔离与重启恢复；没有证明真实 LLM 会选对展开路径，也没有评测语义相关性。 | 配置真实模型，给定需要两次以上展开才可回答的历史问题，断言模型仅根据授权召回结果回答，且不泄露 `local`。 | BLOCKED：本轮未运行真实模型/Worker |
 | M4E-R03 | `ld/recall.py::_project_tasks()` | Goal → WorkItem 仍先按项目读取再过滤；T55 后扫描最多 10,000 行，超限显式拒绝，不再做无界读放大。大型 Ledger 上的性能仍未评测。 | 构造大型 Ledger 测查询时延/内存；若真实规模需要，优先增加可派生的 goal-ref 索引投影，不新建第二份任务真相。 | P2 性能边界；已有 fail-closed 扫描上限 |
 
+## M4-F Markdown Project Memory 的剩余限制（2026-11-01）
+
+| # | 位置 | 影响 / 当前处理 | 复现 / 验证 | 状态 |
+|---|---|---|---|---|
+| M4F-R01 | `controlplane/project_memory_md.py` | MVP 一次只预览/应用一条 Entry，不提供整项目多文件原子事务或后台 watch；这是避免把 Markdown 变成第二份状态。 | 同时编辑两条文件，分别 preview/apply；第二条若遇到 Context version 漂移，应重新导出/预览。 | 设计边界；T58 单条 CAS Pass |
+| M4F-R02 | `ProjectMemoryMarkdown.preview/apply()` | verified Entry 的实质修改被拒绝；当前没有“修改后降级、重新验证、重新晋升”的完整工作流。 | 编辑 verified Entry body 后 preview，检查 `can_apply=false`；若确需修改，仍需未来独立审核设计。 | 未实现；T58 已证明 fail-closed |
+| M4F-R03 | `scripts/t59_memory_injection_acceptance.py` | T59 证明 ContextBuilder 的两个/多个独立 WorkItem Prompt 正确冻结与更新，但没有启动真实 CodeBuddy、真实模型或两个真实 Session。 | 在真实本地项目执行“LD 对话 → Worker → M2 candidate → Human Markdown edit/apply → 新 Session”，核对 provenance 和 verifier。 | BLOCKED：本轮按要求未运行真实模型/Worker |
+| M4F-R04 | 严格 Front Matter 子集 | 为避免危险反序列化和新增依赖，只接受导出器产生的根级标量/字符串列表子集，不是通用 YAML 编辑器。 | 使用 anchor、tag、block scalar、重复/未知字段；应明确拒绝。 | 设计边界；T58 Pass |
+| M4F-R05 | M2 自动候选治理 | 自动条目现已明确是 task-specific execution evidence，但尚无质量评分、自动去重、合并、失效或删除。历史 Ledger/Evidence 均保留。 | 在真实项目观察多任务 candidate 质量与膨胀，再决定最小治理，不先引入 Memory Agent。 | 待真实项目试用 |
+
 ## 处理原则
 
 - 任何"已修复/Pass"结论都必须指向可重现测试与脱敏证据；stub/确定性 Pass 不等于

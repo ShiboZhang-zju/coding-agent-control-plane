@@ -250,6 +250,8 @@
   嵌套深度和序列化字节数；不得使每层 `max_items` 或数字叶子绕过总预算。
 - **`has_more` 必须可继续读。** 分页使用绑定项目/对象/安全域/关系集的不透明
   cursor；稳定排序下不得重复或遗漏，关系变化后旧 cursor 必须显式失效。
+- **预算退化不得跳页。** 如果当前关系页无法完整放入响应硬预算，必须拒绝本次
+  查询并让调用方用原 cursor 重试；不得清空 refs 后返回已前移的新 cursor。
 - **所有对象先验项目归属。** 未知 ID 显式报错；跨项目 Goal/Task/Attempt/
   Session/Evidence/Context 必须拒绝，不得以空结果掩盖调用错误。
 - **安全域由调用方授权，模型不能自报。** 直接展开未授权 `local` Context
@@ -262,6 +264,28 @@
   `updated_at`；CLI 使用 query-only Goal 连接，不得为一次查询创建或迁移表。
 - **Fast Path / Slow Path 仍然分离。** ID 解析、归属校验、状态投影、预算截断
   均为确定性 Fast Path；只有 LD 需要决定下一步时才调用 LLM。
+
+### 5.7 Markdown Project Memory 边界（M4-F 引入）
+
+- **SQLite 是唯一权威。** Markdown 只是 `.poc-state/projects/<project-id>/memory/`
+  下的本地编辑文件和派生视图；不得建立 watch 同步、第二份版本或任务状态。
+- **只有单条 candidate/unverified Entry 可编辑。** MVP 仅允许 `title/body/tags`；
+  `id/project_id/kind/verification/security_domain/source/evidence_refs/version`
+  任何变化都必须拒绝。verified Entry 的内容修改同样拒绝，晋升继续走独立
+  `verify_entry()` + evidence 流程。
+- **应用必须是显式两阶段。** `memory-preview` 生成绑定文件内容与 SQLite 版本的
+  稳定 digest；`memory-apply --confirm-preview` 必须重新解析、重算并通过现有
+  `ProjectContextStore.update_context_entry()` CAS。不得直写 context 表。
+- **派生视图不可回写执行状态。** `PROJECT.md` / `CURRENT.md` 由 SQLite/Ledger/
+  Goal 投影，不能用于改变 WorkItem、Attempt、Verdict、审批或 Goal。
+- **文件边界 fail-closed。** Front Matter 只接受安全确定性子集；禁止对象反序列化、
+  路径穿越、符号链接逃逸和 Markdown 命令执行。导出必须临时文件 + 原子替换，
+  并保持 Context version/revision 零写入。
+- **新知识只影响新任务。** 已提交 WorkItem 的 Effective Prompt 永远冻结；应用成功
+  后仅新提交任务读取新 `context_version`，并记录实际 `context_entry_refs`。
+- **自动候选不是工程规律。** M2 自动 knowledge 只能表述为 task-specific execution
+  evidence，保留 `m2-auto/execution-evidence/task-specific` 来源标签和 candidate
+  状态；不得从一次断言成功自动推导、合并或晋升为通用 verified knowledge。
 
 ## 6. 派发与审批规则（M1 补充）
 - 入队即冻结 Effective Prompt。已入队任务的内容不得因上下文更新而改变。

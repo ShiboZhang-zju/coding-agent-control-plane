@@ -28,7 +28,7 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 | **M4-C** | 自动唤醒与运行时可靠性收口 | M4-B | **已完成**（T41–T49，含 T48 真实常驻服务双任务零人工闭环） |
 | **M4-D** | Conversational LD（自然语言查询 / 提交 Goal / 阻塞解释 / 显式确认恢复） | M4-C | **已完成**（T50/T51/T52 确定性 + T53 真实模型与真实 Worker 对话闭环） |
 | **M4-E** | 关联召回（Chain of Recall + Inline & Spill + Fast/Slow Path） | M4-D | **确定性完成**（T54 31 项 + T55 19 项 Pass；未运行真实模型/Worker） |
-| M4-F | Markdown Project Memory（导出/编辑/校验导入、候选晋升、去重、失效） | M4-E | 待规划 |
+| **M4-F** | Markdown Project Memory MVP（导出/预览/显式 CAS 单条应用） | M4-E | **确定性完成**（T56–T59；未运行真实模型/Worker） |
 | M5 | Distributed Workspace | M1–M4 | 未实现 |
 
 依赖是**功能依赖**而非排期依赖。M4-B 的依赖任务交接走控制平面确定性
@@ -644,7 +644,8 @@ Human Owner ──自然语言──> LDChat（意图分类 + 确定性渲染）
 ### 明确不做
 
 - 不做第二套 LD、第二套调度或第二套审批；对话层没有 Worker/SQLite 直接访问。
-- 不把聊天内容写成项目知识（Markdown 导入提案已顺延到 M4-F，且必须经校验与确认）。
+- 对话层不把聊天内容写成项目知识；M4-F 是独立的 Human Owner 本地 CLI，必须经
+  严格预览摘要与显式确认，不由 LDChat 自动触发。
 - 不做自动审批：`needs_approval` 仍必须在控制平面显式处理。
 - 不做 Web UI；先保证 CLI/服务接口是唯一逻辑。
 - 不宣称真实模型对话闭环已验收：T50–T52 的意图分类器都是脚本化/关键词的。
@@ -688,6 +689,8 @@ Project → Goal → WorkItem → Attempt → SessionReference / Evidence
   `max_depth` / `max_output_bytes` 约束。
 - `continuation.has_more=true` 时必带 `next_cursor`；cursor 绑定对象、安全域
   与关系集指纹。关系变化后旧 cursor 拒绝，不在变动数据上静默遗漏。
+- 若硬预算无法容纳当前关系页，查询直接失败并要求缩小 `limit` 或调整预算；
+  不返回会跳过本页未交付 ID 的新 cursor（T56）。
 - **Fast Path / Slow Path**：对象查找、归属、状态、预算和安全域过滤全为确定性
   Fast Path；只有选下一个动作时才调 LLM。
 - 未知 ID 显式 `KeyError`；错误项目归属与未授权直接展开显式
@@ -743,7 +746,62 @@ T55 首次运行在“operator 审计超长原引用”上失败，保留为
 - 向量检索、知识图谱数据库、自由语义 rerank。
 - Router Agent / Project Agent / 多 LD 协商。
 - 召回结果自动写回 Context、自动提升 verification 或自动放宽权限。
-- Markdown 导出/编辑/校验导入；该提案顺延到 M4-F，不与召回实现混在一起。
+- 真实模型是否能选择最有效的展开链仍未评测；M4-F 只增加人类维护入口，
+  不把语义检索或自动 Memory Agent 混入召回层。
+
+---
+
+## M4-F — Markdown Project Memory MVP ✅ 确定性验收（T56–T59）
+
+### 权威关系
+
+```text
+Human edits Markdown Entry
+  → strict preview + digest
+  → explicit memory-apply
+  → ProjectContextStore.update_context_entry(expected_version)
+  → SQLite revision + context_version
+  → only newly submitted WorkItems build a new frozen Effective Prompt
+```
+
+SQLite `project_context_entries / project_context_revisions` 始终是唯一权威状态。
+Markdown 位于 `.poc-state/projects/<project-id>/memory/`，只是本地编辑文件与派生视图：
+
+- `PROJECT.md`：项目/Context 的只读概览。
+- `CURRENT.md`：由 Ledger/Goal/WorkItem 派生的只读当前状态。
+- `entries/<entry-id>.md`：Front Matter + body 的单条可编辑 ContextEntry。
+
+### MVP 边界
+
+- 只允许修改 candidate/unverified Entry 的 `title / body / tags`。
+- `id` / `project_id` / `kind` / `verification` / `security_domain` / `source` /
+  `evidence_refs` / `version` 任一漂移均拒绝；verified Entry 内容修改也拒绝。
+- `memory-apply` 重新解析文件、重算预览摘要并使用现有 CAS；SQLite 或文件变化后
+  旧确认失效。一次只应用一条 Entry，不做多文件事务或后台同步。
+- Front Matter 使用严格、安全、确定性的 YAML 子集；不反序列化对象，不执行
+  Markdown 代码、链接或命令，不新增 YAML 运行时依赖。
+- 导出使用同目录临时文件 + 原子替换，拒绝路径穿越和符号链接逃逸；导出零 Ledger
+  副作用。`CURRENT.md` 不能通过导入修改任务或 Goal。
+- Verified hard constraints 完整进入专用强制区；candidate/unverified constraints
+  进入明确的非强制 notes 区，不能满足 verified prerequisite。
+- M2 自动 knowledge 明确标为 task-specific execution evidence、candidate 和
+  `m2-auto/execution-evidence/task-specific`，不把断言成功称为通用工程规律。
+
+### 验收证据
+
+- T56：11/11 Pass，分页预算退化不跳 ID，inspect 跨轮结果保持有效有界结构。
+- T57：11/11 Pass，verified/candidate/unverified 约束语义与完整注入。
+- T58：26/26 Pass，稳定导出、严格解析、保护字段、显式摘要、CAS、冲突、原子失败、
+  路径/符号链接和 CLI 闭环。
+- T59：19/19 Pass，Markdown 更新进入新 WorkItem，旧 Effective Prompt 冻结，
+  项目隔离与 stale import 拒绝；这是确定性 ContextBuilder 验收，不是真实 Worker。
+
+### 尚未实现
+
+- verified Entry 的 Markdown 修改、重新验证/晋升、失效和删除流程。
+- 多文件/整项目原子导入、后台 watch、通用双向实时同步。
+- 候选自动去重、知识评分、语义合并或 Memory Agent。
+- 真实本地项目的“LD 对话 → Worker → 记忆更新 → 新 Session 复用”验收。
 
 ---
 

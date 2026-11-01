@@ -4,8 +4,9 @@ This module turns a terminal, evidence-backed work item into two *candidate*
 context writes:
 
 * a narrative ``progress`` entry containing the blocker/next step; and
-* a ``knowledge`` entry containing reusable facts extracted from assertions,
-  attempts, event types and warning codes.
+* a ``knowledge`` entry containing task-specific execution observations from
+  assertions, attempts, event types and warning codes.  It is explicitly not a
+  reusable engineering rule until a separate human review verifies it.
 
 There is deliberately no LLM here. Automatic writes can never create
 ``constraints`` or ``verified`` knowledge. Every write has a database-enforced
@@ -272,7 +273,8 @@ class ProjectContextUpdateLoop:
             attempt_id=attempt_id, kind="knowledge",
             title=f"Execution evidence for task {task_id} attempt {attempt_id}",
             body=self._knowledge_body(task, attempt),
-            evidence_refs=(evidence_ref,), tags=common_tags + ("execution-evidence",),
+            evidence_refs=(evidence_ref,),
+            tags=common_tags + ("execution-evidence", "task-specific"),
             source=source)
         return [progress, knowledge]
 
@@ -289,7 +291,10 @@ class ProjectContextUpdateLoop:
                 "Next step: add measurable artifact assertions or collect the missing evidence.")
 
     def _knowledge_body(self, task: dict, attempt: dict) -> str:
-        lines = ["Candidate facts extracted deterministically from execution evidence:"]
+        lines = [
+            "Task-specific execution evidence extracted deterministically; "
+            "this is not verified reusable engineering knowledge:",
+        ]
         assertions = task.get("assertion_results") or []
         for result in assertions[:20]:
             outcome = "passed" if result.get("passed") else "failed"
