@@ -162,7 +162,7 @@
         {
           "pair": "pair2",
           "evidence_level": "archived_verdict",
-          "ledger_recoverable": true,
+          "ledger_recoverable": false,
           "with_memory": "rejected",
           "without_memory": "verified",
           "flipped": true,

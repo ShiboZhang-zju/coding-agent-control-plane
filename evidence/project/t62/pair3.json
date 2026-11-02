@@ -8,7 +8,8 @@
     "kind": "per-pair archive written at run time",
     "summary": ".poc-state/t62/pairs/pair3/summary.json",
     "session_lookup": "read-only SessionReference lookup in the surviving contrast ledgers",
-    "derived_from_rerun": false
+    "derived_from_rerun": false,
+    "verdicts_still_in_ledger": true
   },
   "notes": [],
   "complete": true,

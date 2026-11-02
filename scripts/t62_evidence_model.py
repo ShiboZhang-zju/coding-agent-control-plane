@@ -219,11 +219,19 @@ def _session_map(state_dir: Path) -> dict[str, dict]:
     return found
 
 
-def _still_in_a_ledger(state_dir: Path, task_ids: list[str]) -> bool:
-    """Is every task still an actual row in one of the surviving ledgers?"""
-    if not task_ids:
+def _still_in_a_ledger(state_dir: Path,
+                       expected: dict[str, str]) -> bool:
+    """Can ONE surviving ledger still substantiate every task with its verdict?
+
+    `expected` maps task_id -> the verdict the archive recorded. A row that still
+    exists but whose verdict has reverted to `pending` proves nothing: the point
+    of `ledger_recoverable` is that the ledger still supports the archived
+    verdict, not that some row with the same id is lying around. All tasks must
+    be substantiated by the *same* ledger - two halves of a pair held in two
+    different files is not one recoverable measurement.
+    """
+    if not expected:
         return False
-    present: set[str] = set()
     state = Path(state_dir)
     for name in ("stage2c.db", "stage2c-pair2.db", "stage2c-pair2-final.db"):
         path = state / name
@@ -234,16 +242,20 @@ def _still_in_a_ledger(state_dir: Path, task_ids: list[str]) -> bool:
         except sqlite3.Error:
             continue
         try:
-            for task_id in task_ids:
+            matched = 0
+            for task_id, wanted in expected.items():
                 row = conn.execute(
-                    "select 1 from work_items where id=?", (task_id,)).fetchone()
-                if row:
-                    present.add(task_id)
+                    "select verdict from work_items where id=?", (task_id,)
+                ).fetchone()
+                if row and (row[0] or "").strip() == wanted:
+                    matched += 1
+            if matched == len(expected):
+                return True
         except sqlite3.Error:
             pass
         finally:
             conn.close()
-    return all(task_id in present for task_id in task_ids)
+    return False
 
 
 def build_archived_pair(state_dir: Path, pair_id: str) -> dict | None:
@@ -269,8 +281,10 @@ def build_archived_pair(state_dir: Path, pair_id: str) -> dict | None:
         item.setdefault("attempt_id", extra.get("attempt_id"))
         enriched.append(item)
 
-    task_ids = [row.get("task_id") or "" for row in rows]
-    recoverable = _still_in_a_ledger(state_dir, task_ids)
+    # Compare against the verdict the archive recorded, not merely the row id.
+    expected_verdicts = {str(row.get("task_id") or ""): str(row.get("verdict") or "")
+                         for row in rows if row.get("task_id")}
+    recoverable = _still_in_a_ledger(state_dir, expected_verdicts)
     record = normalize_pair(
         pair_id, enriched,
         source={
@@ -279,15 +293,16 @@ def build_archived_pair(state_dir: Path, pair_id: str) -> dict | None:
             "session_lookup": "read-only SessionReference lookup in the "
                               "surviving contrast ledgers",
             "derived_from_rerun": False,
-            "ledger_rows_present_now": recoverable,
+            "verdicts_still_in_ledger": recoverable,
         },
         evidence_level="archived_verdict",
         ledger_recoverable=recoverable,
     )
     if not recoverable:
         record["notes"].append(
-            "The pair's task rows are no longer in any surviving ledger, so the "
-            "original ledger cannot substantiate this pair today; only this "
+            "No single surviving ledger still holds both task rows WITH the "
+            "verdicts recorded here, so the original ledger cannot substantiate "
+            "this pair today; only this "
             "archive can.")
     missing = [arm["task_id"] for arm in record["arms"]
                if not arm["session_id"] or not arm["attempt_id"]]
@@ -490,13 +505,15 @@ def audit_archive(pair_id: str, record: dict, *,
                         "ledger")
     else:
         # For an archived pair the flag must agree with what the source recorded
-        # when the archive was built. pair2's ledger was reset, so an archive
-        # claiming `true` there would be describing a stronger state than exists.
-        source_state = (record.get("source") or {}).get("ledger_rows_present_now")
+        # when the archive was built. A ledger whose verdict reverted to
+        # 'pending' can no longer substantiate the archived verdict, so an
+        # archive claiming `true` there would describe a stronger state than
+        # exists.
+        source_state = (record.get("source") or {}).get("verdicts_still_in_ledger")
         if isinstance(source_state, bool) and source_state != recoverable:
             problems.append(
                 f"{pair_id}: ledger_recoverable={recoverable} contradicts the "
-                f"source's ledger_rows_present_now={source_state}")
+                f"source's verdicts_still_in_ledger={source_state}")
 
     if record.get("archive_readable") is not True:
         problems.append(f"{pair_id}: this record was loaded, so "

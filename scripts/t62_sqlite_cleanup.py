@@ -62,6 +62,7 @@ class LedgerInspection:
     pending_rows: int = 0
     unrecognised_rows: int = 0
     states: dict[str, int] = field(default_factory=dict)
+    queue_statuses: dict[str, int] = field(default_factory=dict)
     schema_readable: bool = True
 
     @property
@@ -81,11 +82,23 @@ class LedgerInspection:
         if self.verdict_rows:
             out.append(f"{self.verdict_rows} row(s) carry a verdict")
         if self.active_rows:
-            out.append(f"{self.active_rows} row(s) are in flight "
-                       f"({', '.join(sorted(k for k, v in self.states.items() if v and k in ACTIVE_STATES))})")
+            in_flight = sorted(k for k, v in self.states.items()
+                               if v and k in ACTIVE_STATES)
+            detail = f" ({', '.join(in_flight)})" if in_flight else ""
+            note = self.dispatch_note()
+            out.append(f"{self.active_rows} row(s) are in flight{detail}"
+                       + (f"; {note}" if note else ""))
         if self.unrecognised_rows:
             out.append(f"{self.unrecognised_rows} row(s) have an unrecognised state")
         return out
+
+    def dispatch_note(self) -> str:
+        """Describe queue_status, which `state` alone does not capture."""
+        dispatching = self.queue_statuses.get("dispatching", 0)
+        if not dispatching:
+            return ""
+        return (f"{dispatching} row(s) are queue_status='dispatching' - claimed "
+                "for dispatch while still state='queued'; this is in-flight work")
 
 
 @dataclass
@@ -126,8 +139,16 @@ def inspect_ledger(ledger: Path) -> LedgerInspection:
     except sqlite3.Error as exc:
         raise LedgerInUse(f"cannot open {ledger.name} read-only: {exc}") from exc
     try:
-        rows = conn.execute(
-            "select state, verdict from work_items").fetchall()
+        # queue_status matters: `claim_next_ready()` moves it to 'dispatching'
+        # while `state` is still 'queued', so a census on (state, verdict) alone
+        # would call an already-claimed ledger scratch. It is a separate column
+        # and may be absent in older/partial schemas, hence the fallback.
+        try:
+            rows = conn.execute(
+                "select state, verdict, queue_status from work_items").fetchall()
+        except sqlite3.Error:
+            rows = [(state, verdict, None) for state, verdict in
+                    conn.execute("select state, verdict from work_items").fetchall()]
     except sqlite3.Error as exc:
         # Unknown schema: refuse to call it scratch rather than assume it is.
         report.schema_readable = False
@@ -137,13 +158,20 @@ def inspect_ledger(ledger: Path) -> LedgerInspection:
     finally:
         conn.close()
 
-    for state, verdict in rows:
+    for state, verdict, queue_status in rows:
         state = (state or "").strip()
         verdict = (verdict or "").strip()
+        queue_status = (queue_status or "").strip()
         report.total_rows += 1
         report.states[state or "<empty>"] = report.states.get(state or "<empty>", 0) + 1
+        if queue_status:
+            report.queue_statuses[queue_status] = (
+                report.queue_statuses.get(queue_status, 0) + 1)
         if verdict and verdict != "pending":
             report.verdict_rows += 1
+        elif queue_status == "dispatching":
+            # Claimed for dispatch but not dispatched yet: in flight.
+            report.active_rows += 1
         elif state in ACTIVE_STATES:
             report.active_rows += 1
         elif state in SCRATCH_SAFE_STATES:

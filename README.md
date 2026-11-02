@@ -48,7 +48,9 @@ Pilot 仓库 `main`（4a1cdc02）未被改动；"未 push" 是操作员声明，
 对照结果的唯一分歧是 pair2，且方向对记忆臂不利——**不存在"有记忆通过、无记忆失败"
 的 pair**（旧表述 "failed in opposite directions" 与数据不符，已撤回）。
 pair1 的原始 Ledger 因 WAL 被误删不可恢复，仅以事故前同期记录引用，证据等级为
-`historical_record_only`，永久低于 pair2/pair3。该结论不得被单组成功样本改写。
+`historical_record_only`，永久低于 pair2/pair3。pair2 的任务行虽在，但 verdict 已
+回退为 `pending`，其原始 Ledger 同样不能独立举证（`ledger_recoverable=false`），
+组内 verdict 仍以运行时归档为准。该结论不得被单组成功样本改写。
 模型身份（端点/模型 id）不属于测试结果，不出现在代码默认值、日志或证据中。
 已知限制：真实决策模型偶发保守转人工（`--resume` 解锁）；agent job 的 worker
 权限要求项目级 `permissions.allow`（T38 fixture 已内置，见
@@ -695,7 +697,7 @@ python scripts/t62_real_project_pilot.py         # T62 Stage 1 只读预演（�
 python scripts/t62_stage2_contrast_record.py     # T62 三组对照归档 + 汇总（先跑这个）
 python scripts/t62_stage2_supporting_record.py   # T62 行为支撑记录（服务离线则 INCOMPLETE）
 python scripts/t62_stage2_real_project.py        # T62 Stage 2 真实双 Session 记忆闭环
-python -m pytest tests/test_t62_g1_evidence.py -q # G1 证据治理回归（54 项）
+python -m pytest tests/test_t62_g1_evidence.py -q # G1 证据治理回归（60 项）
 python scripts/t53_real_chat_e2e.py        # M4-D 真实模型 + 真实 Worker 对话闭环
                                            # 需 LD_MODEL_* 与 serve_ctl start；否则记为 BLOCKED
 

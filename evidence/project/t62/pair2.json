@@ -2,16 +2,17 @@
   "schema": "t62.pair_archive/1",
   "pair_id": "pair2",
   "evidence_level": "archived_verdict",
-  "ledger_recoverable": true,
+  "ledger_recoverable": false,
   "archive_readable": true,
   "source": {
     "kind": "per-pair archive written at run time",
     "summary": ".poc-state/t62/pairs/pair2/summary.json",
     "session_lookup": "read-only SessionReference lookup in the surviving contrast ledgers",
     "derived_from_rerun": false,
-    "ledger_rows_present_now": true
+    "verdicts_still_in_ledger": false
   },
   "notes": [
+    "No single surviving ledger still holds both task rows WITH the verdicts recorded here, so the original ledger cannot substantiate this pair today; only this archive can.",
     "SessionReference/Attempt for cp-4ddffe2e528b, cp-7e4e0f820b6e is not retained any more; the verdict is still the one the Verifier wrote at run time, but the transcript is unavailable and no tool-call count may be derived for it."
   ],
   "complete": true,

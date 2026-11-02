@@ -27,10 +27,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 sys.path.insert(0, str(ROOT / "scripts"))
+# `remove_scratch_ledger` is intentionally NOT imported here any more: setup()
+# always allocates a new ledger, because "is this scratch?" is the wrong
+# question - queue_status='dispatching' coexists with state='queued'. The guard
+# still exists in t62_sqlite_cleanup as the single sanctioned deletion path.
 from t62_sqlite_cleanup import (  # noqa: E402
-    LedgerInUse,
     fresh_ledger_path,
-    remove_scratch_ledger,
     wal_size,
 )
 
@@ -133,24 +135,23 @@ def setup() -> int:
     from controlplane.project_service import ProjectService
     from controlplane.store import TaskStore
 
-    # A contrast ledger is only scratch while it holds no verdict. Once it has
-    # one it is evidence (pair 1 lost its record that way), so it is archived and
-    # the next pair gets a brand-new file instead of a deleted one.
+    # Every round starts on a brand-new ledger. setup() never deletes one.
     #
-    # The guard has no opt-out: setup() must not be able to talk itself into
-    # deleting a ledger that holds a verdict or in-flight work.
-    ledger = LEDGER
-    try:
-        remove_scratch_ledger(ledger)
-    except LedgerInUse as exc:
-        archived = fresh_ledger_path(STATE / "stage2c-used.db")
+    # Deciding "is this scratch?" turned out to be the wrong question: a task can
+    # sit at state='queued'/'verdict=pending' while `claim_next_ready()` has
+    # already moved queue_status to 'dispatching', so a row-level census on
+    # (state, verdict) calls an in-flight ledger scratch. Rather than add more
+    # state checks to a delete decision, the delete decision is removed: a new
+    # path every round, and whatever was there stays as evidence. The guard in
+    # t62_sqlite_cleanup stays as a hard stop for anyone else who tries.
+    ledger = fresh_ledger_path(LEDGER)
+    if LEDGER.exists():
         print(json.dumps({
             "ledger_reused": False,
-            "reason": str(exc),
-            "next_ledger": archived.name,
-            "kept_as_evidence": ledger.name,
+            "next_ledger": ledger.name,
+            "kept_as_evidence": LEDGER.name,
+            "reason": "each round uses a fresh ledger; nothing is deleted",
         }, ensure_ascii=False))
-        ledger = Path(archived)
     if wal_size(ledger):
         raise SystemExit(
             f"{ledger.name}-wal still holds {wal_size(ledger)} bytes; stop the "

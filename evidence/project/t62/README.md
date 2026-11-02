@@ -62,7 +62,18 @@ python -m pytest tests/test_t62_g1_evidence.py -q
 `verdicts`/`flipped` 重算比对、`pair_id` 与文件一致），不信任文件自称的
 `complete: true`。手工改坏任一归档即 BLOCKED。
 
-`ledger_recoverable` 只回答"原始 Ledger 是否还能举证"，`archive_readable`
-回答"本归档是否读得到"。pair2 的任务行与 verdict 仍在 ledger 中
-（`ledger_recoverable=true`），但其 `session_references` 表为空，
-因此整组仍判 INCOMPLETE。两个字段互不替代。
+`ledger_recoverable` 只回答"原始 Ledger 是否还能举证该组 verdict"，
+`archive_readable` 回答"本归档是否读得到"。
+
+判定按 **verdict** 而非行是否存在，且必须由**同一份 ledger** 同时举证整组：
+
+| 组 | 行还在？ | 行里的 verdict | `ledger_recoverable` |
+|---|---|---|---|
+| pair1 | 否（ledger 已损坏） | — | `false` |
+| pair2 | 是（`stage2c-pair2*.db`） | **`pending`（已回退）** | `false` |
+| pair3 | 是（`stage2c.db`） | `verified` / `verified` | `true` |
+
+pair2 是本轮复核时发现的：行虽然还在，但 `state='queued'`、`verdict='pending'`，
+与 T62-F07 描述的损坏形态一致，因此它的 `ledger_recoverable` 从 `true` 下调为
+`false`。**归档里的 verdict 没有改变**（有记忆 rejected / 无记忆 verified）——
+下调的只是"ledger 还能不能独立举证"这一项，实验数据本身来自运行时归档。

@@ -23,6 +23,7 @@ import t62_evidence_model as model  # noqa: E402
 from t62_sqlite_cleanup import (  # noqa: E402
     LedgerInUse,
     fresh_ledger_path,
+    inspect_ledger,
     remove_scratch_ledger,
     wal_size,
 )
@@ -268,6 +269,90 @@ def test_duplicate_task_id_inside_a_pair_is_blocked_on_read():
     result = model.validate_archives(_tamper(pairs, "pair3", arms=arms))
     assert result["result"] == model.BLOCKED
     assert any("not distinct" in p for p in result["problems"])
+
+
+def test_dispatching_queue_status_is_not_scratch(tmp_path):
+    """state='queued' + verdict='pending' can still be mid-dispatch.
+
+    `claim_next_ready()` sets queue_status='dispatching' while state stays
+    'queued'. The cleaner must not read that as "safe to delete".
+    """
+    ledger = tmp_path / "dispatching.db"
+    conn = sqlite3.connect(str(ledger))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("create table work_items (id text primary key, state text, "
+                 "verdict text, queue_status text)")
+    conn.execute("insert into work_items values "
+                 "('cp-d','queued','pending','dispatching')")
+    conn.commit()
+    conn.close()
+    # The census itself must see the in-flight queue status, not just the state.
+    inspection = inspect_ledger(ledger)
+    assert inspection.queue_statuses.get("dispatching") == 1
+    assert inspection.active_rows >= 1
+    with pytest.raises(LedgerInUse):
+        remove_scratch_ledger(ledger)
+    assert ledger.exists()
+
+
+def test_setup_never_deletes_a_ledger():
+    """The delete decision is removed entirely, not made more accurate."""
+    source = (ROOT / "scripts" / "t62_stage2_contrast.py").read_text(
+        encoding="utf-8")
+    assert "remove_scratch_ledger(" not in source
+    assert "fresh_ledger_path(" in source
+
+
+def test_ledger_recoverable_requires_the_recorded_verdict_not_just_the_row(
+        tmp_path):
+    """A row whose verdict reverted to 'pending' does not substantiate anything."""
+    ledger = tmp_path / "stage2c.db"
+    conn = sqlite3.connect(str(ledger))
+    conn.execute("create table work_items (id text primary key, verdict text)")
+    conn.execute("insert into work_items values ('cp-a','pending')")
+    conn.commit()
+    conn.close()
+    # Row exists, but its verdict is no longer the archived one.
+    assert model._still_in_a_ledger(tmp_path, {"cp-a": "verified"}) is False
+    # With the matching verdict it is substantiated.
+    assert model._still_in_a_ledger(tmp_path, {"cp-a": "pending"}) is True
+
+
+def test_ledger_recoverable_requires_one_ledger_for_the_whole_pair(tmp_path):
+    """Two halves in two different files is not one recoverable measurement."""
+    for name, task_id in (("stage2c.db", "cp-a"),
+                          ("stage2c-pair2.db", "cp-b")):
+        conn = sqlite3.connect(str(tmp_path / name))
+        conn.execute("create table work_items (id text primary key, verdict text)")
+        conn.execute("insert into work_items values (?, 'verified')", (task_id,))
+        conn.commit()
+        conn.close()
+    assert model._still_in_a_ledger(
+        tmp_path, {"cp-a": "verified", "cp-b": "verified"}) is False
+
+
+def test_real_pair2_ledger_can_no_longer_substantiate_its_verdicts():
+    """pair2's rows survive, but their verdicts reverted to 'pending'.
+
+    `state='queued'`, `verdict='pending'` in stage2c-pair2*.db is the same damage
+    T62-F07 describes. So `ledger_recoverable` is false: the archive is the only
+    thing that still holds the verdicts. Its file is readable, which is a
+    different fact and has its own field.
+    """
+    record = model.load_archive(EVID / "t62", "pair2")
+    assert record["ledger_recoverable"] is False
+    assert record["source"]["verdicts_still_in_ledger"] is False
+    assert record["archive_readable"] is True
+    assert all(arm["session_id"] is None for arm in record["arms"])
+    # The archived verdicts themselves are unchanged by this downgrade.
+    assert record["verdicts"] == {"with_memory": "rejected",
+                                  "without_memory": "verified"}
+
+
+def test_pair3_ledger_still_substantiates_its_verdicts():
+    record = model.load_archive(EVID / "t62", "pair3")
+    assert record["ledger_recoverable"] is True
+    assert record["source"]["verdicts_still_in_ledger"] is True
 
 
 def test_pair1_archive_is_not_upgraded_by_later_evidence_levels():
