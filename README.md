@@ -24,15 +24,18 @@ T54 关系验收与 T55 资源/引用/分页收口均已通过，本轮未运行
 导出、严格差异预览和显式 CAS 应用；T56–T61 共 93 项确定性检查通过，
 含未应用编辑保护、Ledger 路径隔离与知识可信度标签。
 
-**T62 Real Project Memory Pilot（真实项目双 Session 记忆复用）已通过第二阶段验收**
-（`evidence/project/T62-stage2-real-project.json`，30/30 Pass）：在
+**T62 Real Project Memory Pilot（真实项目双 Session 记忆复用）Stage 2 已执行并验收**
+（`evidence/project/T62-stage2-real-project.json`，27/27 Pass）：在
 `gui-agent-post-training` 的隔离克隆上，真实 Session A 修复解析器边界缺陷
-（Verifier `verified`）→ M2 回写候选 → 人工 Markdown 审核 + CAS apply +
-`context-verify` 晋升（v4）→ 全新 Session B 在 `metrics.py` 完成相关任务
-（`verified`），其冻结 Prompt 携带该条目的 ID 与版本。受控对照 C1/C0
-（同提交、同指令、同断言，仅 context_version 1 vs 0）双双 `verified`：
-**记忆确实被注入并使用，但本轮未观察到可归因于记忆的收益（n=1）**。
-Pilot 仓库 `main` 未被改动，产物未 push。
+（Verifier `verified`，提交 5a215fc）→ M2 回写候选 → 人工 Markdown 审核 +
+CAS apply + `context-verify` 晋升（v4）→ 全新 Session B 在 `metrics.py` 完成
+相关任务（`verified`，66eb601），其冻结 Prompt 携带该条目的 ID 与版本。
+Pilot 仓库 `main`（4a1cdc02）未被改动，产物未 push。
+
+受控对照（同提交、同指令、同断言，仅 context_version 1 vs 0）结果为
+**INCONCLUSIVE**（`T62-stage2-memory-contrast.json`）：3 组中 2 组双臂通过、
+1 组有记忆被拒而控制臂通过。**记忆确实被注入且可追溯，但本轮不能证明它带来
+收益；恰恰相反，n=3 下控制臂表现更好。** 该结论不得被单组成功样本改写。
 模型身份（端点/模型 id）不属于测试结果，不出现在代码默认值、日志或证据中。
 已知限制：真实决策模型偶发保守转人工（`--resume` 解锁）；agent job 的 worker
 权限要求项目级 `permissions.allow`（T38 fixture 已内置，见

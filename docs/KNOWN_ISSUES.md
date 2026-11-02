@@ -161,7 +161,7 @@ T62 分两阶段：Stage 1 只读预演（不动真实仓库、不起 Worker）�
 | 人工改 Markdown + `memory-preview`/`memory-apply`（CAS v2→v3） | 成功 |
 | `context-verify` + 2 条 evidence refs 晋升 | v4 `verified` |
 | B：全新 Session 用该知识做 `metrics.py` 后续任务 | `verified`，66eb601，Prompt 内条目 ID 与版本一致 |
-| C1/C0 受控对照（同提交 f882885、同指令、同断言） | 双 `verified`，差异仅在 context_version 1 vs 0 |
+| 受控对照 C1/C0（同提交 f882885、同指令、同断言，仅 context_version 1 vs 0） | **INCONCLUSIVE**：3 组中 2 组双 verified、1 组有记忆被拒无记忆通过 |
 
 | # | 位置 | 影响 / 当前处理 | 复现 / 验证 | 状态 |
 |---|---|---|---|---|
@@ -170,7 +170,8 @@ T62 分两阶段：Stage 1 只读预演（不动真实仓库、不起 Worker）�
 | T62-F02 | CodeBuddy Worker worktree | worktree 恒定基于**远程默认分支**（`origin/HEAD`），不跟随本地检出分支。首次把 pilot 分支检出在本地时，Worker 实际在 `main`（4a1cdc02）上作业，Verifier 因找不到测试文件而正确拒绝。 | 在带 remote 的仓库检出 feature 分支后派发，比较 worktree HEAD 与 `origin/main`。 | P1：已记录；Pilot 需让默认分支即为目标分支（本次用本地 bare origin 重定向） |
 | T62-F03 | CodeBuddy Worker | Worker 会主动 `cd` 出 worktree、在**项目根目录**编辑并提交（B 的第一次尝试），导致 Verifier 看到的 worktree HEAD 不变而被拒。Verifier 的拒绝是正确行为；风险是它绕过了隔离。 | 检查 Worker transcript 的 `cd`/`Edit` 绝对路径与提交落点。 | P1：隔离未被强制；需后续在 adapter 层约束，本轮不改架构 |
 | T62-F04 | `tests/test_dataset.py` | 基线提交 f882885 上已有 4 个失败（与本次改动无关）。任务 A/B 的验收断言不覆盖该文件，故未影响 verdict；但"整套测试全绿"不能作为本轮结论。 | 在未修改的 f882885 上直接跑 `pytest -q tests`。 | P2：既有失败，非本轮引入 |
-| T62-F05 | 记忆收益 | C1 比 C0 少读 1 个文件（5 vs 6 次工具调用），耗时 297.7s vs 320.0s，两臂行为探测完全一致。n=1，且差值在 Worker 采样噪声量级内。 | 同一脚本对两臂源码运行同一探测。 | P2：**不能说记忆带来收益**；只能说未观察到反例 |
+| T62-F05 | 记忆收益 | 受控对照跑了 3 组，结果**方向不一致**：pair1 双 verified（有记忆 297.7s，无记忆 320.0s）、pair2 有记忆被拒/无记忆 verified、pair3 双 verified。累计 有记忆 2 verified 1 rejected、无记忆 3 verified 0 rejected。差异全部落在 Worker 单次采样波动量级内。 | `scripts/t62_stage2_contrast_record.py` → `evidence/project/T62-stage2-memory-contrast.json`。 | **P1 结论：记忆未被证明有收益，反而 n=3 下无记忆臂表现更好**；不得引用单组成功的 pair 作为收益证据 |
+| T62-F07 | 对照实验清理 | 清理时手动删除 `stage2c.db-wal`，导致已完成的对照 ledger 静默回退到 queued 状态：证据文件还在，但 ledger 已不能自证。worktree 提交与 transcript 仍在，故 pair1 可凭记录引用并明确标注来源。 | 对照脚本 `run_pair.py` 已不再删除任何 `-wal`；`contrast_record.py` 对 pair1 标注"其 ledger 已损坏"。 | P1 操作事故（本人造成，已记录并重跑 2 组重建记录） |
 | T62-F06 | `ld_goals` 写门控 | 项目内存在 `needs_human` 任务后，该项目的后续 Goal 提交被 M4-A 保守门控拦住（`M4A-01` 设计如此）。本轮因此改用干净项目承载对照臂。 | 在有 rejected 任务的项目再提交新 Goal。 | 设计边界；建议日常使用提供显式解除入口 |
 
 ## 处理原则

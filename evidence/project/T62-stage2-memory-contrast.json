@@ -1,0 +1,164 @@
+{
+  "test": "T62 stage 2 memory contrast (with vs without reviewed knowledge)",
+  "result": "INCONCLUSIVE",
+  "why_not_pass": "Both arms are real and the knowledge provably reaches the memory arm's prompt, but the outcomes disagree across pairs in both directions. That is run-to-run variance dominating, not a memory effect, and no single pair may be quoted as evidence of benefit.",
+  "design": {
+    "same_code_commit": "f882885",
+    "same_task_text": true,
+    "same_assertions": true,
+    "submitted_via": "ProjectService.submit_project_task",
+    "why_not_via_ld_model": "T62-F01: the decision model paraphrased two byte-identical goals into different task texts and different assertions, which would confound the memory variable.",
+    "arms": {
+      "with_memory": "clean project carrying the human-reviewed verified entry",
+      "without_memory": "clean project with empty context"
+    }
+  },
+  "pairs": [
+    {
+      "pair": "pair1 (cited from T62-stage2-real-project.json; its ledger was damaged, see incident)",
+      "with_memory": "verified",
+      "without_memory": "verified",
+      "flipped": false
+    },
+    {
+      "pair": "pair2",
+      "with_memory": "rejected",
+      "without_memory": "verified",
+      "flipped": true
+    },
+    {
+      "pair": "pair3",
+      "with_memory": "verified",
+      "without_memory": "verified",
+      "flipped": false
+    }
+  ],
+  "tally": {
+    "with_memory": {
+      "verified": 2,
+      "rejected": 1
+    },
+    "without_memory": {
+      "verified": 3,
+      "rejected": 0
+    }
+  },
+  "pair_detail": [
+    {
+      "pair": "pair1 (cited from T62-stage2-real-project.json; its ledger was damaged, see incident)",
+      "arms": [
+        {
+          "task_id": "cp-69d3691973ed",
+          "arm": "work-c1",
+          "verdict": "verified",
+          "context_version": 1,
+          "head_commit": "9411e20c4bf2d26188bf918671a31e3b8dece3e7",
+          "duration_s": 297.7
+        },
+        {
+          "task_id": "cp-133a8c27b707",
+          "arm": "work-c0",
+          "verdict": "verified",
+          "context_version": 0,
+          "head_commit": "3004cac19a33d94c66446e0539d0bb26daaef1a9",
+          "duration_s": 320.0
+        }
+      ]
+    },
+    {
+      "pair": "pair2",
+      "arms": [
+        {
+          "task_id": "cp-4ddffe2e528b",
+          "arm": ".codebuddy",
+          "verdict": "rejected",
+          "context_version": 1,
+          "context_entry_refs": [
+            "ctx-a66eab0cb804"
+          ],
+          "duration_s": 272.7,
+          "added_lines": 54,
+          "files_changed": [
+            "src/gui_post_training/evaluation/metrics.py",
+            "src/gui_post_training/evaluation/parsing.py"
+          ],
+          "tests": "54 passed in 0.26s",
+          "failed_assertions": [
+            "file_contains:normalized_1000"
+          ],
+          "head_commit": "579cb660c82a7424c7e3bbb009297c240cb21585"
+        },
+        {
+          "task_id": "cp-7e4e0f820b6e",
+          "arm": ".codebuddy",
+          "verdict": "verified",
+          "context_version": 0,
+          "context_entry_refs": [],
+          "duration_s": 295.3,
+          "added_lines": 35,
+          "files_changed": [
+            "src/gui_post_training/evaluation/metrics.py"
+          ],
+          "tests": "54 passed in 0.42s",
+          "failed_assertions": [],
+          "head_commit": "9feef0379d5d38ce83879f2c942943fb4b26cd3f"
+        }
+      ]
+    },
+    {
+      "pair": "pair3",
+      "arms": [
+        {
+          "task_id": "cp-6265b1fdcdb9",
+          "arm": "work-c1x",
+          "verdict": "verified",
+          "context_version": 1,
+          "context_entry_refs": [
+            "ctx-750ac8c4f08c"
+          ],
+          "duration_s": 302.6,
+          "added_lines": 37,
+          "files_changed": [
+            "src/gui_post_training/evaluation/metrics.py"
+          ],
+          "tests": "54 passed in 0.17s",
+          "failed_assertions": [],
+          "head_commit": "50181396d2484cb6ecea21993f919cda729998a1"
+        },
+        {
+          "task_id": "cp-1cdd9af03ae8",
+          "arm": "work-c0x",
+          "verdict": "verified",
+          "context_version": 0,
+          "context_entry_refs": [],
+          "duration_s": 224.8,
+          "added_lines": 20,
+          "files_changed": [
+            "src/gui_post_training/evaluation/metrics.py"
+          ],
+          "tests": "54 passed in 0.15s",
+          "failed_assertions": [],
+          "head_commit": "5cdbe604051e5735920cd4c131ef76205e3b324c"
+        }
+      ]
+    }
+  ],
+  "variance_observation": {
+    "with_memory_verified": 2,
+    "with_memory_rejected": 1,
+    "without_memory_verified": 3,
+    "without_memory_rejected": 0,
+    "reading": "The memory arm and the control arm both pass and both fail, and they failed in opposite directions on different pairs. On this task the injected rule is not what decides the outcome."
+  },
+  "incident_affecting_this_record": {
+    "what": "the first contrast ledger's -wal file was deleted during cleanup, silently reverting that ledger to its queued state",
+    "effect": "the ledger could no longer substantiate the first pair, so the pair was re-run instead of being cited from memory",
+    "lesson": "never delete a live SQLite -wal by hand; the worktree commits and transcripts survived, which is why the first pair could still be archived",
+    "remediation": "contrast re-run twice more to rebuild the record; the pair runner no longer deletes wal files"
+  },
+  "not_claimed": [
+    "that memory reduced exploration, time, or failure rate",
+    "any statistical conclusion: 3 pairs, n=1 per pair, no significance",
+    "that C1's or C0's patch is better code - all passing patches were behaviourally equivalent on the probes that were run"
+  ]
+}

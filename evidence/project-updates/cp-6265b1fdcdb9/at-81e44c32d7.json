@@ -1,0 +1,118 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-6265b1fdcdb9",
+    "project_id": "prj-23ce5e012b",
+    "title": "t62 contrast c1x",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "src/gui_post_training/evaluation/metrics.py",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "changed since baseline"
+      },
+      {
+        "kind": "file_contains",
+        "target": "src/gui_post_training/evaluation/metrics.py",
+        "value": "normalized_1000",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      },
+      {
+        "kind": "file_contains",
+        "target": "src/gui_post_training/evaluation/metrics.py",
+        "value": "pixel",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      },
+      {
+        "kind": "file_contains",
+        "target": "src/gui_post_training/evaluation/metrics.py",
+        "value": "ambigu",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      }
+    ],
+    "warnings": [],
+    "finished_at": 1793606112.845
+  },
+  "attempt": {
+    "id": "at-81e44c32d7",
+    "worker_job_id": "8145c6ee",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793605810.1094964,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 1,
+      "work_item_id": "cp-6265b1fdcdb9",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-23ce5e012b",
+        "workspace_id": "ws-2803cab212",
+        "context_version": 1,
+        "context_entry_refs": [
+          "ctx-750ac8c4f08c"
+        ],
+        "context_injected": true
+      },
+      "created_at": 1793605797.4132385
+    },
+    {
+      "id": 3,
+      "work_item_id": "cp-6265b1fdcdb9",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-23ce5e012b",
+        "root": "<REPO>\\.poc-state\\t62\\work-c1x",
+        "cwd": "<REPO>\\.poc-state\\t62\\work-c1x"
+      },
+      "created_at": 1793605805.6006794
+    },
+    {
+      "id": 4,
+      "work_item_id": "cp-6265b1fdcdb9",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\.poc-state\\t62\\work-c1x",
+        "attempt_id": "at-81e44c32d7",
+        "approval_id": null
+      },
+      "created_at": 1793605810.1736646
+    },
+    {
+      "id": 5,
+      "work_item_id": "cp-6265b1fdcdb9",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "8145c6ee",
+        "http": 200
+      },
+      "created_at": 1793605810.2452228
+    }
+  ]
+}

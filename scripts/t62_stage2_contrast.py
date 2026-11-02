@@ -1,0 +1,194 @@
+"""Run the controlled memory contrast for T62 stage 2 (C1 vs C0).
+
+Both arms are byte-identical except for project memory:
+  * a fresh copy of the same commit,
+  * the same task string and assertion list,
+  * submitted through ProjectService.submit_project_task (the entry point the LD
+    tool itself calls), not through the decision model - because the model
+    paraphrased two identical goals into different task texts (T62-F01),
+    which would make memory an unattributable variable.
+
+Usage:
+    python scripts/t62_stage2_contrast.py setup    # build copies, register, enqueue
+    python scripts/t62_stage2_contrast.py run      # start the resident service
+    python scripts/t62_stage2_contrast.py status   # poll until both are terminal
+"""
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+STATE = ROOT / ".poc-state" / "t62"
+LEDGER = STATE / "stage2c.db"
+PILOT_LEDGER = STATE / "stage2.db"
+SRC = STATE / "pilot-work"
+BASE = "http://127.0.0.1:8787"
+COMMIT = "f882885"
+SOURCE_PROJECT = "prj-efe109f94e"
+SOURCE_ENTRY = "ctx-ec635ddbab33"
+
+ARM_MEM = os.environ.get("T62_ARM_MEM", "c1")
+ARM_NOMEM = os.environ.get("T62_ARM_NOMEM", "c0")
+
+
+def arm_tags() -> tuple[str, str]:
+    return ARM_MEM, ARM_NOMEM
+
+
+TASK = (
+    "Read tests/test_metrics_space_ambiguity.py and change "
+    "src/gui_post_training/evaluation/metrics.py so that every test in that file "
+    "passes and tests/test_metrics.py and tests/test_parsing.py do not regress. "
+    "When a numeric pair is valid under both the pixel and the normalized_1000 "
+    "reading, both the per-sample record and the aggregate result must make it "
+    "visible that the decision rests on a convention rather than on the data. "
+    "Commit all changes with git: if you are on main or master, create and switch "
+    "to a new feature branch first. Never push, and never commit to or modify "
+    "main or master."
+)
+
+ASSERTIONS = [
+    {"kind": "file_exists",
+     "target": "src/gui_post_training/evaluation/metrics.py"},
+    {"kind": "file_contains",
+     "target": "src/gui_post_training/evaluation/metrics.py",
+     "value": "normalized_1000"},
+    {"kind": "file_contains",
+     "target": "src/gui_post_training/evaluation/metrics.py",
+     "value": "pixel"},
+    {"kind": "file_contains",
+     "target": "src/gui_post_training/evaluation/metrics.py",
+     "value": "ambigu"},
+]
+
+
+def git(*args, cwd=None, check=True):
+    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
+                          text=True, timeout=180)
+    if check and proc.returncode != 0:
+        raise RuntimeError(f"git {args}: {proc.stderr[-400:]}")
+    return proc.stdout.strip()
+
+
+def build_copy(tag: str) -> Path:
+    origin = STATE / f"origin-{tag}.git"
+    work = STATE / f"work-{tag}"
+    if work.exists():
+        raise RuntimeError(f"{work} already exists; remove it first")
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "pilot/t62-memory",
+                    str(origin)], check=True)
+    git("remote", "add", "src", str(SRC), cwd=origin, check=False)
+    git("fetch", "-q", "src", "pilot/t62-memory:refs/heads/pilot/t62-memory",
+        cwd=origin)
+    git("update-ref", "refs/heads/pilot/t62-memory", COMMIT, cwd=origin)
+    git("symbolic-ref", "HEAD", "refs/heads/pilot/t62-memory", cwd=origin)
+    git("clone", "-q", str(origin), str(work))
+    git("config", "user.email", "t62@example.invalid", cwd=work)
+    git("config", "user.name", "T62 Pilot", cwd=work)
+    perms = json.dumps({"permissions": {"allow": ["Bash", "PowerShell"]}}, indent=1)
+    for rel in (".claude/settings.json", ".codebuddy/settings.json"):
+        target = work / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(perms, encoding="utf-8")
+    return work
+
+
+def setup() -> int:
+    from adapters.codebuddy.adapter import CodeBuddyAdapter
+    from adapters.codebuddy.client import Api
+    from controlplane.plane import ControlPlane
+    from controlplane.project_service import ProjectService
+    from controlplane.store import TaskStore
+
+    if LEDGER.exists():
+        LEDGER.unlink()
+
+    adapter = CodeBuddyAdapter(Api(base=BASE), autologin=True)
+    store = TaskStore(LEDGER)
+    plane = ControlPlane(adapter, store, require_registered_projects=True,
+                         worker_instance_id="wi-t62c")
+    service = ProjectService(plane)
+
+    src_store = TaskStore(PILOT_LEDGER)
+    src_service = ProjectService(ControlPlane(
+        adapter, src_store, require_registered_projects=True))
+
+    out = {}
+    try:
+        mem_tag, nomem_tag = arm_tags()
+        for tag in (mem_tag, nomem_tag):
+            work = build_copy(tag)
+            project = plane.register_project(
+                f"gui-post-training-{tag}", str(work), default_adapter="codebuddy")
+            pid = project["id"]
+            entry = None
+            if tag == mem_tag:
+                src = src_service.context.get_entry(SOURCE_PROJECT, SOURCE_ENTRY)
+                entry = service.add_context_entry(pid, {
+                    "kind": src["kind"], "title": src["title"], "body": src["body"],
+                    "tags": list(src.get("tags") or []),
+                    "verification": "verified",
+                    "security_domain": src["security_domain"],
+                    "source": f"human:t62-owner (reviewed in {SOURCE_PROJECT})",
+                    "evidence_refs": list(src["evidence_refs"]),
+                })
+            task = service.submit_project_task(
+                pid, TASK, assertions=ASSERTIONS,
+                idempotency_key=f"t62c-{tag}", title=f"t62 contrast {tag}")
+            refs = task.get("context_entry_refs") or []
+            if isinstance(refs, str):
+                refs = json.loads(refs)
+            out[tag] = {"project_id": pid, "task_id": task["id"],
+                        "memory_entry": entry["id"] if entry else None,
+                        "context_version": task.get("context_version"),
+                        "context_entry_refs": refs}
+    finally:
+        store.close()
+        src_store.close()
+    print(json.dumps(out, ensure_ascii=False, indent=1))
+    return 0
+
+
+def run() -> int:
+    log = open(STATE / "contrast-runtime.log", "ab")
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    argv = [
+        sys.executable, str(ROOT / "scripts" / "run_controlplane.py"),
+        "--ledger", str(LEDGER), "--base", BASE,
+        "--known-interval", "5", "--dispatch-interval", "2",
+        "--max-concurrent", "1", "--scan-on-start",
+    ]
+    flags = (subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+             if os.name == "nt" else 0)
+    proc = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL, cwd=str(ROOT), env=env,
+                            creationflags=flags)
+    print(json.dumps({"runtime_pid": proc.pid}))
+    return 0
+
+
+def status() -> int:
+    conn = sqlite3.connect(f"file:{LEDGER}?mode=ro", uri=True, timeout=20)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = [dict(r) for r in conn.execute(
+            "select id, project_id, state, verdict from work_items")]
+    finally:
+        conn.close()
+    done = all(r["state"] in ("succeeded", "failed") for r in rows)
+    print(json.dumps({"done": done, "tasks": rows}, ensure_ascii=False, indent=1))
+    return 0 if done else 3
+
+
+if __name__ == "__main__":
+    action = sys.argv[1] if len(sys.argv) > 1 else "status"
+    raise SystemExit({"setup": setup, "run": run, "status": status}[action]())
