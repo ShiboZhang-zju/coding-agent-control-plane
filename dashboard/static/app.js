@@ -1,4 +1,4 @@
-/* UI-0 dashboard — vanilla JS, no build step, no third-party code.
+/* UI-0/UI-1 dashboard — vanilla JS, no build step, no third-party code.
  *
  * Security rule of this file: every value that came from the ledger is
  * inserted with `textContent` (via `el()`), never with `innerHTML`. The only
@@ -24,6 +24,20 @@
     goalFilter: "all",
     taskFilter: "all",
     loading: false,
+    health: null,
+    chat: {
+      enabled: false,
+      token: "",
+      projectId: null,
+      conversationId: null,
+      conversations: [],
+      messages: [],
+      pendingAction: null,
+      sending: false,
+      connected: false,
+      lastIntentSource: null,
+      restored: false,
+    },
   };
 
   // ------------------------------------------------------------------ //
@@ -168,6 +182,31 @@
     return fetch(path, {
       method: "GET",
       headers: { Accept: "application/json" },
+      cache: "no-store",
+      credentials: "omit",
+    }).then(function (response) {
+      return response.json().catch(function () { return null; }).then(function (body) {
+        if (!response.ok) {
+          const err = new Error(
+            (body && body.error && body.error.message) || ("HTTP " + response.status));
+          err.code = (body && body.error && body.error.code) || ("http_" + response.status);
+          err.status = response.status;
+          throw err;
+        }
+        return body;
+      });
+    });
+  }
+
+  function chatJson(path, options) {
+    const opts = options || {};
+    const headers = { Accept: "application/json",
+                      Authorization: "Bearer " + state.chat.token };
+    if (opts.body !== undefined) headers["Content-Type"] = "application/json";
+    return fetch(path, {
+      method: opts.method || "GET",
+      headers: headers,
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
       cache: "no-store",
       credentials: "omit",
     }).then(function (response) {
@@ -518,6 +557,40 @@
     return select;
   }
 
+  function goalExecutionStage(goal, detail) {
+    if (goal.status === "completed") {
+      return { label: "Goal completed", tone: "ok",
+               note: "Goal 终态；不会再被自动唤醒。" };
+    }
+    if (goal.status === "needs_human") {
+      return { label: "Goal needs_human", tone: "warn",
+               note: goal.stop_reason || "需要 Human Owner 处理。" };
+    }
+    const task = (detail.tasks || []).find(function (item) {
+      return item.task_id === goal.current_task_id;
+    });
+    if (task && ["queued", "starting", "running", "waiting_for_approval",
+                 "dispatch_unknown"].indexOf(task.state) >= 0) {
+      return { label: "Worker 正在执行", tone: "info",
+               note: task.state + " / " + (task.verdict || "pending") };
+    }
+    if (task && task.verdict === "verified") {
+      return { label: "Verifier 已验收", tone: "ok",
+               note: "Ledger verdict = verified；等待 Goal 后续状态。" };
+    }
+    if ((goal.decision_count || 0) > 0 || (goal.task_count || 0) > 0) {
+      return { label: "Goal 正在推进", tone: "info",
+               note: "状态来自 Goal/Ledger；Runner 存活仍为 unknown。" };
+    }
+    const chat = (state.health && state.health.chat) || {};
+    if (chat.intent_model_configured === false) {
+      return { label: "Goal 已创建 · 模型未配置", tone: "warn",
+               note: "Dashboard 环境未配置模型；Runner 是否已启动为 unknown。" };
+    }
+    return { label: "Goal 已创建 · 等待 Runner", tone: "muted",
+             note: "尚无推进记录；Runner 存活为 unknown。" };
+  }
+
   function goalsPanel(detail) {
     const goals = detail.goals || [];
     const panel = el("section", { class: "panel" }, [
@@ -543,6 +616,7 @@
     table.appendChild(el("thead", {}, [el("tr", {}, [
       el("th", { text: "Goal" }),
       el("th", { text: "Status" }),
+      el("th", { text: "执行阶段" }),
       el("th", { text: "Decisions" }),
       el("th", { text: "Tasks" }),
       el("th", { text: "Current Task" }),
@@ -551,6 +625,7 @@
     ])]));
     const body = el("tbody");
     rows.forEach(function (goal) {
+      const stage = goalExecutionStage(goal, detail);
       const decisionCell = el("td", {}, [
         el("div", { text: String(goal.decision_count) + " 总计" }),
         el("div", { class: "cell-sub", text: "模型 " + goal.model_decision_count +
@@ -596,6 +671,10 @@
           el("div", { class: "cell-sub muted", text: "goal_ref " + (goal.goal_ref || "—") }),
         ]),
         el("td", {}, [pill(null, goal.status)]),
+        el("td", { class: "goal-stage" }, [
+          el("div", { class: "pill pill-" + stage.tone, text: stage.label }),
+          el("div", { class: "stage-note clamp-3", text: stage.note }),
+        ]),
         decisionCell,
         taskCell,
         currentCell,
@@ -983,6 +1062,302 @@
   }
 
   // ------------------------------------------------------------------ //
+  // UI-1 LD Chat. Every sentence goes through POST /api/chat/messages;
+  // the browser never submits an intent, Goal id, command, or SQL operation.
+  // ------------------------------------------------------------------ //
+  function chatSaveSession() {
+    try {
+      if (state.chat.token) window.sessionStorage.setItem("ui1-chat-token", state.chat.token);
+      if (state.chat.projectId) {
+        window.sessionStorage.setItem("ui1-chat-project", state.chat.projectId);
+      } else {
+        window.sessionStorage.removeItem("ui1-chat-project");
+      }
+      if (state.chat.conversationId) {
+        window.sessionStorage.setItem("ui1-chat-conversation", state.chat.conversationId);
+      } else {
+        window.sessionStorage.removeItem("ui1-chat-conversation");
+      }
+    } catch (err) { /* session storage is optional */ }
+  }
+
+  function chatError(error) {
+    const box = $("chatError");
+    if (!error) {
+      box.hidden = true;
+      box.textContent = "";
+      return;
+    }
+    box.hidden = false;
+    box.textContent = (error.message || String(error)) +
+      (error.code ? " (" + error.code + ")" : "");
+  }
+
+  function renderChatRuntime() {
+    const chat = (state.health && state.health.chat) || {};
+    let text = "Runner: unknown（Ledger 无心跳）";
+    if (chat.intent_model_configured === false) {
+      text = "Chat Intent: 本地确定性路由 · LD 模型: 本进程未配置 · Runner: unknown";
+    } else if (chat.model_local_domain_authorized === false) {
+      text = "Chat Intent 模型已配置，但 local 未授权；本地消息不外发 · Runner: unknown";
+    } else if (chat.intent_model_configured === true) {
+      text = "Chat Intent 模型已配置并获 local 授权 · Runner: unknown";
+    }
+    $("chatRuntimeStatus").textContent = text;
+  }
+
+  function syncChatProjects() {
+    if (!state.chat.enabled) return;
+    const select = $("chatProject");
+    const projects = (state.overview && state.overview.projects) || [];
+    const previous = state.chat.projectId;
+    clear(select);
+    projects.forEach(function (project) {
+      const option = el("option", {
+        text: project.name + " · " + project.project_id,
+        attrs: { value: project.project_id },
+      });
+      if (project.project_id === previous) option.selected = true;
+      select.appendChild(option);
+    });
+    if (!state.chat.projectId && projects.length) {
+      const preferred = projects.some(function (p) {
+        return p.project_id === state.selectedProjectId;
+      }) ? state.selectedProjectId : projects[0].project_id;
+      state.chat.projectId = preferred;
+      select.value = preferred;
+    }
+    if (state.chat.projectId) select.value = state.chat.projectId;
+  }
+
+  function renderConversationChoices() {
+    const select = $("chatConversation");
+    clear(select);
+    select.appendChild(el("option", { text: "新会话（发送第一条消息后创建）",
+                                      attrs: { value: "" } }));
+    state.chat.conversations.forEach(function (conversation) {
+      const label = conversation.conversation_id + " · " +
+        conversation.message_count + " 条 · " + fmtTime(conversation.updated_at) +
+        (conversation.requires_confirmation ? " · 待确认" : "");
+      const option = el("option", {
+        text: label, attrs: { value: conversation.conversation_id },
+      });
+      if (conversation.conversation_id === state.chat.conversationId) {
+        option.selected = true;
+      }
+      select.appendChild(option);
+    });
+    select.value = state.chat.conversationId || "";
+  }
+
+  function renderChatMessages() {
+    const box = clear($("chatMessages"));
+    if (!state.chat.messages.length) {
+      box.appendChild(el("p", { class: "placeholder",
+        text: "这是一个新会话。选择 Project 后输入自然语言消息。" }));
+      return;
+    }
+    const lastSeq = state.chat.messages.reduce(function (best, row) {
+      return Math.max(best, row.seq || 0);
+    }, 0);
+    state.chat.messages.forEach(function (message) {
+      const intent = message.intent && message.intent.intent;
+      let source = message.role || "unknown";
+      if (intent) source += " / " + intent;
+      if (message.seq === lastSeq && message.role !== "user" &&
+          state.chat.lastIntentSource) {
+        source += " / " + state.chat.lastIntentSource;
+      }
+      box.appendChild(el("article", {
+        class: "chat-message chat-message-" + (message.role || "system"),
+      }, [
+        el("div", { class: "chat-message-meta" }, [
+          el("span", { text: source }),
+          el("span", { text: fmtTime(message.created_at) }),
+          message.goal_ids && message.goal_ids.length
+            ? el("span", { text: "Goal: " + message.goal_ids.join(", ") }) : null,
+        ]),
+        el("pre", { class: "chat-message-content", text: message.content }),
+      ]));
+    });
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function renderChatPending(conversation) {
+    const pending = conversation && conversation.pending_action;
+    state.chat.pendingAction = pending || null;
+    const panel = $("chatConfirmation");
+    panel.hidden = !pending;
+    if (pending) {
+      $("chatPendingLabel").textContent =
+        (pending.kind || "action") + (pending.goal_id ? " · " + pending.goal_id : "") +
+        "。确认/取消都会作为同一 conversation_id 的下一条消息交给 LDChat。";
+    }
+  }
+
+  function renderChatConnection() {
+    $("chatAuthBox").hidden = state.chat.connected;
+    $("chatControls").hidden = !state.chat.connected;
+    $("chatComposer").hidden = !state.chat.connected;
+    $("chatConversationId").textContent = state.chat.conversationId
+      ? "conversation_id: " + state.chat.conversationId
+      : "尚未创建会话";
+    $("chatSend").disabled = state.chat.sending;
+    $("chatConfirm").disabled = state.chat.sending;
+    $("chatCancel").disabled = state.chat.sending;
+    $("chatSendStatus").textContent = state.chat.sending ? "LD 正在处理…" : "";
+    renderConversationChoices();
+    renderChatMessages();
+    renderChatRuntime();
+  }
+
+  function newChatConversation() {
+    state.chat.conversationId = null;
+    state.chat.messages = [];
+    state.chat.pendingAction = null;
+    state.chat.lastIntentSource = null;
+    chatSaveSession();
+    renderChatPending(null);
+    renderChatConnection();
+    $("chatInput").focus();
+  }
+
+  function loadChatConversation(conversationId) {
+    if (!conversationId) {
+      newChatConversation();
+      return Promise.resolve();
+    }
+    chatError(null);
+    return chatJson("/api/chat/conversations/" + encodeURIComponent(conversationId))
+      .then(function (payload) {
+        const conversation = payload.conversation;
+        state.chat.conversationId = conversation.conversation_id;
+        state.chat.projectId = conversation.project_id;
+        state.chat.messages = payload.messages || [];
+        state.chat.lastIntentSource = null;
+        syncChatProjects();
+        renderChatPending(conversation);
+        chatSaveSession();
+        renderChatConnection();
+      }).catch(function (error) {
+        chatError(error);
+        if (error.status === 404) newChatConversation();
+        throw error;
+      });
+  }
+
+  function loadChatConversations(restoreConversation) {
+    if (!state.chat.projectId) return Promise.resolve();
+    const url = "/api/chat/conversations?project_id=" +
+      encodeURIComponent(state.chat.projectId) + "&limit=100";
+    return chatJson(url).then(function (payload) {
+      state.chat.connected = true;
+      state.chat.conversations = payload.conversations || [];
+      renderConversationChoices();
+      if (restoreConversation && state.chat.conversations.some(function (item) {
+        return item.conversation_id === restoreConversation;
+      })) {
+        return loadChatConversation(restoreConversation);
+      }
+      if (state.chat.conversationId && !state.chat.conversations.some(function (item) {
+        return item.conversation_id === state.chat.conversationId;
+      })) {
+        newChatConversation();
+      }
+      renderChatConnection();
+      return null;
+    }).catch(function (error) {
+      state.chat.connected = false;
+      renderChatConnection();
+      chatError(error);
+      throw error;
+    });
+  }
+
+  function connectChat() {
+    const token = $("chatToken").value.trim();
+    if (!token) {
+      chatError(new Error("请输入本地操作员 Token。"));
+      return;
+    }
+    state.chat.token = token;
+    chatSaveSession();
+    loadChatConversations(state.chat.conversationId).catch(function () { /* rendered */ });
+  }
+
+  function sendChatMessage(explicitMessage) {
+    if (state.chat.sending || !state.chat.projectId) return;
+    const input = $("chatInput");
+    const message = explicitMessage === undefined ? input.value.trim() : explicitMessage;
+    if (!message) return;
+    state.chat.sending = true;
+    chatError(null);
+    renderChatConnection();
+    chatJson("/api/chat/messages", {
+      method: "POST",
+      body: {
+        conversation_id: state.chat.conversationId,
+        project_id: state.chat.projectId,
+        message: message,
+      },
+    }).then(function (turn) {
+      state.chat.conversationId = turn.conversation_id;
+      state.chat.lastIntentSource = turn.intent_source;
+      if (explicitMessage === undefined) input.value = "";
+      chatSaveSession();
+      return loadChatConversation(turn.conversation_id).then(function () {
+        state.chat.lastIntentSource = turn.intent_source;
+        renderChatConnection();
+        return loadChatConversations(turn.conversation_id);
+      });
+    }).then(function () {
+      // Goal and WorkItem truth remains on the read-only dashboard path.
+      refresh(true);
+    }).catch(function (error) {
+      chatError(error);
+    }).then(function () {
+      state.chat.sending = false;
+      renderChatConnection();
+    });
+  }
+
+  function configureChatFromHealth(health) {
+    state.health = health;
+    state.chat.enabled = Boolean(health && health.chat_enabled);
+    $("chatToggle").hidden = !state.chat.enabled;
+    if (state.chat.enabled) {
+      $("modeBadge").textContent = "UI-1 交互";
+      $("modeBadge").className = "badge";
+      $("modeBadge").title = "Dashboard 查询仍只读；仅 LDChat 端点可写";
+      $("modeSubtitle").textContent = "项目驾驶舱 · UI-1 Web LD Interaction";
+    } else {
+      $("modeBadge").textContent = "只读";
+      $("modeBadge").className = "badge badge-readonly";
+      $("modeSubtitle").textContent = "只读项目管理驾驶舱 · UI-0";
+    }
+    renderChatRuntime();
+    if (state.chat.enabled && state.overview && !state.chat.restored) {
+      state.chat.restored = true;
+      restoreChatState();
+    }
+  }
+
+  function restoreChatState() {
+    if (!state.chat.enabled) return;
+    try {
+      state.chat.token = window.sessionStorage.getItem("ui1-chat-token") || "";
+      state.chat.projectId = window.sessionStorage.getItem("ui1-chat-project") || null;
+      state.chat.conversationId =
+        window.sessionStorage.getItem("ui1-chat-conversation") || null;
+    } catch (err) { /* ignore */ }
+    $("chatToken").value = state.chat.token;
+    syncChatProjects();
+    if (state.chat.token) {
+      loadChatConversations(state.chat.conversationId).catch(function () { /* rendered */ });
+    }
+  }
+
+  // ------------------------------------------------------------------ //
   // data flow
   // ------------------------------------------------------------------ //
   function refresh(force) {
@@ -1059,6 +1434,13 @@
       $("detailView").hidden = true;
       $("overviewView").hidden = false;
       renderOverview();
+    }
+    if (state.chat.enabled) {
+      syncChatProjects();
+      if (!state.chat.restored) {
+        state.chat.restored = true;
+        restoreChatState();
+      }
     }
   }
 
@@ -1148,6 +1530,42 @@
       if (state.autoRefresh) startTimer(); else stopTimer();
     });
 
+    $("chatToggle").addEventListener("click", function () {
+      $("chatPanel").hidden = false;
+      renderChatConnection();
+      if (state.chat.connected) $("chatInput").focus();
+      else $("chatToken").focus();
+    });
+    $("chatClose").addEventListener("click", function () {
+      $("chatPanel").hidden = true;
+    });
+    $("chatConnect").addEventListener("click", connectChat);
+    $("chatToken").addEventListener("keydown", function (event) {
+      if (event.key === "Enter") connectChat();
+    });
+    $("chatProject").addEventListener("change", function (event) {
+      state.chat.projectId = event.target.value || null;
+      newChatConversation();
+      loadChatConversations(null).catch(function () { /* rendered */ });
+    });
+    $("chatConversation").addEventListener("change", function (event) {
+      loadChatConversation(event.target.value || null).catch(function () { /* rendered */ });
+    });
+    $("chatNew").addEventListener("click", newChatConversation);
+    $("chatSend").addEventListener("click", function () { sendChatMessage(); });
+    $("chatConfirm").addEventListener("click", function () {
+      sendChatMessage("confirm");
+    });
+    $("chatCancel").addEventListener("click", function () {
+      sendChatMessage("cancel");
+    });
+    $("chatInput").addEventListener("keydown", function (event) {
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        sendChatMessage();
+      }
+    });
+
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden && state.autoRefresh) refresh(false);
     });
@@ -1164,6 +1582,9 @@
     const fromHash = readHash();
     if (fromHash) state.selectedProjectId = fromHash;
 
+    getJson("/api/health").then(configureChatFromHealth).catch(function () {
+      configureChatFromHealth({ chat_enabled: false });
+    });
     refresh(true);
     startTimer();
   }

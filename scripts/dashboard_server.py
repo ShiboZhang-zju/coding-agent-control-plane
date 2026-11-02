@@ -1,4 +1,4 @@
-"""UI-0: serve the read-only project dashboard over loopback HTTP.
+"""Serve UI-0 read-only, or explicitly enable the UI-1 LD chat.
 
 Usage
 -----
@@ -9,14 +9,16 @@ then open http://127.0.0.1:8765
 
 What this process can and cannot do
 -----------------------------------
-It can: open the ledger with ``mode=ro`` + ``PRAGMA query_only=ON``, run the
-existing ``ProjectService``/``LDGoalStore`` queries, and serve HTML/CSS/JS plus
-a handful of JSON endpoints.
+By default it is UI-0: dashboard projections use ``mode=ro`` plus
+``PRAGMA query_only=ON`` and every write method is rejected.  With the explicit
+``--enable-chat`` flag it adds one bearer-authenticated, same-origin POST route
+that delegates sentences to the existing ``LDChat`` service graph.  That path
+may create a Goal or confirm a staged resume exactly as the CLI does; it cannot
+approve work, execute arbitrary commands, or bypass the Control Plane.
 
-It cannot: create a ledger, migrate a schema, write a row, dispatch a Worker,
-call an LLM, approve anything, or listen on a non-loopback interface.  There is
-no route that accepts a request body, and the OS-level file mode plus
-``query_only`` refuse writes even from code that tried.
+Both modes are loopback-only.  UI-1 requires an existing ledger and does not
+claim the separate ``LDGoalRunner`` process is online.  A configured intent
+model is used only under the existing LDChat security-domain rules.
 
 Exit behaviour
 --------------
@@ -28,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -35,13 +38,15 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from dashboard.api import LOOPBACK_HOSTS, make_server  # noqa: E402
+from dashboard.chat import ChatBridgeError  # noqa: E402
 from dashboard.ledger import DashboardError, ReadOnlyLedger  # noqa: E402
 from dashboard.projections import overview  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Read-only dashboard for the agent control plane ledger.")
+        description=("Project dashboard; read-only unless --enable-chat "
+                     "explicitly enables the restricted LDChat endpoint."))
     parser.add_argument("--ledger", default=str(ROOT / ".poc-state" / "ledger.db"),
                         help="path to an existing SQLite ledger (never created)")
     parser.add_argument("--host", default="127.0.0.1",
@@ -49,6 +54,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=8765, help="TCP port (0 = any free)")
     parser.add_argument("--probe", action="store_true",
                         help="read the ledger once, print the overview, and exit")
+    parser.add_argument(
+        "--enable-chat", action="store_true",
+        help=("enable the authenticated UI-1 LDChat write endpoint; without "
+              "this flag the server remains strict UI-0 read-only"))
+    parser.add_argument(
+        "--chat-token", default=None,
+        help=("local operator bearer token (or DASHBOARD_CHAT_TOKEN); at least "
+              "20 characters. Prefer the environment variable so the token "
+              "does not appear in shell history/process arguments"))
+    parser.add_argument("--model-base-url", default=None,
+                        help="chat intent endpoint (or LD_MODEL_BASE_URL)")
+    parser.add_argument("--model-name", default=None,
+                        help="chat intent model id (or LD_MODEL_NAME)")
+    parser.add_argument("--model-api-key", default=None,
+                        help="endpoint key (or LD_MODEL_API_KEY); never logged")
+    parser.add_argument("--model-timeout-s", type=float, default=None,
+                        help="intent call deadline (or LD_MODEL_TIMEOUT_S)")
+    parser.add_argument(
+        "--model-domains", default=None,
+        help=("security domains the intent model may see (or LD_MODEL_DOMAINS); "
+              "local messages stay in-process unless local is explicitly granted"))
     return parser
 
 
@@ -78,14 +104,27 @@ def main(argv: list[str] | None = None) -> int:
         return _probe(ledger_path)
 
     try:
-        server = make_server(ledger_path, host=args.host, port=args.port)
-    except ValueError as exc:
+        chat_token = args.chat_token or os.environ.get("DASHBOARD_CHAT_TOKEN")
+        server = make_server(
+            ledger_path, host=args.host, port=args.port,
+            enable_chat=args.enable_chat, chat_token=chat_token,
+            model_base_url=args.model_base_url, model_name=args.model_name,
+            model_api_key=args.model_api_key,
+            model_timeout_s=args.model_timeout_s,
+            model_domains=args.model_domains)
+    except (ValueError, ChatBridgeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
     host, port = server.server_address[0], server.server_address[1]
-    print(f"[dashboard] read-only; ledger={ledger_path}")
+    mode = "UI-1 chat enabled" if args.enable_chat else "UI-0 read-only"
+    print(f"[dashboard] {mode}; ledger={ledger_path}")
     print(f"[dashboard] listening on http://{host}:{port}  (Ctrl-C to stop)")
+    if args.enable_chat:
+        caps = server.app.chat.capabilities
+        print("[dashboard] chat auth: bearer token required (token not logged)")
+        print("[dashboard] intent routing: " + caps["intent_routing"])
+        print("[dashboard] goal runner liveness: unknown (no durable heartbeat)")
     if not ledger_path.exists():
         # Not fatal: the server must stay up so the UI can *show* the error.
         print(f"[dashboard] WARNING: ledger does not exist yet: {ledger_path}\n"

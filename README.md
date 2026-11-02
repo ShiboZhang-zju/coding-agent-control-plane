@@ -708,6 +708,74 @@ python scripts/dashboard_server.py --ledger .poc-state/ledger.db --probe
   的读日志机制，不改变任何行内容（测试按行内容与文件字节校验，已明确区分）。
 - UI-0 不含写操作；提交 Goal、审批、恢复、取消留给 UI-1。
 
+### 6.3f Web LD Interaction（UI-1，显式启用）
+
+UI-1 在同一 Dashboard 中增加一个本地 LD Chat 面板。它**不是第二套 Agent**：每条
+消息都由服务端按 `TaskStore → ControlPlane → ProjectService → LDTools → LDChat`
+构造现有服务，并调用 `LDChat.handle(message, conversation_id, project_id)`。Goal
+幂等、恢复确认、预算和并发消费规则仍由 `LDChatStore` / `LDGoalStore` 负责；任务状态
+仍由 UI-0 的只读 Ledger 投影展示。
+
+```powershell
+# 1) 生成只在当前终端使用的本地操作员 Token（不要提交到 Git）
+$env:DASHBOARD_CHAT_TOKEN = python -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# 2) 显式启用 UI-1。没有 --enable-chat 时仍是严格 UI-0 只读模式。
+python scripts/dashboard_server.py `
+  --ledger .poc-state/ledger.db `
+  --host 127.0.0.1 `
+  --port 8765 `
+  --enable-chat
+
+# 3) 打开 http://127.0.0.1:8765，点击 LD Chat，输入同一个 Token。
+# 4) 安全停止：回到启动终端按 Ctrl-C；确认进程退出后再清除 Token。
+Remove-Item Env:DASHBOARD_CHAT_TOKEN
+```
+
+Token 通过 `Authorization: Bearer ...` 发送，绝不放进 URL；浏览器只保存在当前标签页
+的 `sessionStorage`。写请求还必须通过精确同源 `Origin`、loopback `Host`、64 KiB
+请求上限和严格三字段 JSON Schema。不开 CORS，不提供 SQL、Shell、Python、Worker Job、
+审批或任意 Goal 状态修改接口。Chat 读写使用独立短连接，不复用 UI-0 的
+`mode=ro/query_only` 会话。
+
+**LD 模型与 Runtime**
+
+- Chat Intent Model 复用 `LD_MODEL_BASE_URL / LD_MODEL_NAME / LD_MODEL_API_KEY /
+  LD_MODEL_TIMEOUT_S / LD_MODEL_DOMAINS`。未配置时走现有确定性路由，并显示
+  `deterministic_local_fallback`；这只证明 Chat 可用，不证明自动决策可用。
+- 即使配置了模型，未显式把 `local` 加入 `LD_MODEL_DOMAINS`，当前消息仍不会外发，
+  会显示本地路由。CodeBuddy CLI 已登录也不等于 LD 模型已配置。
+- Dashboard 不启动 Runner，也没有 Runner 心跳；页面始终如实显示 Runner liveness
+  `unknown`。要自动推进，另启现有 Runtime：
+
+```powershell
+# CodeBuddy HTTP Worker（认证凭据由 serve_ctl 管理，不写入证据）
+python scripts/serve_ctl.py start --port 8787
+
+# 同一 Ledger 上启动唯一的既有 LDGoalRunner + Runtime
+python scripts/run_controlplane.py `
+  --ledger .poc-state/ledger.db `
+  --base http://127.0.0.1:8787 `
+  --advance-goals `
+  --model-domains local
+
+# 分别在各自前台终端 Ctrl-C；Worker 也可显式停止
+python scripts/serve_ctl.py stop --port 8787
+```
+
+页面区分 Goal 尚无推进记录、模型未配置、Goal 推进中、Worker 执行中、Verifier
+`verified`、Goal `completed` 与 `needs_human`；这些标签只由 Goal/Ledger 投影生成，
+不会把 LD 回答当作进度真相。确认/取消按钮发送精确的 `confirm` / `cancel` 到原
+`conversation_id`，不会直接改 Goal。
+
+仍需 CLI 的操作：Project/Workspace 注册，审批 approve/deny，Context/Markdown
+Memory 编辑与验证，生命周期预算调整，Runtime/Worker 启停，以及任何运维诊断。
+UI-1 不含远程终端、文件编辑器、自动审批或 M5 跨机器协同。
+
+本轮确定性 Web/API、安全和 M4-D 回归已覆盖；若未配置真实 LD 模型端点，真实
+`LD → CodeBuddy` E2E 必须记录为 `BLOCKED_ENVIRONMENT`，不能用 Goal 创建成功或
+stub 测试代替。
+
 ### 6.4 传统队列流程（仍然支持，未改变）
 
 ```powershell
@@ -795,7 +863,7 @@ fixture 已内置项目级 `permissions.allow`。已知限制见
 ```
 adapters/base.py                厂商无关的 Worker Adapter 契约 + 统一状态机
 adapters/codebuddy/             唯一允许出现 CodeBuddy 专有知识的地方
-dashboard/                      【UI-0】只读驾驶舱：ledger 会话 / 白名单投影 / HTTP API / 静态页面
+dashboard/                      【UI-0/UI-1】只读投影 + 显式启用的受限 LD Chat 桥
 controlplane/store.py           SQLite Ledger：work items / approvals / context / workspaces
 controlplane/plane.py           门面：dispatch / enqueue / refresh / cancel / resume / summary
 controlplane/verify.py          产物断言验收（不看 worker 终态）
@@ -839,6 +907,7 @@ sandbox/                        两个一次性 Git 仓库（不入库）
 | M4-E | 两级关联召回（Chain of Recall / Inline & Spill / Fast Path） | **确定性完成**（T54 31 项 + T55 19 项 Pass；未运行真实模型/Worker） |
 | M4-F | Markdown Project Memory MVP（导出/预览/显式 CAS 应用/注入验收） | **确定性完成**（T56–T61；未运行真实模型/Worker） |
 | **UI-0** | **只读项目管理驾驶舱**（单机 MVP 的可视化扩展，不是新阶段） | **已完成**（32 项确定性测试 + 真实 HTTP/浏览器验证） |
+| **UI-1** | **Web LD Interaction**（复用 LDChat；显式启用、仅 loopback） | **已实现**（确定性 Web/API 与安全回归；真实 LD E2E 依赖环境） |
 | M5 | Distributed Workspace（多节点、远程派工、受控同步） | 未实现 |
 
 历史计划 [docs/V0.2_PLAN.md](docs/V0.2_PLAN.md) 描述的是 v0.2 阶段（本地单用户
@@ -847,6 +916,8 @@ sandbox/                        两个一次性 Git 仓库（不入库）
 UI-0 是**当前单机 MVP 的可视化扩展**，不是 M5 的一部分，也不是新里程碑：
 它不引入新状态机、不改变执行链路，只是把已有 Ledger 事实投影到浏览器里。
 详见 [6.3e 只读驾驶舱（UI-0）](#63e-只读驾驶舱ui-0)。
+UI-1 同样不是 M5；它只把已有 M4-D LDChat 接到本地网页，详见
+[6.3f Web LD Interaction（UI-1）](#63f-web-ld-interactionui-1显式启用)。
 
 ---
 
@@ -865,6 +936,9 @@ UI-0 是**当前单机 MVP 的可视化扩展**，不是 M5 的一部分，也�
 - **UI-0 驾驶舱同样只绑 loopback**：它没有账号体系，`--host` 只接受
   `127.0.0.1 / ::1 / localhost`，其它地址直接拒绝启动；不发 CORS 头，校验
   `Host`，并下发 `Content-Security-Policy` 禁止外部资源。
+- **UI-1 仍只绑 loopback**：必须显式 `--enable-chat` 和本地 Bearer Token；写请求
+  还校验同源 `Origin`、严格 Schema 与大小上限。Token/API Key 不进入 URL、Ledger、
+  请求日志或 Git。
 - **不写凭据。** 密码、Token、Cookie、Authorization 头不入库；证据写盘前统一脱敏。
 - **真实执行与模拟测试必须分开。** 本文档与证据中，只有脚本实际跑出的结果才标记为
   Pass；未验证的一律写"未验证"。

@@ -9,6 +9,16 @@ completed，零人工介入）**；故障恢复与副作用拒绝路径另由 T3
 **"任务执行与交接成功"与"Goal 自动闭环完成"是两个不同的验收结论**，本文档分开
 记录。决策模型端点与模型 id 属于环境配置，不出现在任何代码默认值、日志或证据中。
 
+## UI-1 Web LD Interaction（2026-11-03）
+
+| # | 已知限制 / 风险 | 影响 / 当前处理 | 状态 |
+|---|---|---|---|
+| UI1-R01 | Ledger 没有 Runtime/Runner 心跳；`ld_goal_runner` 行只是调度簿记，不能证明进程在线 | 页面把 Runner liveness 固定显示为 `unknown`。Goal 无决策记录时只能说“等待 Runner”；绝不显示 online。 | 设计限制 |
+| UI1-R02 | Dashboard 与 Runtime 是独立进程，二者看到的 `LD_MODEL_*` 环境可能不同 | 页面只报告 Dashboard 进程的 Chat Intent 配置；Runtime Decision Model 状态保持 `unknown`。自动推进以 Runner/Ledger 的真实结果为准。 | 设计限制 |
+| UI1-R03 | UI-1 没有账号体系、TLS 或远程访问设计 | 只允许 loopback；显式 `--enable-chat`；Bearer Token + 精确 Origin/Host + 无 CORS。禁止端口转发暴露。 | 安全边界 |
+| UI1-R04 | 只支持 M4-D 已有的 `submit_goal` / `resume_goal` 写意图 | 审批、Task cancel、Context/Memory 编辑、预算调整仍走 CLI，避免 Web 层扩成第二条执行路径。 | 范围限制 |
+| UI1-R05 | 当前环境未配置 `LD_MODEL_BASE_URL/LD_MODEL_NAME` 时无法验收真实 `LD → CodeBuddy` 自动闭环 | Web/API、确定性 Chat 与安全回归可验证；真实 E2E 必须标记 `BLOCKED_ENVIRONMENT`，不得用 Goal 创建或 stub 冒充。 | 环境相关 |
+
 ## M4-C 可靠性收口轮（2026-10-31，预算 / inspect 续推 / 并发 / 常驻服务）
 
 | # | 源码位置 | 影响 / 处理 | 最小复现 / 验证方法 | 状态 |

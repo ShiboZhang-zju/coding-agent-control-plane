@@ -15,12 +15,13 @@
     <span class="brand-mark" aria-hidden="true"></span>
     <div class="brand-text">
       <strong>Agent Control Plane</strong>
-      <span class="brand-sub">只读项目管理驾驶舱 · UI-0</span>
+      <span class="brand-sub" id="modeSubtitle">只读项目管理驾驶舱 · UI-0</span>
     </div>
   </div>
 
   <div class="topbar-right">
-    <span class="badge badge-readonly" title="本页面不会写入 Ledger">只读</span>
+    <span class="badge badge-readonly" id="modeBadge" title="本页面不会写入 Ledger">只读</span>
+    <button type="button" id="chatToggle" class="btn btn-primary" hidden>LD Chat</button>
     <div class="refresh-box">
       <label class="refresh-label" for="autoRefresh">
         <input type="checkbox" id="autoRefresh" checked>
@@ -57,6 +58,61 @@
     <div id="detailView" class="view" hidden></div>
   </section>
 </main>
+
+<aside id="chatPanel" class="chat-panel" aria-label="LD Chat" hidden>
+  <div class="chat-head">
+    <div>
+      <h2>LD Chat</h2>
+      <p id="chatRuntimeStatus" class="muted">正在读取交互能力…</p>
+    </div>
+    <button type="button" id="chatClose" class="btn btn-ghost" aria-label="关闭 LD Chat">关闭</button>
+  </div>
+
+  <div class="chat-auth" id="chatAuthBox">
+    <label for="chatToken">本地操作员 Token</label>
+    <div class="chat-auth-row">
+      <input id="chatToken" class="input mono" type="password" autocomplete="off"
+             placeholder="不会放入 URL；仅保存在当前标签页">
+      <button type="button" id="chatConnect" class="btn btn-primary">连接</button>
+    </div>
+    <p class="muted small">Token 只用于同源 Authorization 请求，保存在 sessionStorage；不会写入 Ledger。</p>
+  </div>
+
+  <div id="chatControls" class="chat-controls" hidden>
+    <label for="chatProject">Project</label>
+    <select id="chatProject" class="select"></select>
+    <label for="chatConversation">Conversation</label>
+    <div class="chat-conversation-row">
+      <select id="chatConversation" class="select"></select>
+      <button type="button" id="chatNew" class="btn btn-ghost">新会话</button>
+    </div>
+    <div id="chatConversationId" class="mono small muted">尚未创建会话</div>
+  </div>
+
+  <div id="chatError" class="chat-error" role="alert" hidden></div>
+  <div id="chatMessages" class="chat-messages" aria-live="polite">
+    <p class="placeholder">输入 Token 并连接后，可以直接与现有 LD 对话。</p>
+  </div>
+
+  <div id="chatConfirmation" class="chat-confirmation" hidden>
+    <strong>需要人工确认</strong>
+    <span id="chatPendingLabel"></span>
+    <div>
+      <button type="button" id="chatConfirm" class="btn btn-primary">确认</button>
+      <button type="button" id="chatCancel" class="btn btn-ghost">取消</button>
+    </div>
+  </div>
+
+  <div id="chatComposer" class="chat-composer" hidden>
+    <label for="chatInput">给 LD 的消息</label>
+    <textarea id="chatInput" rows="4" maxlength="8000"
+              placeholder="例如：继续推进 pilot 项目：实现 greet.py 并补充测试。"></textarea>
+    <div class="chat-compose-actions">
+      <span id="chatSendStatus" class="muted small"></span>
+      <button type="button" id="chatSend" class="btn btn-primary">发送</button>
+    </div>
+  </div>
+</aside>
 
 <footer class="footer">
   <span id="lastRefresh">尚未刷新</span>

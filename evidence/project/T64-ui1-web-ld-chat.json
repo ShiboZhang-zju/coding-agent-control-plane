@@ -1,0 +1,110 @@
+{
+  "test": "T64 UI-1 Web LD Interaction",
+  "mode": "real loopback HTTP + real LDChat/SQLite; no Worker and no decision model in deterministic tests",
+  "commands": {
+    "pytest": {
+      "argv": [
+        "<HOME>/Documents/ChatGPT/coding-agent-control-plane-ui1/.poc-state/ui1-venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/test_ui1_web_chat.py",
+        "tests/test_ui0_dashboard.py",
+        "-q"
+      ],
+      "exit_code": 0,
+      "stdout": "................................................                         [100%]\n48 passed in 2.89s",
+      "stderr": ""
+    },
+    "javascript_syntax": {
+      "argv": [
+        "node",
+        "--check",
+        "dashboard/static/app.js"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  },
+  "regression_evidence_refs": {
+    "T50-conversational-ld.json": {
+      "exists": true,
+      "sha256": "b791bd0f562c94b8cc6ac9f9a960cabdab649f3f9db0d71468a8d25f6503e071"
+    },
+    "T51-intent-safety.json": {
+      "exists": true,
+      "sha256": "77b165af28f98f483bd83ae508b8dd5872956045de6170f4f4dbcaafbdf6449b"
+    },
+    "T52-conversation-security.json": {
+      "exists": true,
+      "sha256": "fcc3dc3c99d08455091585955c35580eac6a46527e16abf9386c96d0e5fd9ec8"
+    },
+    "T53-chat-outbound-safety.json": {
+      "exists": true,
+      "sha256": "e471da0b9c2ef1160a7647b352e8aaf595dbeb30410f395ad499a1ad8cce8ecb"
+    },
+    "T63-ui0-dashboard.json": {
+      "exists": true,
+      "sha256": "089dcdefc2ab2bb665ad034ea19cd59e2ff6d9c74f1b5e4fefd26bf7f4d71921"
+    }
+  },
+  "coverage": [
+    "conversation create/continue/history/project isolation",
+    "real Goal row creation and deterministic idempotency",
+    "model fallback and invalid-model-intent fail-closed",
+    "resume confirm/cancel/stale/concurrent and budget immutability",
+    "UI-0 default 405, auth, Origin, schema, size and XSS boundaries",
+    "UI-0 projection regression"
+  ],
+  "real_ld_codebuddy_e2e": "BLOCKED_ENVIRONMENT",
+  "browser_walkthrough": {
+    "status": "Pass",
+    "checks": {
+      "conversation_persisted": true,
+      "history_has_user_and_ld": true,
+      "submit_goal_observed": true,
+      "resume_goal_observed": true,
+      "confirmed_resume_once": true,
+      "resume_budget_preserved": true
+    },
+    "conversation_count": 1,
+    "message_count": 12,
+    "roles": [
+      "ld",
+      "system",
+      "user"
+    ],
+    "intent_labels": [
+      "project_status",
+      "submit_goal",
+      "resume_goal",
+      "clarify",
+      "resume_goal",
+      "resume_goal"
+    ],
+    "goals": [
+      {
+        "goal_id": "goal-f03d56b8dc6b",
+        "status": "active",
+        "resume_count": 1,
+        "max_decisions_total": 7,
+        "max_tasks_total": 2
+      },
+      {
+        "goal_id": "goal-8903a90b8835",
+        "status": "completed",
+        "resume_count": 0,
+        "max_decisions_total": null,
+        "max_tasks_total": null
+      }
+    ],
+    "note": "Visual checks and input-retention/reload checks were performed through browser automation; this probe records the durable Ledger/chat effects without transcript content."
+  },
+  "real_ld_environment": {
+    "base_url_configured": false,
+    "model_name_configured": false,
+    "domains_configured": false,
+    "note": "No endpoint URL, model id, API key or credential value is written to evidence."
+  },
+  "result": "Pass"
+}

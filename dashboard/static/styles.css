@@ -1,4 +1,4 @@
-/* UI-0 dashboard styles.
+/* UI-0 dashboard and explicitly enabled UI-1 chat styles.
  *
  * Engineering console, not a marketing page: dense, neutral, text-first.
  * Colour is only ever an *addition* to a text label — every state also has its
@@ -175,6 +175,9 @@ a { color: var(--accent); }
 .btn:hover { border-color: var(--accent); color: var(--accent); }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .btn-small { padding: 2px 8px; font-size: 11.5px; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: white; }
+.btn-primary:hover { filter: brightness(1.08); color: white; }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .copy, .link-btn {
   font: inherit;
@@ -579,6 +582,106 @@ a { color: var(--accent); }
   border-top: 1px solid var(--border);
 }
 
+/* ---------------------------------------------------------------- UI-1 chat */
+.chat-panel {
+  position: fixed;
+  z-index: 40;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(520px, 100vw);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg-raised);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.16);
+}
+.chat-panel[hidden] { display: none; }
+.chat-head { display: flex; justify-content: space-between; gap: 12px; }
+.chat-head h2 { margin: 0; font-size: 18px; }
+.chat-head p { margin: 2px 0 0; font-size: 11.5px; }
+.chat-auth,
+.chat-controls,
+.chat-confirmation,
+.chat-composer {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  background: var(--bg-sunken);
+}
+.chat-auth label,
+.chat-controls label,
+.chat-composer label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.chat-auth p { margin: 6px 0 0; }
+.chat-auth-row,
+.chat-conversation-row,
+.chat-compose-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chat-controls { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px; align-items: center; }
+.chat-controls[hidden] { display: none; }
+.chat-controls label { margin: 0; }
+.chat-conversation-row .select { flex: 1; min-width: 0; }
+.input,
+.chat-composer textarea {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 7px 8px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+}
+.input:focus,
+.chat-composer textarea:focus,
+.select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chat-auth-row .input { flex: 1; min-width: 0; }
+.chat-messages {
+  flex: 1;
+  min-height: 180px;
+  overflow: auto;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.chat-message {
+  max-width: 92%;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+.chat-message-user { align-self: flex-end; background: var(--info-bg); }
+.chat-message-ld,
+.chat-message-system { align-self: flex-start; }
+.chat-message-meta {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+  color: var(--text-faint);
+  font: 11px var(--mono);
+}
+.chat-message-content { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.chat-error { padding: 8px 10px; border: 1px solid var(--bad); background: var(--bad-bg); color: var(--bad); border-radius: var(--radius); }
+.chat-confirmation { border-color: var(--warn); background: var(--warn-bg); }
+.chat-confirmation strong,
+.chat-confirmation span { display: block; margin-bottom: 6px; }
+.chat-composer textarea { resize: vertical; min-height: 74px; }
+.chat-compose-actions { justify-content: space-between; margin-top: 7px; }
+.goal-stage { min-width: 170px; }
+.stage-note { margin-top: 3px; font-size: 11px; color: var(--text-dim); }
+
 /* ---------------------------------------------------------------- responsive */
 @media (max-width: 1100px) {
   .layout { grid-template-columns: 216px minmax(0, 1fr); }
@@ -613,4 +716,6 @@ a { color: var(--accent); }
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .detail-head h1 { font-size: 16px; }
   .table { font-size: 12px; }
+  .chat-panel { width: 100vw; padding: 12px; }
+  .chat-controls { grid-template-columns: 1fr; }
 }

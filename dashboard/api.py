@@ -1,11 +1,13 @@
-"""HTTP surface for the UI-0 dashboard: GET/HEAD only, loopback only.
+"""HTTP surface for UI-0 and the explicitly enabled UI-1 chat.
 
-Design constraints (all tested, see ``tests/test_ui0_dashboard.py``):
+Design constraints (tested by ``tests/test_ui0_dashboard.py`` and
+``tests/test_ui1_web_chat.py``):
 
-* **Read-only by construction.** There is no handler that mutates anything, and
-  the only database handle the process can obtain is a ``mode=ro`` connection
-  with ``PRAGMA query_only=ON``.  Even if a route were added by mistake, the
-  connection refuses the write.
+* **Read-only by default.** Without ``--enable-chat`` every write method is
+  rejected and all dashboard projections use ``mode=ro`` plus
+  ``PRAGMA query_only=ON``.  UI-1 adds exactly one authenticated POST route;
+  that route delegates to the existing ``LDChat`` service graph through
+  request-scoped writable connections.
 * **No cross-origin use.** No ``Access-Control-Allow-Origin`` is ever emitted.
   A browser on another origin therefore cannot read responses, and the
   ``Host`` header is validated against an allow-list so a DNS-rebinding page
@@ -22,8 +24,10 @@ refused outright rather than merely discouraged.
 """
 from __future__ import annotations
 
+import hmac
 import json
 import posixpath
+import sqlite3
 import sys
 import time
 import traceback
@@ -31,8 +35,11 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
+from ld.chat_intent import ChatPolicyError, ChatValidationError
+
+from .chat import ChatBridge, ChatBridgeError, ConversationProjectMismatch
 from .ledger import (
     DashboardError,
     LedgerBusy,
@@ -45,7 +52,7 @@ from .ledger import (
 from .projections import overview, project_detail
 
 #: Loopback names/addresses the server may bind.  ``0.0.0.0`` is not here on
-#: purpose: this dashboard has no authentication and must not be on a LAN.
+#: purpose: neither the read-only views nor operator chat belong on a LAN.
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 #: Loopback spellings accepted in the ``Host`` header (port optional).
@@ -65,9 +72,10 @@ _CONTENT_TYPES = {
     ".ico": "image/x-icon",
 }
 
-#: Hard cap on request body reads; no route accepts a body, so anything large
-#: is closed instead of buffered.
+#: Hard caps on request body reads.  GET/HEAD never accept a body; the sole
+#: chat POST accepts only a bounded JSON document.
 _MAX_BODY = 64 * 1024
+_MAX_CHAT_BODY = 64 * 1024
 
 
 class ApiError(Exception):
@@ -111,8 +119,10 @@ def _classify(exc: DashboardError) -> ApiError:
 class DashboardApp:
     """Route table + projections.  Transport-independent and unit testable."""
 
-    def __init__(self, ledger_path: Path | str):
+    def __init__(self, ledger_path: Path | str, *,
+                 chat: ChatBridge | None = None):
         self.ledger = ReadOnlyLedger(ledger_path)
+        self.chat = chat
 
     # -- routes ---------------------------------------------------------- #
     def handle(self, method: str, raw_path: str) -> tuple[int, dict[str, Any] | bytes]:
@@ -136,6 +146,45 @@ class DashboardApp:
                                                "generated_at": _now()})
             return HTTPStatus.OK, data
 
+        if path == "/api/chat/conversations":
+            self._require_chat()
+            query = parse_qs(parsed.query, keep_blank_values=True)
+            unknown = set(query) - {"project_id", "limit"}
+            if unknown or any(len(values) != 1 for values in query.values()):
+                raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_query",
+                               "Conversation query parameters are invalid.")
+            project_id = (query.get("project_id") or [None])[0] or None
+            try:
+                limit = int((query.get("limit") or ["50"])[0])
+                rows = self.chat.list_conversations(
+                    project_id=project_id, limit=limit)
+            except (KeyError, ValueError):
+                raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_project",
+                               "The requested project is not registered.") from None
+            return HTTPStatus.OK, {
+                "conversations": rows,
+                "generated_at": _now(),
+                "capabilities": self.chat.capabilities,
+            }
+
+        chat_prefix = "/api/chat/conversations/"
+        if path.startswith(chat_prefix):
+            self._require_chat()
+            conversation_id = path[len(chat_prefix):].strip("/")
+            if not conversation_id or "/" in conversation_id:
+                raise ApiError(HTTPStatus.NOT_FOUND, "not_found",
+                               "Unknown API path.")
+            try:
+                result = self.chat.get_conversation(conversation_id)
+            except ValueError:
+                raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_conversation",
+                               "The conversation id is invalid.") from None
+            if result is None:
+                raise ApiError(HTTPStatus.NOT_FOUND, "conversation_not_found",
+                               "No conversation with that id exists.")
+            result["capabilities"] = self.chat.capabilities
+            return HTTPStatus.OK, result
+
         prefix = "/api/projects/"
         if path.startswith(prefix):
             rest = path[len(prefix):].strip("/")
@@ -158,6 +207,51 @@ class DashboardApp:
             raise ApiError(HTTPStatus.NOT_FOUND, "not_found", "Unknown API path.")
 
         return 0, b""   # sentinel: not an API path (static handler decides)
+
+    def handle_chat_message(self, payload: Any) -> dict[str, Any]:
+        """Validate the only UI-1 write schema and call the real LDChat."""
+        self._require_chat()
+        if not isinstance(payload, dict):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_body",
+                           "The request body must be one JSON object.")
+        required = {"conversation_id", "project_id", "message"}
+        if set(payload) != required:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_fields",
+                           "The chat request fields are invalid.")
+        conversation_id = payload.get("conversation_id")
+        project_id = payload.get("project_id")
+        message = payload.get("message")
+        if conversation_id is not None and not isinstance(conversation_id, str):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_conversation",
+                           "conversation_id must be a string or null.")
+        if not isinstance(project_id, str) or not project_id:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_project",
+                           "project_id must name a registered project.")
+        if not isinstance(message, str) or not message.strip():
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_message",
+                           "message must be a non-empty string.")
+        try:
+            result = self.chat.handle(
+                message=message, conversation_id=conversation_id,
+                project_id=project_id)
+        except ConversationProjectMismatch:
+            raise ApiError(HTTPStatus.CONFLICT, "conversation_project_mismatch",
+                           "This conversation belongs to another project.") from None
+        except KeyError:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_reference",
+                           "The project or conversation does not exist.") from None
+        except (ChatPolicyError, ChatValidationError, ValueError):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "chat_request_rejected",
+                           "LDChat rejected this request under its safety policy.") from None
+        except (ChatBridgeError, sqlite3.Error):
+            raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "chat_unavailable",
+                           "The chat service cannot access the ledger right now.") from None
+        return {**result, "capabilities": self.chat.capabilities}
+
+    def _require_chat(self) -> None:
+        if self.chat is None:
+            raise ApiError(HTTPStatus.NOT_FOUND, "chat_disabled",
+                           "Interactive chat is not enabled on this server.")
 
     # -- sections -------------------------------------------------------- #
     @staticmethod
@@ -199,10 +293,18 @@ class DashboardApp:
         """
         body: dict[str, Any] = {
             "status": "ok",
-            "read_only": True,
+            "read_only": self.chat is None,
+            "ledger_views_read_only": True,
+            "chat_enabled": self.chat is not None,
             "server_time": _now(),
             "ledger": {"path_configured": True},
         }
+        if self.chat is not None:
+            body["chat"] = {
+                "enabled": True,
+                "authentication": "bearer_token",
+                **self.chat.capabilities,
+            }
         try:
             with self.ledger.session() as session:
                 body["ledger"].update({
@@ -229,7 +331,7 @@ def _now() -> float:
 class DashboardHandler(BaseHTTPRequestHandler):
     """Serves the API above plus the three static assets."""
 
-    server_version = "UI0Dashboard/1.0"
+    server_version = "ProjectDashboard/1.0"
     #: ``dashboard`` is injected by :func:`make_server`.
     app: DashboardApp
     allowed_hosts: frozenset[str] = _ALLOWED_HOST_NAMES
@@ -246,13 +348,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_HEAD(self) -> None:  # noqa: N802
         self._dispatch("HEAD")
 
+    def do_POST(self) -> None:  # noqa: N802
+        self._dispatch_write()
+
     def _reject_write(self) -> None:
         self._send_error(ApiError(HTTPStatus.METHOD_NOT_ALLOWED,
                                   "method_not_allowed",
-                                  "UI-0 is strictly read-only; only GET and HEAD "
-                                  "are served."))
+                                  "That write method is not available. UI-1 "
+                                  "only permits its authenticated chat POST."))
 
-    do_POST = do_PUT = do_PATCH = do_DELETE = _reject_write  # noqa: N815
+    do_PUT = do_PATCH = do_DELETE = _reject_write  # noqa: N815
     do_OPTIONS = do_TRACE = _reject_write  # noqa: N815
 
     # -- request pipeline ------------------------------------------------ #
@@ -263,6 +368,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if length > _MAX_BODY:
                 raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
                                "body_too_large", "Request body is not accepted.")
+            if unquote(urlparse(self.path).path).startswith("/api/chat/"):
+                self._authorize_chat()
             status, payload = self.app.handle(method, self.path)
             if isinstance(payload, bytes) and status == 0:
                 self._serve_static(method, self.path)
@@ -276,6 +383,88 @@ class DashboardHandler(BaseHTTPRequestHandler):
                                       "internal_error",
                                       "The dashboard failed to handle this request."),
                              head_only=(method == "HEAD"))
+
+    def _dispatch_write(self) -> None:
+        try:
+            self._check_host()
+            path = unquote(urlparse(self.path).path or "/")
+            if self.app.chat is None or path != "/api/chat/messages":
+                raise ApiError(
+                    HTTPStatus.METHOD_NOT_ALLOWED, "method_not_allowed",
+                    "This server accepts no write at that path.")
+            self._authorize_chat()
+            self._check_same_origin()
+            content_type = (self.headers.get("Content-Type") or "").split(";", 1)[0]
+            if content_type.strip().lower() != "application/json":
+                raise ApiError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                               "invalid_content_type",
+                               "Chat requests must use application/json.")
+            raw_length = self.headers.get("Content-Length")
+            if raw_length is None:
+                raise ApiError(HTTPStatus.LENGTH_REQUIRED, "length_required",
+                               "Chat requests require Content-Length.")
+            try:
+                length = int(raw_length)
+            except ValueError:
+                raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_length",
+                               "Content-Length is invalid.") from None
+            if length < 1:
+                raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_body",
+                               "The request body is empty.")
+            if length > _MAX_CHAT_BODY:
+                raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                               "body_too_large", "The chat request is too large.")
+            raw = self.rfile.read(length)
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_json",
+                               "The request body is not valid UTF-8 JSON.") from None
+            result = self.app.handle_chat_message(payload)
+            self._audit_chat(result, payload.get("project_id"))
+            self._send_json(HTTPStatus.OK, result, head_only=False)
+        except ApiError as exc:
+            self._send_error(exc)
+        except Exception:  # noqa: BLE001 - never leak details to the browser
+            traceback.print_exc(file=sys.stderr)
+            self._send_error(ApiError(
+                HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error",
+                "The dashboard failed to handle this request."))
+
+    def _authorize_chat(self) -> None:
+        token = getattr(self.server, "chat_token", None)
+        if not token:
+            raise ApiError(HTTPStatus.METHOD_NOT_ALLOWED, "chat_disabled",
+                           "Interactive chat is not enabled on this server.")
+        header = self.headers.get("Authorization") or ""
+        prefix = "Bearer "
+        supplied = header[len(prefix):] if header.startswith(prefix) else ""
+        if not supplied or not hmac.compare_digest(supplied, token):
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "unauthorized",
+                           "A valid local operator token is required.")
+
+    def _check_same_origin(self) -> None:
+        origin = (self.headers.get("Origin") or "").strip().lower().rstrip("/")
+        host = (self.headers.get("Host") or "").strip().lower()
+        if not origin or origin != "http://" + host:
+            raise ApiError(HTTPStatus.FORBIDDEN, "bad_origin",
+                           "Chat writes require this dashboard's exact Origin.")
+
+    @staticmethod
+    def _audit_chat(result: dict[str, Any], project_id: str | None) -> None:
+        intent = result.get("intent") or {}
+        # No message text, answer text, token, endpoint, key or arbitrary facts.
+        event = {
+            "event": "chat_turn",
+            "project_id": project_id,
+            "conversation_id": result.get("conversation_id"),
+            "intent": intent.get("intent"),
+            "intent_source": result.get("intent_source"),
+            "goal_count": len(result.get("goal_ids") or []),
+            "requires_confirmation": bool(result.get("requires_confirmation")),
+        }
+        sys.stderr.write("[dashboard.audit] " + json.dumps(
+            event, ensure_ascii=False, separators=(",", ":")) + "\n")
 
     def _check_host(self) -> None:
         """Reject requests whose ``Host`` is not a loopback spelling.
@@ -404,8 +593,10 @@ class DashboardServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
     def __init__(self, address: tuple[str, int], app: DashboardApp,
-                 allowed_hosts: frozenset[str] = _ALLOWED_HOST_NAMES):
+                 allowed_hosts: frozenset[str] = _ALLOWED_HOST_NAMES,
+                 chat_token: str | None = None):
         self.app = app
+        self.chat_token = chat_token
         handler = type("BoundDashboardHandler", (DashboardHandler,),
                        {"app": app, "allowed_hosts": allowed_hosts})
         super().__init__(address, handler)
@@ -415,16 +606,36 @@ def validate_host(host: str) -> str:
     """Refuse anything that is not loopback.  Raises ``ValueError``."""
     if host not in LOOPBACK_HOSTS:
         raise ValueError(
-            f"refusing to bind {host!r}: the UI-0 dashboard is read-only and has "
-            f"no authentication, so it may only listen on {sorted(LOOPBACK_HOSTS)}")
+            f"refusing to bind {host!r}: the dashboard is local-only and may "
+            f"listen only on {sorted(LOOPBACK_HOSTS)}")
     return host
 
 
 def make_server(ledger_path: Path | str, *, host: str = "127.0.0.1",
-                port: int = 8765) -> DashboardServer:
+                port: int = 8765, enable_chat: bool = False,
+                chat_token: str | None = None,
+                chat_bridge: ChatBridge | None = None,
+                model_base_url: str | None = None,
+                model_name: str | None = None,
+                model_api_key: str | None = None,
+                model_timeout_s: float | None = None,
+                model_domains: str | None = None) -> DashboardServer:
     validate_host(host)
-    app = DashboardApp(ledger_path)
-    return DashboardServer((host, int(port)), app)
+    if enable_chat:
+        if not isinstance(chat_token, str) or len(chat_token) < 20:
+            raise ValueError(
+                "--enable-chat requires a local operator token of at least "
+                "20 characters")
+        bridge = chat_bridge or ChatBridge(
+            ledger_path, model_base_url=model_base_url, model_name=model_name,
+            model_api_key=model_api_key, model_timeout_s=model_timeout_s,
+            model_domains=model_domains)
+        bridge.prepare()
+    else:
+        bridge = None
+        chat_token = None
+    app = DashboardApp(ledger_path, chat=bridge)
+    return DashboardServer((host, int(port)), app, chat_token=chat_token)
 
 
 __all__ = ["ApiError", "DashboardApp", "DashboardHandler", "DashboardServer",

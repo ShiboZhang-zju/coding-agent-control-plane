@@ -30,13 +30,15 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 | **M4-E** | 关联召回（Chain of Recall + Inline & Spill + Fast/Slow Path） | M4-D | **确定性完成**（T54 31 项 + T55 19 项 Pass；未运行真实模型/Worker） |
 | **M4-F** | Markdown Project Memory MVP（导出/预览/显式 CAS 单条应用） | M4-E | **确定性完成**（T56–T61；未运行真实模型/Worker） |
 | **UI-0** | 只读项目管理驾驶舱（本地 Web Dashboard） | M1–M4 + G1 | **已完成**（32 项确定性测试 + 真实 HTTP/浏览器验证） |
+| **UI-1** | Web LD Interaction（本地、显式启用） | UI-0 + M4-D | **已实现**（Web/API/安全确定性验证；真实 LD E2E 取决于模型环境） |
 | M5 | Distributed Workspace | M1–M4 | 未实现 |
 
 **UI-0 不是 M5，也不是新阶段。** 它是当前单机 MVP 的**可视化扩展**：
 读的是同一份 SQLite Ledger，用的是同一套 `ProjectService` / `LDGoalStore` 查询，
 不新增 Agent、状态机、事件总线、调度器或缓存数据库，也不改变任何执行链路。
-它只有一种能力——把已有事实投射成一个 Owner 能一眼看懂的页面。所有写操作
-（提交/恢复 Goal、审批、取消、修改 Context）属于 UI-1，本轮不做。
+它只有一种能力——把已有事实投射成一个 Owner 能一眼看懂的页面。UI-1 在保持
+UI-0 默认模式不变的前提下，只把现有 M4-D `LDChat` 接到本地网页；审批、任务取消、
+Context 修改仍不开放。
 
 依赖是**功能依赖**而非排期依赖。M4-B 的依赖任务交接走控制平面确定性
 升级（`checkpoint_mode=reachable`），不把 Handoff 暴露为模型决策。
@@ -863,10 +865,59 @@ sessions`、`ld goal list`、`ld recall`。UI-0 补的是这个可视化缺口�
 
 ### 尚未实现（属于 UI-1 或后续）
 
-- 任何写操作（Submit/Resume Goal、Approve/Deny、Cancel、Context 编辑）。
-- 身份认证与多用户（因此只能 loopback）。
+- Approve/Deny、Task Cancel、Context 编辑等通用写操作。
+- 账号体系与多用户（因此仍只能 loopback）。
 - WebSocket / SSE 推送（当前为 10 秒轮询 + 手动刷新）。
-- LD Chat 接入、Goal 决策历史时间线、Evidence 详情查看。
+- Goal 决策历史时间线、Evidence 详情查看。
+
+---
+
+## UI-1 — Web LD Interaction（单机显式交互扩展）
+
+**定位**：复用 M4-D 的 `LDChat`，让 Owner 在 UI-0 页面里查询项目、提交幂等 Goal、
+暂存并确认/取消 `resume_goal`。它不是第二套 Agent、Goal 状态机或调度器，也不是
+M5。任务事实继续来自 Ledger；自动推进继续只由既有 `LDGoalRunner` 完成。
+
+### 交付
+
+| 交付物 | 实现位置 |
+|---|---|
+| 请求级现有服务构造（`ProjectService → LDTools → LDChat`，独立 SQLite 生命周期） | `dashboard/chat.py` |
+| 会话列表、历史与消息 API；返回值白名单 | `dashboard/api.py` |
+| `--enable-chat`、本地 Bearer Token、LD 模型环境配置 | `scripts/dashboard_server.py` |
+| Project/Conversation 选择、历史恢复、确认/取消、Goal/Ledger 阶段反馈 | `dashboard/static/` |
+| Web/并发/安全回归 | `tests/test_ui1_web_chat.py` |
+
+### 硬约束
+
+1. 默认启动仍是 UI-0，只接受 GET/HEAD；只有 `--enable-chat` 才开放唯一 POST
+   `/api/chat/messages`。
+2. POST 只接受 `conversation_id/project_id/message`，前端不能提交 intent、Goal ID、
+   命令或任意底层对象。
+3. 每条消息必须调用现有 `LDChat.handle()`；Conversation/Goal 幂等、暂存确认、过期
+   检查、原子消费和预算不变规则不在 Web 层重写。
+4. 只绑 loopback；Chat API 需要 Bearer Token 与精确同源 Origin；不启 CORS；请求体
+   有硬上限；Token/模型凭据不入 URL、Ledger、审计日志或 Git。
+5. 只读 Dashboard 投影继续用 `mode=ro + query_only`；Chat 写路径使用单独短连接。
+6. Runner 无持久心跳，因此 liveness 恒为 `unknown`；Goal 创建不等于 Runner 启动，
+   Goal 创建也不等于 Worker/Verifier/Goal completed。
+7. 未授权 `local` 时当前消息不发往 Chat Intent Model；无模型端点时明确标为本地
+   确定性路由。Chat Intent 与 Runtime Decision 的就绪状态不能互相替代。
+
+### 验收边界
+
+- 确定性 Web/API 测试覆盖会话创建/继续/持久化、Project 隔离、Goal 幂等、模型回退、
+  无效模型 intent、恢复确认/取消/过期/并发、预算不变和安全门控。
+- UI-0/T63 与 M4-D T50–T53 必须回归通过，旧证据不得被覆盖。
+- 真实浏览器验收需覆盖输入保留、刷新恢复、Goal 出现在详情和确认按钮。
+- 没有 `LD_MODEL_*` 时，真实 `LD → CodeBuddy` E2E 只能记为
+  `BLOCKED_ENVIRONMENT`；确定性路由或 stub Worker 不能替代。
+
+### 尚未实现
+
+- Web 审批、Task cancel、Context/Memory 编辑、生命周期预算编辑。
+- Runner/Worker 心跳与 SSE/WebSocket 推送。
+- 多用户账号、远程访问、跨机器执行与 M5 Workspace 同步。
 
 ---
 
