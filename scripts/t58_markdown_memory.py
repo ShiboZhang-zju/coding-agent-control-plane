@@ -71,7 +71,7 @@ def replace_once(text: str, before: str, after: str) -> str:
 
 def file_snapshot(directory: Path) -> dict[str, str]:
     return {
-        str(path.relative_to(directory)): path.read_text(encoding="utf-8")
+        path.relative_to(directory).as_posix(): path.read_text(encoding="utf-8")
         for path in sorted(directory.rglob("*.md"))
         if path.is_file() and not path.is_symlink()
     }

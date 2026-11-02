@@ -119,6 +119,8 @@ Knowledge 章节不再将 candidate/unverified 条目误称为 verified。
 | M4F-R03 | `scripts/t59_memory_injection_acceptance.py` | T59 证明 ContextBuilder 的两个/多个独立 WorkItem Prompt 正确冻结与更新，但没有启动真实 CodeBuddy、真实模型或两个真实 Session。 | 在真实本地项目执行“LD 对话 → Worker → M2 candidate → Human Markdown edit/apply → 新 Session”，核对 provenance 和 verifier。 | BLOCKED：本轮按要求未运行真实模型/Worker |
 | M4F-R04 | 严格 Front Matter 子集 | 为避免危险反序列化和新增依赖，只接受导出器产生的根级标量/字符串列表子集，不是通用 YAML 编辑器。 | 使用 anchor、tag、block scalar、重复/未知字段；应明确拒绝。 | 设计边界；T58 Pass |
 | M4F-R05 | M2 自动候选治理 | 自动条目现已明确是 task-specific execution evidence，但尚无质量评分、自动去重、合并、失效或删除。历史 Ledger/Evidence 均保留。 | 在真实项目观察多任务 candidate 质量与膨胀，再决定最小治理，不先引入 Memory Agent。 | 待真实项目试用 |
+| M4F-R06 | `controlplane/project_memory_md.py::export()` | 导出器以 LF 落盘，`Path.write_text`（Windows 默认换行转换）或编辑器会把同一 Entry 改写为 CRLF；原实现按**原始字节**比较，于是把纯换行差异判为"本地编辑"，一次 apply 之后普通 `memory-export` 永久拒绝导出（T61 在 e681521 上实际回归失败）。现改用换行无关的内容比较（`_same_entry_content`）。 | `python scripts/t61_memory_apply_refresh.py`：apply 后普通导出必须成功（`ordinary_export_after_apply_succeeds`）。 | 已修复；T61 10/10 Pass |
+| M4F-R07 | `scripts/t58_markdown_memory.py` / `scripts/t60_memory_export_safety.py` | `file_snapshot()` 用 `str(path.relative_to(dir))` 作键，Windows 产出 `entries\\x.md` 而断言查 `entries/x.md`，两个套件在 Windows 上恒定 `KeyError` 失败——不是产品缺陷，但会掩盖真实回归。现改为 `as_posix()`。 | 在 Windows 上直接运行 T58/T60，均应 Pass。 | 已修复；T58 26/26、T60 16/16 Pass |
 
 ## 处理原则
 

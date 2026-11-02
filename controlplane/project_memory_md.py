@@ -110,6 +110,23 @@ class ProjectMemoryMarkdown:
         return memory, entries
 
     @staticmethod
+    def _same_entry_content(raw: bytes, content: str) -> bool:
+        """Compare an Entry file with its rendered form, ignoring line endings.
+
+        The exporter always writes LF, but any editor (or ``Path.write_text``
+        with the default newline translation on Windows) may rewrite the same
+        Entry as CRLF.  Treating that as a *local edit* would make a normal
+        ``memory-export`` refuse to run forever after a single apply, so the
+        divergence check compares content semantics instead of raw bytes.
+        """
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return False
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        return normalized == content
+
+    @staticmethod
     def _atomic_write(path: Path, content: str) -> None:
         if path.exists() and path.is_symlink():
             raise ProjectMemoryAccessError(
@@ -186,7 +203,7 @@ class ProjectMemoryMarkdown:
                 if not path.is_file():
                     raise ProjectMemoryAccessError(
                         f"memory entry path is not a regular file: {path}")
-                if path.read_bytes() != content.encode("utf-8"):
+                if not self._same_entry_content(path.read_bytes(), content):
                     conflicts.append(path)
         if conflicts and not force:
             rendered = ", ".join(str(path.resolve()) for path in conflicts)

@@ -664,6 +664,8 @@ python scripts/t56_recall_pagination_inspect.py # M4-E 分页预算 + inspect �
 python scripts/t57_constraint_semantics.py      # verified/candidate 约束提示词边界
 python scripts/t58_markdown_memory.py           # Markdown 导出/预览/显式 CAS 应用
 python scripts/t59_memory_injection_acceptance.py # 新任务注入/旧 Prompt 冻结/隔离
+python scripts/t60_memory_export_safety.py       # 未应用编辑保护 / Ledger 路径隔离
+python scripts/t61_memory_apply_refresh.py       # apply 后单 Entry 版本刷新
 python scripts/t53_real_chat_e2e.py        # M4-D 真实模型 + 真实 Worker 对话闭环
                                            # 需 LD_MODEL_* 与 serve_ctl start；否则记为 BLOCKED
 
