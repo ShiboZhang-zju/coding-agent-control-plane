@@ -22,8 +22,17 @@ SessionReference/Evidence/Context 引用做两级按需读取，不新建事实�
 T54 关系验收与 T55 资源/引用/分页收口均已通过，本轮未运行真实模型或 Worker。
 **M4-F Markdown Project Memory MVP** 复用同一 SQLite Project Context，提供本地
 导出、严格差异预览和显式 CAS 应用；T56–T61 共 93 项确定性检查通过，
-含未应用编辑保护、Ledger 路径隔离与知识可信度标签；但未运行真实模型、
-CodeBuddy 或真实多 Session 复用测试。
+含未应用编辑保护、Ledger 路径隔离与知识可信度标签。
+
+**T62 Real Project Memory Pilot（真实项目双 Session 记忆复用）已通过第二阶段验收**
+（`evidence/project/T62-stage2-real-project.json`，30/30 Pass）：在
+`gui-agent-post-training` 的隔离克隆上，真实 Session A 修复解析器边界缺陷
+（Verifier `verified`）→ M2 回写候选 → 人工 Markdown 审核 + CAS apply +
+`context-verify` 晋升（v4）→ 全新 Session B 在 `metrics.py` 完成相关任务
+（`verified`），其冻结 Prompt 携带该条目的 ID 与版本。受控对照 C1/C0
+（同提交、同指令、同断言，仅 context_version 1 vs 0）双双 `verified`：
+**记忆确实被注入并使用，但本轮未观察到可归因于记忆的收益（n=1）**。
+Pilot 仓库 `main` 未被改动，产物未 push。
 模型身份（端点/模型 id）不属于测试结果，不出现在代码默认值、日志或证据中。
 已知限制：真实决策模型偶发保守转人工（`--resume` 解锁）；agent job 的 worker
 权限要求项目级 `permissions.allow`（T38 fixture 已内置，见
@@ -667,6 +676,7 @@ python scripts/t59_memory_injection_acceptance.py # 新任务注入/旧 Prompt �
 python scripts/t60_memory_export_safety.py       # 未应用编辑保护 / Ledger 路径隔离
 python scripts/t61_memory_apply_refresh.py       # apply 后单 Entry 版本刷新
 python scripts/t62_real_project_pilot.py         # T62 Stage 1 只读预演（需 LD_MODEL_*）
+python scripts/t62_stage2_real_project.py        # T62 Stage 2 真实双 Session 记忆闭环
 python scripts/t53_real_chat_e2e.py        # M4-D 真实模型 + 真实 Worker 对话闭环
                                            # 需 LD_MODEL_* 与 serve_ctl start；否则记为 BLOCKED
 

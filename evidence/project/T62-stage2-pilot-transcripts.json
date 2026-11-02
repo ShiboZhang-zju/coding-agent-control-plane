@@ -1,0 +1,69 @@
+{
+  "test": "T62 stage 2 supporting record: worker tool-call behaviour per arm",
+  "derived_from": [
+    "stage2.db (pilot ledger)",
+    "stage2c.db (contrast ledger)",
+    "CodeBuddy job transcripts at the local service"
+  ],
+  "note": "Supporting data behind T62-stage2-real-project.json. Raw transcripts are not committed (they contain absolute workspace paths); this file keeps only counts, file names and the commands that matter to the memory question.",
+  "arms": {
+    "A": {
+      "purpose": "fix parsing.py boundaries",
+      "tool_calls": 5,
+      "distinct_files_read": 4,
+      "edited_files": [
+        "src/gui_post_training/evaluation/parsing.py"
+      ],
+      "tests_edited": false
+    },
+    "B": {
+      "purpose": "follow-up in metrics.py, memory present",
+      "tool_calls": 6,
+      "distinct_files_read": 5,
+      "edited_files": [
+        "src/gui_post_training/evaluation/metrics.py",
+        "src/gui_post_training/evaluation/parsing.py"
+      ],
+      "note": "This run committed into the project root instead of the worker worktree, so the Verifier rejected it (head unchanged). Preserved as the rejected_b_run; the accepted B is a separate attempt."
+    },
+    "C1": {
+      "purpose": "controlled contrast WITH reviewed memory",
+      "tool_calls": 5,
+      "distinct_files_read": 4,
+      "edited_files": [
+        "src/gui_post_training/evaluation/metrics.py"
+      ],
+      "read_parsing_py": true,
+      "read_test_parsing_py": false
+    },
+    "C0": {
+      "purpose": "controlled contrast WITHOUT memory",
+      "tool_calls": 6,
+      "distinct_files_read": 5,
+      "edited_files": [
+        "src/gui_post_training/evaluation/metrics.py"
+      ],
+      "read_parsing_py": true,
+      "read_test_parsing_py": true
+    }
+  },
+  "observed_difference": {
+    "extra_read_in_memory_free_arm": "C0 additionally read tests/test_parsing.py (+1 read, +1 tool call)",
+    "interpretation": "One sample. The memory arm explored one file less, which is consistent with the injected rule explaining the parser/metrics relationship, but a single paired run cannot establish that this is caused by memory rather than by sampling noise in the Worker.",
+    "not_a_quality_verdict": true
+  },
+  "behaviour_probe": {
+    "method": "same script executed against each arm's worktree source tree",
+    "c1": {
+      "no_point_ambiguity_flag": false,
+      "tie_ambiguity_flag": true,
+      "aggregate_num_ambiguous": 1
+    },
+    "c0": {
+      "no_point_ambiguity_flag": false,
+      "tie_ambiguity_flag": true,
+      "aggregate_num_ambiguous": 1
+    },
+    "conclusion": "The two implementations are observationally equivalent on the probed inputs; C1's patch is shorter (35 vs 50 added lines) but this run does not show a behavioural advantage."
+  }
+}

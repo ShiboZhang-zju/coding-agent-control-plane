@@ -145,6 +145,34 @@ T62 分两阶段：Stage 1 只读预演（不动真实仓库、不起 Worker）�
   已验收工作、记忆注入对真实任务是否有可量化收益。这三项属 Stage 2，
   `M4F-R03` 仍为 BLOCKED。
 
+### Stage 2 结果（同一日完成）
+
+脚本 `scripts/t62_stage2_real_project.py`，证据
+`evidence/project/T62-stage2-real-project.json`（30/30 Pass）与支撑记录
+`evidence/project/T62-stage2-pilot-transcripts.json`。
+
+真实项目：`ShiboZhang-zju/gui-agent-post-training` 的本地隔离克隆，分支
+`pilot/t62-memory`。**未 push，`main`（4a1cdc02）未被改动。**
+
+| 环节 | 结果 |
+|---|---|
+| A：真实 Session 修 `evaluation/parsing.py` 三类边界缺陷 | `verified`，提交 5a215fc |
+| M2 候选回写 | 2 条 `candidate`（确定性） |
+| 人工改 Markdown + `memory-preview`/`memory-apply`（CAS v2→v3） | 成功 |
+| `context-verify` + 2 条 evidence refs 晋升 | v4 `verified` |
+| B：全新 Session 用该知识做 `metrics.py` 后续任务 | `verified`，66eb601，Prompt 内条目 ID 与版本一致 |
+| C1/C0 受控对照（同提交 f882885、同指令、同断言） | 双 `verified`，差异仅在 context_version 1 vs 0 |
+
+| # | 位置 | 影响 / 当前处理 | 复现 / 验证 | 状态 |
+|---|---|---|---|---|
+| M4F-R03 | 真实双 Session 记忆闭环 | 已不再是 BLOCKED：A/B 为两个不同的真实 Session，verdict 均来自正常 Verifier，知识经 Markdown 审核与 `context-verify` 晋升后进入 B 的冻结 Prompt。 | `python scripts/t62_stage2_real_project.py`（需 `.poc-state/t62/stage2*.db`）。 | Stage 2 30/30 Pass |
+| T62-F01 | LD 决策模型 | 用**逐字节相同**的 Goal 文本创建两个对照 Goal，决策模型把它们改写成了中英两种不同任务描述，并各自附加了不同断言。这让"记忆是否有用"的对照被改写差异污染。 | 对照 `ld_goals` 原文与 `work_items.original_task`/`assertions`。 | P1：对照类实验不能用 LD 模型生成任务文本；已改用 `submit_project_task` 直接提交同指令 |
+| T62-F02 | CodeBuddy Worker worktree | worktree 恒定基于**远程默认分支**（`origin/HEAD`），不跟随本地检出分支。首次把 pilot 分支检出在本地时，Worker 实际在 `main`（4a1cdc02）上作业，Verifier 因找不到测试文件而正确拒绝。 | 在带 remote 的仓库检出 feature 分支后派发，比较 worktree HEAD 与 `origin/main`。 | P1：已记录；Pilot 需让默认分支即为目标分支（本次用本地 bare origin 重定向） |
+| T62-F03 | CodeBuddy Worker | Worker 会主动 `cd` 出 worktree、在**项目根目录**编辑并提交（B 的第一次尝试），导致 Verifier 看到的 worktree HEAD 不变而被拒。Verifier 的拒绝是正确行为；风险是它绕过了隔离。 | 检查 Worker transcript 的 `cd`/`Edit` 绝对路径与提交落点。 | P1：隔离未被强制；需后续在 adapter 层约束，本轮不改架构 |
+| T62-F04 | `tests/test_dataset.py` | 基线提交 f882885 上已有 4 个失败（与本次改动无关）。任务 A/B 的验收断言不覆盖该文件，故未影响 verdict；但"整套测试全绿"不能作为本轮结论。 | 在未修改的 f882885 上直接跑 `pytest -q tests`。 | P2：既有失败，非本轮引入 |
+| T62-F05 | 记忆收益 | C1 比 C0 少读 1 个文件（5 vs 6 次工具调用），耗时 297.7s vs 320.0s，两臂行为探测完全一致。n=1，且差值在 Worker 采样噪声量级内。 | 同一脚本对两臂源码运行同一探测。 | P2：**不能说记忆带来收益**；只能说未观察到反例 |
+| T62-F06 | `ld_goals` 写门控 | 项目内存在 `needs_human` 任务后，该项目的后续 Goal 提交被 M4-A 保守门控拦住（`M4A-01` 设计如此）。本轮因此改用干净项目承载对照臂。 | 在有 rejected 任务的项目再提交新 Goal。 | 设计边界；建议日常使用提供显式解除入口 |
+
 ## 处理原则
 
 - 任何"已修复/Pass"结论都必须指向可重现测试与脱敏证据；stub/确定性 Pass 不等于

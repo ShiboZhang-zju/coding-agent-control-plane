@@ -1,0 +1,100 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-a447146ef272",
+    "project_id": "prj-ed40afc1c0",
+    "title": "Fix GUI coordinate parser edge consistency",
+    "state": "succeeded",
+    "verdict": "rejected",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "tests/test_parsing_edge_quality.py",
+        "value": null,
+        "passed": false,
+        "owned": null,
+        "observed": "missing"
+      },
+      {
+        "kind": "file_exists",
+        "target": "src/gui_post_training/evaluation/parsing.py",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "changed since baseline"
+      }
+    ],
+    "warnings": [],
+    "finished_at": 1793591911.612
+  },
+  "attempt": {
+    "id": "at-55525cdb12",
+    "worker_job_id": "c5007022",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793591509.9677062,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 1,
+      "work_item_id": "cp-a447146ef272",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-ed40afc1c0",
+        "workspace_id": "ws-cc94203fa4",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "context_injected": true
+      },
+      "created_at": 1793591507.4775367
+    },
+    {
+      "id": 2,
+      "work_item_id": "cp-a447146ef272",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-ed40afc1c0",
+        "root": "<REPO>\\.poc-state\\t62\\pilot-clone",
+        "cwd": "<REPO>\\.poc-state\\t62\\pilot-clone"
+      },
+      "created_at": 1793591508.8203921
+    },
+    {
+      "id": 3,
+      "work_item_id": "cp-a447146ef272",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\.poc-state\\t62\\pilot-clone",
+        "attempt_id": "at-55525cdb12",
+        "approval_id": null
+      },
+      "created_at": 1793591510.029241
+    },
+    {
+      "id": 4,
+      "work_item_id": "cp-a447146ef272",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "c5007022",
+        "http": 200
+      },
+      "created_at": 1793591510.1199906
+    }
+  ]
+}

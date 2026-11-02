@@ -1,0 +1,121 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-570efa369576",
+    "project_id": "prj-efe109f94e",
+    "title": "Implement and commit coordinate-space ambiguity visibility in evaluation metrics",
+    "state": "running",
+    "verdict": "rejected",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "src/gui_post_training/evaluation/metrics.py",
+        "value": null,
+        "passed": false,
+        "owned": false,
+        "observed": "pre-existing and unchanged (not produced by this attempt)"
+      },
+      {
+        "kind": "file_contains",
+        "target": "src/gui_post_training/evaluation/metrics.py",
+        "value": "normalized_1000",
+        "passed": false,
+        "owned": false,
+        "observed": "contains value=False, changed_since_baseline=False"
+      },
+      {
+        "kind": "file_contains",
+        "target": "src/gui_post_training/evaluation/metrics.py",
+        "value": "pixel",
+        "passed": false,
+        "owned": false,
+        "observed": "contains value=True, changed_since_baseline=False"
+      },
+      {
+        "kind": "git_commit",
+        "target": "HEAD",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "no new commit (head log: ['aabe773 test(parsing): failing regressions for tolerant-extraction boundaries', '4a1cdc0 Experiment A: data scaling for M1.6'])"
+      }
+    ],
+    "warnings": [
+      "SIDE_EFFECT:undeclared_local_change:<REPO>\\.poc-state\\t62\\pilot-work"
+    ],
+    "finished_at": null
+  },
+  "attempt": {
+    "id": "at-5f4580e680",
+    "worker_job_id": "a66588eb",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793595441.5096726,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 6,
+      "work_item_id": "cp-570efa369576",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-efe109f94e",
+        "workspace_id": "ws-1d8139be4c",
+        "context_version": 4,
+        "context_entry_refs": [
+          "ctx-ec635ddbab33",
+          "ctx-6abff69eb333"
+        ],
+        "context_injected": true
+      },
+      "created_at": 1793595438.6692247
+    },
+    {
+      "id": 7,
+      "work_item_id": "cp-570efa369576",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-efe109f94e",
+        "root": "<REPO>\\.poc-state\\t62\\pilot-work",
+        "cwd": "<REPO>\\.poc-state\\t62\\pilot-work"
+      },
+      "created_at": 1793595438.978886
+    },
+    {
+      "id": 8,
+      "work_item_id": "cp-570efa369576",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\.poc-state\\t62\\pilot-work",
+        "attempt_id": "at-5f4580e680",
+        "approval_id": null
+      },
+      "created_at": 1793595441.5784214
+    },
+    {
+      "id": 9,
+      "work_item_id": "cp-570efa369576",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "a66588eb",
+        "http": 200
+      },
+      "created_at": 1793595441.6695898
+    }
+  ]
+}

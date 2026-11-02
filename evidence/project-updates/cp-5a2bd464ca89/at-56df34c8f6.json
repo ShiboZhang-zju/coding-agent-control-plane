@@ -1,0 +1,118 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-5a2bd464ca89",
+    "project_id": "prj-3ada8923eb",
+    "title": "实现评估层坐标空间歧义可见性并提交特性分支",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "src/gui_post_training/evaluation/metrics.py",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "changed since baseline"
+      },
+      {
+        "kind": "file_contains",
+        "target": "src/gui_post_training/evaluation/metrics.py",
+        "value": "normalized_1000",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      },
+      {
+        "kind": "file_contains",
+        "target": "src/gui_post_training/evaluation/metrics.py",
+        "value": "pixel",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      },
+      {
+        "kind": "git_commit",
+        "target": "HEAD",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "commits since baseline: ['66eb601 feat(metrics): surface pixel-vs-normalized_1000 prior-decided ambiguity']"
+      }
+    ],
+    "warnings": [],
+    "finished_at": 1793598373.529
+  },
+  "attempt": {
+    "id": "at-56df34c8f6",
+    "worker_job_id": "886bc958",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793598041.633698,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 28,
+      "work_item_id": "cp-5a2bd464ca89",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-3ada8923eb",
+        "workspace_id": "ws-2bd46d85ef",
+        "context_version": 1,
+        "context_entry_refs": [
+          "ctx-04ef3bcad05b"
+        ],
+        "context_injected": true
+      },
+      "created_at": 1793598027.6637533
+    },
+    {
+      "id": 29,
+      "work_item_id": "cp-5a2bd464ca89",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-3ada8923eb",
+        "root": "<REPO>\\.poc-state\\t62\\work-b1",
+        "cwd": "<REPO>\\.poc-state\\t62\\work-b1"
+      },
+      "created_at": 1793598031.4345398
+    },
+    {
+      "id": 30,
+      "work_item_id": "cp-5a2bd464ca89",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\.poc-state\\t62\\work-b1",
+        "attempt_id": "at-56df34c8f6",
+        "approval_id": null
+      },
+      "created_at": 1793598041.6804285
+    },
+    {
+      "id": 31,
+      "work_item_id": "cp-5a2bd464ca89",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "886bc958",
+        "http": 200
+      },
+      "created_at": 1793598041.7976055
+    }
+  ]
+}

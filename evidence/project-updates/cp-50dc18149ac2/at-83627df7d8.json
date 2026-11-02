@@ -1,0 +1,100 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-50dc18149ac2",
+    "project_id": "prj-efe109f94e",
+    "title": "修复 GUI 坐标解析器边界一致性缺陷并通过回归测试",
+    "state": "succeeded",
+    "verdict": "verified",
+    "assertion_results": [
+      {
+        "kind": "file_contains",
+        "target": "src/gui_post_training/evaluation/parsing.py",
+        "value": "def",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      },
+      {
+        "kind": "git_commit",
+        "target": "HEAD",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "commits since baseline: ['5a215fc fix(parsing): cover sign/exponent numbers and JSON key order in tolerant extractor']"
+      }
+    ],
+    "warnings": [],
+    "finished_at": 1793593290.727
+  },
+  "attempt": {
+    "id": "at-83627df7d8",
+    "worker_job_id": "bee64efb",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793593046.9386408,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 1,
+      "work_item_id": "cp-50dc18149ac2",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-efe109f94e",
+        "workspace_id": "ws-1d8139be4c",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "context_injected": true
+      },
+      "created_at": 1793593043.2563689
+    },
+    {
+      "id": 2,
+      "work_item_id": "cp-50dc18149ac2",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-efe109f94e",
+        "root": "<REPO>\\.poc-state\\t62\\pilot-work",
+        "cwd": "<REPO>\\.poc-state\\t62\\pilot-work"
+      },
+      "created_at": 1793593044.395045
+    },
+    {
+      "id": 3,
+      "work_item_id": "cp-50dc18149ac2",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\.poc-state\\t62\\pilot-work",
+        "attempt_id": "at-83627df7d8",
+        "approval_id": null
+      },
+      "created_at": 1793593047.0097663
+    },
+    {
+      "id": 4,
+      "work_item_id": "cp-50dc18149ac2",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "bee64efb",
+        "http": 200
+      },
+      "created_at": 1793593047.1547744
+    }
+  ]
+}

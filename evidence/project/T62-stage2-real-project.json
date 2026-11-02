@@ -1,0 +1,183 @@
+{
+  "test": "T62 stage 2 real-project two-session memory reuse",
+  "worker_started": true,
+  "real_model_called": true,
+  "real_project_touched": "isolated clone only; pilot main 4a1cdc02 untouched",
+  "checks": {
+    "real_worker_sessions_recorded": true,
+    "all_four_sessions_are_distinct": true,
+    "attempts_recorded": true,
+    "a_verified": true,
+    "b_verified": true,
+    "c1_verified": true,
+    "c0_verified": true,
+    "commits_match": true,
+    "a_assertions_all_passed": true,
+    "c1_assertions_all_passed": true,
+    "c0_assertions_all_passed": true,
+    "b_and_contrast_start_from_a_baseline": true,
+    "reviewed_entry_verified": true,
+    "reviewed_entry_has_evidence": true,
+    "reviewed_entry_revised_by_human": true,
+    "reviewed_entry_was_candidate_first": true,
+    "injected_entry_verified": true,
+    "b_entry_verified": true,
+    "b_entry_carries_reviewed_body": true,
+    "injected_entry_in_b_frozen_prompt": true,
+    "b_prompt_contains_knowledge_block": true,
+    "contrast_instruction_identical": true,
+    "contrast_assertions_identical": true,
+    "c1_prompt_has_entry": true,
+    "c0_prompt_has_no_entry": true,
+    "c1_context_version_positive": true,
+    "c0_context_version_zero": true,
+    "rejected_b_run_preserved": true,
+    "pilot_main_untouched": true,
+    "no_push_to_github": true
+  },
+  "observed": {
+    "pilot": {
+      "repository": "ShiboZhang-zju/gui-agent-post-training",
+      "isolation": "local clone + branch pilot/t62-memory",
+      "main_head": "4a1cdc02",
+      "origin_main_head": "4a1cdc02",
+      "pilot_branch_head": "aabe7730",
+      "pushed": false
+    },
+    "sessions": {
+      "A": {
+        "task_id": "cp-50dc18149ac2",
+        "attempt_id": "at-83627df7d8",
+        "session_id": "bee64efb-fd4d-4fd8-a245-a9bfc92583cd",
+        "verdict": "verified",
+        "head_commit": "5a215fcc619455aa6de350f6f0fa204c7cb26ba5",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "prompt_chars": 704,
+        "duration_s": 243.7,
+        "tool_calls": 7,
+        "files_read": 3
+      },
+      "B": {
+        "task_id": "cp-5a2bd464ca89",
+        "attempt_id": "at-56df34c8f6",
+        "session_id": "886bc958-4c37-4398-b313-7d8e9969f799",
+        "verdict": "verified",
+        "head_commit": "66eb60143c20ca0a423a68056fd832f4396fa7ea",
+        "context_version": 1,
+        "context_entry_refs": [
+          "ctx-04ef3bcad05b"
+        ],
+        "prompt_chars": 1437,
+        "duration_s": 331.8,
+        "tool_calls": 8,
+        "files_read": 3
+      },
+      "B_rejected": {
+        "task_id": "cp-570efa369576",
+        "attempt_id": "at-5f4580e680",
+        "session_id": "a66588eb-98db-42a9-9d88-51c4df083a20",
+        "verdict": "rejected",
+        "head_commit": "aabe7730296a4194256801cb424bf095a93a3da6",
+        "context_version": 4,
+        "context_entry_refs": [
+          "ctx-ec635ddbab33",
+          "ctx-6abff69eb333"
+        ],
+        "prompt_chars": 1888,
+        "duration_s": 554.4,
+        "tool_calls": null,
+        "files_read": null
+      },
+      "C1": {
+        "task_id": "cp-69d3691973ed",
+        "attempt_id": "at-ada0c4de70",
+        "session_id": "fef57d2d-b7df-4eac-b4a8-3e097480ea27",
+        "verdict": "verified",
+        "head_commit": "9411e20c4bf2d26188bf918671a31e3b8dece3e7",
+        "context_version": 1,
+        "context_entry_refs": [
+          "ctx-8934ef73b869"
+        ],
+        "prompt_chars": 1669,
+        "duration_s": 297.7,
+        "tool_calls": 5,
+        "files_read": 4
+      },
+      "C0": {
+        "task_id": "cp-133a8c27b707",
+        "attempt_id": "at-b830233201",
+        "session_id": "0ef2b002-db09-4a85-8dea-007ccec0f675",
+        "verdict": "verified",
+        "head_commit": "3004cac19a33d94c66446e0539d0bb26daaef1a9",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "prompt_chars": 1002,
+        "duration_s": 320.0,
+        "tool_calls": 6,
+        "files_read": 5
+      }
+    },
+    "memory_review": {
+      "entry_id": "ctx-ec635ddbab33",
+      "candidate_version_seen": 2,
+      "human_edited_version": 3,
+      "promoted_version": 4,
+      "verification": "verified",
+      "evidence_refs": [
+        "evidence/project-updates/cp-50dc18149ac2/at-83627df7d8.json",
+        "evidence/project/T62-stage2-taskA-parsing.json"
+      ],
+      "b_entry_id": "ctx-04ef3bcad05b",
+      "b_entry_version": 1,
+      "injected_entry_id": "ctx-8934ef73b869",
+      "injected_entry_version": 1,
+      "injected_into": "B (pilot project) and C1 (contrast project)",
+      "not_injected_into": "C0 (empty context, context_version 0)"
+    },
+    "contrast": {
+      "design": "two fresh copies of f882885, identical task text and assertions, submitted via submit_project_task",
+      "c1_context_version": 1,
+      "c0_context_version": 0,
+      "c1_duration_s": 297.7,
+      "c0_duration_s": 320.0,
+      "c1_tool_calls": 5,
+      "c0_tool_calls": 6,
+      "c1_files_read": 4,
+      "c0_files_read": 5,
+      "c1_files_touched": [
+        "<REPO>\\.poc-state\\t62\\work-c1\\src\\gui_post_training\\evaluation\\metrics.py"
+      ],
+      "c0_files_touched": [
+        "<REPO>\\.poc-state\\t62\\work-c0\\src\\gui_post_training\\evaluation\\metrics.py"
+      ],
+      "both_verified": true,
+      "verdict_difference": 0,
+      "duration_difference_s": 22.30000000000001,
+      "token_usage": "<redacted>"
+    },
+    "ld_confound": {
+      "what_happened": "two LD goals with byte-identical goal text were paraphrased by the decision model into different task descriptions (Chinese vs English) with different assertions",
+      "consequence": "the LD-driven pair could not isolate memory; the controlled pair was added instead of discarding the observation",
+      "evidence": "observed.sessions.B vs the recorded goal text in ld_goals"
+    },
+    "human_interventions": [
+      "registered the isolated pilot project",
+      "created each goal once via get_or_create",
+      "rewrote one M2 candidate into a reusable rule",
+      "applied it via memory-preview + memory-apply (CAS)",
+      "promoted it via context-verify with two evidence refs",
+      "created the memory-free comparison project and copy"
+    ],
+    "pre_existing_failures_not_caused_by_this_work": [
+      "tests/test_dataset.py: 4 failures present on the untouched baseline commit f882885 as well, so they are not a regression from task A or B"
+    ],
+    "not_claimed": [
+      "that memory improved the outcome - both arms passed every assertion",
+      "any statistical improvement: this is one paired run, n=1",
+      "that C1's shorter patch is better code; only the observable behaviour was compared, and it was identical"
+    ]
+  },
+  "result": "PASS",
+  "failed": []
+}
