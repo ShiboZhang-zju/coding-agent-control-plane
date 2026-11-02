@@ -147,12 +147,23 @@ T62 分两阶段：Stage 1 只读预演（不动真实仓库、不起 Worker）�
 
 ### Stage 2 结果（同一日完成）
 
-脚本 `scripts/t62_stage2_real_project.py`，证据
-`evidence/project/T62-stage2-real-project.json`（30/30 Pass）与支撑记录
-`evidence/project/T62-stage2-pilot-transcripts.json`。
+脚本 `scripts/t62_stage2_real_project.py`。**两个文件，不互相覆盖**：
+
+- `evidence/project/T62-stage2-real-project.json`：运行时（Worker 服务在线）写下的
+  原始验收记录，27/27 Pass，`transcripts_readable: true`，A/B 的 tool_calls 为 7/8。
+  这是历史证据，**不再被重跑改写**。
+- `evidence/project/T62-stage2-real-project-recheck.json`：G1 复核记录，34/34 自动
+  检查通过，但服务离线导致 A/B transcript 不可读，整体为 **INCOMPLETE**；它以
+  `recheck_of` + `historical_record` 引用上一份，而不是替换它。
+
+支撑记录 `evidence/project/T62-stage2-pilot-transcripts.json` 同样保留历史真值：
+运行时真实读到的 A/B_rejected/B 三条观测（tool_calls 7/7/8）逐字段继承并标注
+`transcript_source`，不会被一次离线重跑改成 null。
+逐组归档：`evidence/project/t62/pair1-archived.json`、`pair2.json`、`pair3.json`。
 
 真实项目：`ShiboZhang-zju/gui-agent-post-training` 的本地隔离克隆，分支
-`pilot/t62-memory`。**未 push，`main`（4a1cdc02）未被改动。**
+`pilot/t62-memory`。`main`（4a1cdc02）未被改动；"未 push" 是操作员人工声明
+（`human_declarations_not_automated`），不属于自动验证项。
 
 | 环节 | 结果 |
 |---|---|
@@ -163,15 +174,50 @@ T62 分两阶段：Stage 1 只读预演（不动真实仓库、不起 Worker）�
 | B：全新 Session 用该知识做 `metrics.py` 后续任务 | `verified`，66eb601，Prompt 内条目 ID 与版本一致 |
 | 受控对照 C1/C0（同提交 f882885、同指令、同断言，仅 context_version 1 vs 0） | **INCONCLUSIVE**：3 组中 2 组双 verified、1 组有记忆被拒无记忆通过 |
 
+### G1 证据治理（2026-11-02）
+
+修复 T62 Stage 2 的证据一致性、历史归档与验收脚本可靠性，不新增架构模块：
+
+| 改动 | 位置 | 说明 |
+|---|---|---|
+| 统一归档模型 | `scripts/t62_evidence_model.py`（新） | 每组实验一条稳定归档，带 `evidence_level`；`complete` 要求恰好两个 Arm、一记忆一控制、task_id 互不相同、verdict 为终态。空集/缺组/重复 task_id → `BLOCKED`；verdict 在但 SessionReference 丢 → `INCOMPLETE`。 |
+| Pair1 独立归档 | `evidence/project/t62/pair1-archived.json` | 从事故前同期记录（旧 `T62-stage2-memory-contrast.json` 的 `pair_detail`）一次性 seed，`evidence_level=historical_record_only`、`ledger_recoverable=false`、`reexecuted=false`。**不会因重跑被升级，也不会被重写。** |
+| Pair2/Pair3 独立归档 | `evidence/project/t62/pair2.json` / `pair3.json` | 读 `.poc-state/t62/pairs/<pair>/summary.json` + 存活 Ledger 的只读 SessionReference 查找，`evidence_level=archived_verdict`。pair2 的 Session 已不保留，故归档附注明确标注 transcript 不可得。 |
+| 汇总不再读旧验收文件 | `scripts/t62_stage2_contrast_record.py` | 删除 `earlier_pair()` 从 `T62-stage2-real-project.json` 取 C1/C0 的逻辑（该文件已无这两个字段，旧代码实际返回 `None` 却仍 PASS）。三组按 `PAIR_IDS` 固定顺序汇总，`archives_seeded_this_run` 记录本次 seed 了哪些。 |
+| Supporting Record 重写 | `scripts/t62_stage2_supporting_record.py` | 不再把 pair1 当实时任务查询（旧代码得到 queued/pending 仍输出 PASS + "Both arms reached the same verdict"）。改为消费归档；transcript 不可读时记 `unavailable` + 原因，`tool_calls` 为 `null`，**绝不推断**。结果只能是 `COMPLETE`/`INCOMPLETE`/`BLOCKED`。 |
+| 三层结论 | `T62-stage2-memory-contrast.json::three_layer_reading` | ① 记忆链路成立 ② 记忆收益未证明 ③ Verifier 可能测量偏差（pair2 54 tests passed，仅 `file_contains: normalized_1000` 失败）。`direction_of_disagreement` 显式记录 `memory_passed_control_failed=[]`、`control_passed_memory_failed=["pair2"]`，并撤回旧 "failed in opposite directions"。 |
+| 验收脚本 fail-closed | `scripts/t62_stage2_real_project.py` | 新增检查：任务齐全、task_id 唯一、Session/Attempt/Verdict 三者同链、终态状态、断言结果集非空（`all([])==True` 修正）、对照归档非 BLOCKED 且恰 3 组 6 个 task_id。缺 transcript 时结果为 `INCOMPLETE` 而不是 `PASS`/`FAIL`。 |
+| 硬编码项移出自动验收 | 同上 | 删除 `"no_push_to_github": True`，改为 `human_declarations_not_automated`（`verified_automatically: false`），`observed.pilot.pushed` 改为 `declared_false_by_operator_not_measured`。 |
+| 复核不覆盖历史 | 同上（`T62_RECHECK_EVIDENCE`） | 复核写 `T62-stage2-real-project-recheck.json`，用 `recheck_of` + `historical_record` 引用运行时记录。原脚本直接写回运行时文件，会把只能当时观测到的事实（transcript 可读、tool_calls 7/8）替换成 `unavailable` —— 属于篡改历史，已避免。 |
+| 运行时观测继承 | `scripts/t62_stage2_supporting_record.py` | 服务离线时不再把已观测到的 `tool_calls`/`reads`/`edits`/`shell_commands` 抹成 null，而是逐字段继承并标 `transcript_source`；仅当从未观测过才记 `unavailable`。同时补回 `stage2.db` 里 A/B_rejected/B 三个 pilot 任务（记忆链路结论的依据）。 |
+| 脱敏补 git-bash 路径 | `scripts/sanitize_evidence.py` | Worker 的 shell 命令常用 `/f/coding-agent-control-plane/...` 形式，原有脱敏只匹配 Windows 反斜杠路径，导致本机绝对路径入库（G1.6 覆盖不足）。新增 `/f/...` 与通用盘符路径规则，并保证不误伤 URL 与相对路径。 |
+| `status` fail-closed | `scripts/t62_stage2_contrast.py` | 原 `all(...)` 在空列表上为 True，ledger 静默回退到 queued 时也报 `done`。现要求恰好 2 行、1 记忆臂 + 1 控制臂、task_id 不重复、state 与 verdict 均终态，否则 `BLOCKED`。 |
+| SQLite 清理守卫 | `scripts/t62_sqlite_cleanup.py`（新） | 替代 `LEDGER.unlink()`。流程：只读统计 verdict 行数（有 verdict 即拒绝，改用 `fresh_ledger_path` 新文件）→ `PRAGMA wal_checkpoint(TRUNCATE)` 并检查 SQLite 自己返回的 busy 标志 → 仍忙则 `LedgerInUse` 拒绝 → 仅在 sqlite 已截断 WAL 后删主文件。**任何路径都不手工删 `-wal`/`-shm`。** |
+| 回归测试 | `tests/test_t62_g1_evidence.py`（新） | 28 项：空归档 BLOCKED、缺 Arm BLOCKED、缺 Session INCOMPLETE、重复 task_id BLOCKED、第四组 BLOCKED、历史组不得声称可恢复、pair1 不升级、归档幂等（不重复累计、两次字节一致）、三层结论、旧表述已撤回、supporting record 不推断 tool_calls、无硬编码 push 检查、WAL 不被破坏、绝对路径脱敏。 |
+
+复现：
+
+```
+python scripts/t62_stage2_contrast_record.py      # 生成/校验 t62 归档 + 汇总
+python scripts/t62_stage2_supporting_record.py    # 行为支撑记录（服务离线则为 INCOMPLETE）
+python scripts/t62_stage2_real_project.py         # 主验收（缺 transcript 则为 INCOMPLETE）
+python -m pytest tests/test_t62_g1_evidence.py -q
+```
+
 | # | 位置 | 影响 / 当前处理 | 复现 / 验证 | 状态 |
 |---|---|---|---|---|
-| M4F-R03 | 真实双 Session 记忆闭环 | 已不再是 BLOCKED：A/B 为两个不同的真实 Session，verdict 均来自正常 Verifier，知识经 Markdown 审核与 `context-verify` 晋升后进入 B 的冻结 Prompt。 | `python scripts/t62_stage2_real_project.py`（需 `.poc-state/t62/stage2*.db`）。 | Stage 2 30/30 Pass |
+| M4F-R03 | 真实双 Session 记忆闭环 | 已不再是 BLOCKED：A/B 为两个不同的真实 Session，verdict 均来自正常 Verifier，知识经 Markdown 审核与 `context-verify` 晋升后进入 B 的冻结 Prompt。 | `python scripts/t62_stage2_real_project.py`（需 `.poc-state/t62/stage2*.db`）。 | Stage 2 33/33 自动检查通过，整体 INCOMPLETE（transcript 不可读） |
+| T62-G01 | Supporting Record（旧脚本） | pair1 的两个 task 属已损坏 Ledger，旧脚本读成 queued/pending 仍生成 PASS 并写 "Both arms reached the same verdict"，与三组数据矛盾；空的 live ledger 也会被并成第四组。 | `scripts/t62_stage2_supporting_record.py`。 | **已修复**：改消费归档，pair1 标 `historical_record_only`，缺 transcript 记 `unavailable`，结果只能 COMPLETE/INCOMPLETE/BLOCKED |
+| T62-G02 | `earlier_pair()` | 从 `T62-stage2-real-project.json` 读 C1/C0，但该文件已无这两个字段，实际恒返回 `None`；pair1 一度只因 "旧文件还在" 而占用汇总位置。 | 读旧脚本 + 现有证据文件。 | **已修复**：pair1 有独立归档，汇总不再依赖验收文件 |
+| T62-G03 | `all([]) == True` | 空任务列表/空断言结果被当作"全部完成"，可产出 PASS。 | `scripts/t62_stage2_contrast.py status`、`real_project.py` 断言检查。 | **已修复**：显式数量/唯一性/角色/终态/链路检查，不足即 BLOCKED |
 | T62-F01 | LD 决策模型 | 用**逐字节相同**的 Goal 文本创建两个对照 Goal，决策模型把它们改写成了中英两种不同任务描述，并各自附加了不同断言。这让"记忆是否有用"的对照被改写差异污染。 | 对照 `ld_goals` 原文与 `work_items.original_task`/`assertions`。 | P1：对照类实验不能用 LD 模型生成任务文本；已改用 `submit_project_task` 直接提交同指令 |
 | T62-F02 | CodeBuddy Worker worktree | worktree 恒定基于**远程默认分支**（`origin/HEAD`），不跟随本地检出分支。首次把 pilot 分支检出在本地时，Worker 实际在 `main`（4a1cdc02）上作业，Verifier 因找不到测试文件而正确拒绝。 | 在带 remote 的仓库检出 feature 分支后派发，比较 worktree HEAD 与 `origin/main`。 | P1：已记录；Pilot 需让默认分支即为目标分支（本次用本地 bare origin 重定向） |
 | T62-F03 | CodeBuddy Worker | Worker 会主动 `cd` 出 worktree、在**项目根目录**编辑并提交（B 的第一次尝试），导致 Verifier 看到的 worktree HEAD 不变而被拒。Verifier 的拒绝是正确行为；风险是它绕过了隔离。 | 检查 Worker transcript 的 `cd`/`Edit` 绝对路径与提交落点。 | P1：隔离未被强制；需后续在 adapter 层约束，本轮不改架构 |
 | T62-F04 | `tests/test_dataset.py` | 基线提交 f882885 上已有 4 个失败（与本次改动无关）。任务 A/B 的验收断言不覆盖该文件，故未影响 verdict；但"整套测试全绿"不能作为本轮结论。 | 在未修改的 f882885 上直接跑 `pytest -q tests`。 | P2：既有失败，非本轮引入 |
-| T62-F05 | 记忆收益 | 受控对照跑了 3 组，结果**方向不一致**：pair1 双 verified（有记忆 297.7s，无记忆 320.0s）、pair2 有记忆被拒/无记忆 verified、pair3 双 verified。累计 有记忆 2 verified 1 rejected、无记忆 3 verified 0 rejected。差异全部落在 Worker 单次采样波动量级内。 | `scripts/t62_stage2_contrast_record.py` → `evidence/project/T62-stage2-memory-contrast.json`。 | **P1 结论：记忆未被证明有收益，反而 n=3 下无记忆臂表现更好**；不得引用单组成功的 pair 作为收益证据 |
-| T62-F07 | 对照实验清理 | 清理时手动删除 `stage2c.db-wal`，导致已完成的对照 ledger 静默回退到 queued 状态：证据文件还在，但 ledger 已不能自证。worktree 提交与 transcript 仍在，故 pair1 可凭记录引用并明确标注来源。 | 对照脚本 `run_pair.py` 已不再删除任何 `-wal`；`contrast_record.py` 对 pair1 标注"其 ledger 已损坏"。 | P1 操作事故（本人造成，已记录并重跑 2 组重建记录） |
+| T62-F05 | 记忆收益 | 受控对照跑了 3 组：pair1 双 verified（有记忆 297.7s，无记忆 320.0s）、pair2 有记忆 rejected/无记忆 verified、pair3 双 verified。累计 有记忆 2 verified 1 rejected、无记忆 3 verified 0 rejected。**分歧只有 pair2，且方向对记忆臂不利——不存在"有记忆通过、无记忆失败"的 pair。** 差异落在 Worker 单次采样波动量级内。 | `scripts/t62_stage2_contrast_record.py` → `evidence/project/T62-stage2-memory-contrast.json`（逐组 `evidence/project/t62/`）。 | **P1 结论：记忆未被证明有收益，也不能证明有害**；旧表述 "failed in opposite directions" 与数据不符，已在 G1 撤回 |
+| T62-F07 | 对照实验清理 | 清理时手动删除 `stage2c.db-wal`，导致已完成的对照 ledger 静默回退到 queued 状态：证据文件还在，但 ledger 已不能自证。worktree 提交与 transcript 仍在，故 pair1 可凭记录引用并明确标注来源（`historical_record_only`，永久最低等级）。 | `scripts/t62_sqlite_cleanup.py`：checkpoint 由 SQLite 自己执行并检查 busy 标志，有 verdict 的 ledger 一律拒绝删除，改开新文件。 | P1 操作事故（本人造成，已记录并重跑 2 组重建记录）；清理路径已加守卫与回归测试 |
+| T62-G04 | Supporting Record 完整性 | 本地 CodeBuddy 服务离线、pair2 的 SessionReference 已随 ledger 重置丢失、pair1 的 session 从未保留，因此 6 个 Arm 中当前 0 个可读 transcript；行为对比（读取文件数/工具调用数/耗时差）无法复算。 | `python scripts/t62_stage2_supporting_record.py`。 | **未解决（环境限制）**：如实输出 `INCOMPLETE` + 每个 Arm 的 `unavailable` 原因；不估算、不复用他臂数字。不影响三组 verdict 与记忆链路结论 |
+| T62-G05 | pair2 的 Verifier 断言 | 有记忆臂 54 项测试全过，仅 `file_contains: normalized_1000` 失败，判为 rejected。该断言检查字面量出现，可能过严（实现可用等价命名表达同一语义）。 | 对照 `.poc-state/t62/pairs/pair2/` 两份 patch 与断言结果。 | **未解决**：已作为第三层结论记录；重跑时应改用行为断言，不能把此 rejected 当功能失败 |
 | T62-F06 | `ld_goals` 写门控 | 项目内存在 `needs_human` 任务后，该项目的后续 Goal 提交被 M4-A 保守门控拦住（`M4A-01` 设计如此）。本轮因此改用干净项目承载对照臂。 | 在有 rejected 任务的项目再提交新 Goal。 | 设计边界；建议日常使用提供显式解除入口 |
 
 ## 处理原则

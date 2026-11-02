@@ -1,0 +1,61 @@
+{
+  "schema": "t62.pair_archive/1",
+  "pair_id": "pair1",
+  "evidence_level": "historical_record_only",
+  "ledger_recoverable": false,
+  "source": {
+    "kind": "contemporaneous record written before the incident",
+    "file": "evidence/project/T62-stage2-memory-contrast.json",
+    "reexecuted": false,
+    "session_lookup": "not preserved in the surviving record"
+  },
+  "notes": [
+    "The pair's own ledger lost its -wal file during cleanup and silently reverted to the queued state, so it can no longer substantiate this pair.",
+    "Only task_id, verdict, head_commit and duration survived; session, attempt, assertions and transcript did not.",
+    "This pair is cited, not re-measured, and its evidence level is deliberately the weakest of the three."
+  ],
+  "complete": true,
+  "problems": [],
+  "verdicts": {
+    "with_memory": "verified",
+    "without_memory": "verified"
+  },
+  "flipped": false,
+  "arms": [
+    {
+      "role": "with_memory",
+      "task_id": "cp-69d3691973ed",
+      "arm_label": "work-c1",
+      "verdict": "verified",
+      "state": "",
+      "context_version": 1,
+      "context_entry_refs": [],
+      "head_commit": "9411e20c4bf2d26188bf918671a31e3b8dece3e7",
+      "duration_s": 297.7,
+      "session_id": null,
+      "attempt_id": null,
+      "assertions_failed": [],
+      "added_lines": null,
+      "files_changed": [],
+      "tests_tail": ""
+    },
+    {
+      "role": "without_memory",
+      "task_id": "cp-133a8c27b707",
+      "arm_label": "work-c0",
+      "verdict": "verified",
+      "state": "",
+      "context_version": 0,
+      "context_entry_refs": [],
+      "head_commit": "3004cac19a33d94c66446e0539d0bb26daaef1a9",
+      "duration_s": 320.0,
+      "session_id": null,
+      "attempt_id": null,
+      "assertions_failed": [],
+      "added_lines": null,
+      "files_changed": [],
+      "tests_tail": ""
+    }
+  ],
+  "ledger_state_seen_today": "queued / pending (damaged, no rows)"
+}

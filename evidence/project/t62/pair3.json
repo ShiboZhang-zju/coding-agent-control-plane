@@ -1,0 +1,62 @@
+{
+  "schema": "t62.pair_archive/1",
+  "pair_id": "pair3",
+  "evidence_level": "archived_verdict",
+  "ledger_recoverable": true,
+  "source": {
+    "kind": "per-pair archive written at run time",
+    "summary": ".poc-state/t62/pairs/pair3/summary.json",
+    "session_lookup": "read-only SessionReference lookup in the surviving contrast ledgers",
+    "derived_from_rerun": false
+  },
+  "notes": [],
+  "complete": true,
+  "problems": [],
+  "verdicts": {
+    "with_memory": "verified",
+    "without_memory": "verified"
+  },
+  "flipped": false,
+  "arms": [
+    {
+      "role": "with_memory",
+      "task_id": "cp-6265b1fdcdb9",
+      "arm_label": "work-c1x",
+      "verdict": "verified",
+      "state": "",
+      "context_version": 1,
+      "context_entry_refs": [
+        "ctx-750ac8c4f08c"
+      ],
+      "head_commit": "50181396d2484cb6ecea21993f919cda729998a1",
+      "duration_s": 302.6,
+      "session_id": "8145c6ee-b376-480a-95b4-dff428e46c88",
+      "attempt_id": "at-81e44c32d7",
+      "assertions_failed": [],
+      "added_lines": 37,
+      "files_changed": [
+        "src/gui_post_training/evaluation/metrics.py"
+      ],
+      "tests_tail": "54 passed in 0.17s"
+    },
+    {
+      "role": "without_memory",
+      "task_id": "cp-1cdd9af03ae8",
+      "arm_label": "work-c0x",
+      "verdict": "verified",
+      "state": "",
+      "context_version": 0,
+      "context_entry_refs": [],
+      "head_commit": "5cdbe604051e5735920cd4c131ef76205e3b324c",
+      "duration_s": 224.8,
+      "session_id": "83f24cf8-2f50-403b-8629-fab6643ffc0c",
+      "attempt_id": "at-33d228deaf",
+      "assertions_failed": [],
+      "added_lines": 20,
+      "files_changed": [
+        "src/gui_post_training/evaluation/metrics.py"
+      ],
+      "tests_tail": "54 passed in 0.15s"
+    }
+  ]
+}

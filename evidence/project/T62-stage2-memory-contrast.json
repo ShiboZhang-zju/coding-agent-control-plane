@@ -1,7 +1,65 @@
 {
   "test": "T62 stage 2 memory contrast (with vs without reviewed knowledge)",
   "result": "INCONCLUSIVE",
-  "why_not_pass": "Both arms are real and the knowledge provably reaches the memory arm's prompt, but the outcomes disagree across pairs in both directions. That is run-to-run variance dominating, not a memory effect, and no single pair may be quoted as evidence of benefit.",
+  "archive_completeness": "INCOMPLETE",
+  "validation": {
+    "result": "INCOMPLETE",
+    "problems": [],
+    "incomplete": [
+      "pair2: no SessionReference/Attempt retained for cp-4ddffe2e528b, cp-7e4e0f820b6e"
+    ],
+    "pairs_expected": [
+      "pair1",
+      "pair2",
+      "pair3"
+    ],
+    "pairs_present": [
+      "pair1",
+      "pair2",
+      "pair3"
+    ],
+    "task_ids_counted": 6,
+    "duplicate_task_ids": false
+  },
+  "result_cannot_be_upgraded_by_evidence_level": "pair1 is cited from a pre-incident record and pair2 lacks a SessionReference; neither raises nor lowers the INCONCLUSIVE conclusion, and neither may be used to turn it into PASS or FAIL.",
+  "why_inconclusive": "The knowledge provably reaches the memory arm's frozen prompt, but the two arms' outcomes cannot be separated at n=3: the control arm passed all three pairs, the memory arm passed two. That is not evidence of benefit, and it is not evidence of harm either.",
+  "three_layer_reading": {
+    "layer1_memory_chain_established": {
+      "result": "ESTABLISHED",
+      "proven_by": "evidence/project/T62-stage2-real-project.json",
+      "what_is_proven": [
+        "a candidate entry is produced deterministically from a verdict",
+        "a human edit is applied through memory-preview + memory-apply (CAS)",
+        "the entry is promoted to verified through context-verify with evidence",
+        "a fresh Session receives the entry in its frozen Effective Prompt",
+        "the Effective Prompt records the entry id and context version"
+      ],
+      "what_is_not_proven_here": "that carrying the entry changes the Worker's outcome"
+    },
+    "layer2_memory_benefit_not_proven": {
+      "result": "NOT_PROVEN",
+      "with_memory": {
+        "verified": 2,
+        "rejected": 1
+      },
+      "without_memory": {
+        "verified": 3,
+        "rejected": 0
+      },
+      "reading": "The control arm did at least as well as the memory arm. With three pairs and n=1 per pair this shows neither a benefit nor a degradation; it only shows the sample cannot separate them.",
+      "must_not_be_quoted_as": [
+        "memory improves the success rate",
+        "memory degrades the success rate"
+      ]
+    },
+    "layer3_verifier_maybe_mismeasuring": {
+      "result": "SUSPECTED_MEASUREMENT_BIAS",
+      "pair": "pair2",
+      "what_happened": "the with-memory arm ran the full test suite successfully (54 passed) and was rejected solely on file_contains: normalized_1000; the without-memory arm passed every assertion",
+      "consequence": "a rejected verdict on this task may reflect an over-strict text assertion rather than a missing feature, so rejected must not be read as 'the implementation failed'",
+      "supports": "re-run with behavioural assertions before trusting a rejected verdict as a failure"
+    }
+  },
   "design": {
     "same_code_commit": "f882885",
     "same_task_text": true,
@@ -13,24 +71,40 @@
       "without_memory": "clean project with empty context"
     }
   },
+  "archive_dir": "evidence/project/t62/",
+  "archive_files": {
+    "pair1": "pair1-archived.json",
+    "pair2": "pair2.json",
+    "pair3": "pair3.json"
+  },
+  "archives_seeded_this_run": [],
   "pairs": [
     {
-      "pair": "pair1 (cited from T62-stage2-real-project.json; its ledger was damaged, see incident)",
+      "pair": "pair1",
+      "evidence_level": "historical_record_only",
+      "ledger_recoverable": false,
       "with_memory": "verified",
       "without_memory": "verified",
-      "flipped": false
+      "flipped": false,
+      "complete": true
     },
     {
       "pair": "pair2",
+      "evidence_level": "archived_verdict",
+      "ledger_recoverable": true,
       "with_memory": "rejected",
       "without_memory": "verified",
-      "flipped": true
+      "flipped": true,
+      "complete": true
     },
     {
       "pair": "pair3",
+      "evidence_level": "archived_verdict",
+      "ledger_recoverable": true,
       "with_memory": "verified",
       "without_memory": "verified",
-      "flipped": false
+      "flipped": false,
+      "complete": true
     }
   ],
   "tally": {
@@ -43,102 +117,204 @@
       "rejected": 0
     }
   },
+  "direction_of_disagreement": {
+    "pairs_where_memory_arm_passed_and_control_failed": [],
+    "pairs_where_control_passed_and_memory_arm_failed": [
+      "pair2"
+    ],
+    "pairs_that_disagreed": [
+      "pair2"
+    ],
+    "reading": "The disagreement is one-sided: no pair shows the memory arm passing while the control arm failed, and pair2 shows the control arm passing while the memory arm was rejected. The earlier claim that the arms diverged in both directions does not match the data and has been withdrawn."
+  },
   "pair_detail": [
     {
-      "pair": "pair1 (cited from T62-stage2-real-project.json; its ledger was damaged, see incident)",
+      "schema": "t62.pair_archive/1",
+      "pair_id": "pair1",
+      "evidence_level": "historical_record_only",
+      "ledger_recoverable": false,
+      "source": {
+        "kind": "contemporaneous record written before the incident",
+        "file": "evidence/project/T62-stage2-memory-contrast.json",
+        "reexecuted": false,
+        "session_lookup": "not preserved in the surviving record"
+      },
+      "notes": [
+        "The pair's own ledger lost its -wal file during cleanup and silently reverted to the queued state, so it can no longer substantiate this pair.",
+        "Only task_id, verdict, head_commit and duration survived; session, attempt, assertions and transcript did not.",
+        "This pair is cited, not re-measured, and its evidence level is deliberately the weakest of the three."
+      ],
+      "complete": true,
+      "problems": [],
+      "verdicts": {
+        "with_memory": "verified",
+        "without_memory": "verified"
+      },
+      "flipped": false,
       "arms": [
         {
+          "role": "with_memory",
           "task_id": "cp-69d3691973ed",
-          "arm": "work-c1",
+          "arm_label": "work-c1",
           "verdict": "verified",
+          "state": "",
           "context_version": 1,
+          "context_entry_refs": [],
           "head_commit": "9411e20c4bf2d26188bf918671a31e3b8dece3e7",
-          "duration_s": 297.7
+          "duration_s": 297.7,
+          "session_id": null,
+          "attempt_id": null,
+          "assertions_failed": [],
+          "added_lines": null,
+          "files_changed": [],
+          "tests_tail": ""
         },
         {
+          "role": "without_memory",
           "task_id": "cp-133a8c27b707",
-          "arm": "work-c0",
+          "arm_label": "work-c0",
           "verdict": "verified",
+          "state": "",
           "context_version": 0,
+          "context_entry_refs": [],
           "head_commit": "3004cac19a33d94c66446e0539d0bb26daaef1a9",
-          "duration_s": 320.0
+          "duration_s": 320.0,
+          "session_id": null,
+          "attempt_id": null,
+          "assertions_failed": [],
+          "added_lines": null,
+          "files_changed": [],
+          "tests_tail": ""
         }
-      ]
+      ],
+      "ledger_state_seen_today": "queued / pending (damaged, no rows)"
     },
     {
-      "pair": "pair2",
+      "schema": "t62.pair_archive/1",
+      "pair_id": "pair2",
+      "evidence_level": "archived_verdict",
+      "ledger_recoverable": true,
+      "source": {
+        "kind": "per-pair archive written at run time",
+        "summary": ".poc-state/t62/pairs/pair2/summary.json",
+        "session_lookup": "read-only SessionReference lookup in the surviving contrast ledgers",
+        "derived_from_rerun": false
+      },
+      "notes": [
+        "SessionReference/Attempt for cp-4ddffe2e528b, cp-7e4e0f820b6e is not retained any more; the verdict is still the one the Verifier wrote at run time, but the transcript is unavailable and no tool-call count may be derived for it."
+      ],
+      "complete": true,
+      "problems": [],
+      "verdicts": {
+        "with_memory": "rejected",
+        "without_memory": "verified"
+      },
+      "flipped": true,
       "arms": [
         {
+          "role": "with_memory",
           "task_id": "cp-4ddffe2e528b",
-          "arm": ".codebuddy",
+          "arm_label": ".codebuddy",
           "verdict": "rejected",
+          "state": "",
           "context_version": 1,
           "context_entry_refs": [
             "ctx-a66eab0cb804"
           ],
+          "head_commit": "579cb660c82a7424c7e3bbb009297c240cb21585",
           "duration_s": 272.7,
+          "session_id": null,
+          "attempt_id": null,
+          "assertions_failed": [
+            "file_contains:normalized_1000"
+          ],
           "added_lines": 54,
           "files_changed": [
             "src/gui_post_training/evaluation/metrics.py",
             "src/gui_post_training/evaluation/parsing.py"
           ],
-          "tests": "54 passed in 0.26s",
-          "failed_assertions": [
-            "file_contains:normalized_1000"
-          ],
-          "head_commit": "579cb660c82a7424c7e3bbb009297c240cb21585"
+          "tests_tail": "54 passed in 0.26s"
         },
         {
+          "role": "without_memory",
           "task_id": "cp-7e4e0f820b6e",
-          "arm": ".codebuddy",
+          "arm_label": ".codebuddy",
           "verdict": "verified",
+          "state": "",
           "context_version": 0,
           "context_entry_refs": [],
+          "head_commit": "9feef0379d5d38ce83879f2c942943fb4b26cd3f",
           "duration_s": 295.3,
+          "session_id": null,
+          "attempt_id": null,
+          "assertions_failed": [],
           "added_lines": 35,
           "files_changed": [
             "src/gui_post_training/evaluation/metrics.py"
           ],
-          "tests": "54 passed in 0.42s",
-          "failed_assertions": [],
-          "head_commit": "9feef0379d5d38ce83879f2c942943fb4b26cd3f"
+          "tests_tail": "54 passed in 0.42s"
         }
       ]
     },
     {
-      "pair": "pair3",
+      "schema": "t62.pair_archive/1",
+      "pair_id": "pair3",
+      "evidence_level": "archived_verdict",
+      "ledger_recoverable": true,
+      "source": {
+        "kind": "per-pair archive written at run time",
+        "summary": ".poc-state/t62/pairs/pair3/summary.json",
+        "session_lookup": "read-only SessionReference lookup in the surviving contrast ledgers",
+        "derived_from_rerun": false
+      },
+      "notes": [],
+      "complete": true,
+      "problems": [],
+      "verdicts": {
+        "with_memory": "verified",
+        "without_memory": "verified"
+      },
+      "flipped": false,
       "arms": [
         {
+          "role": "with_memory",
           "task_id": "cp-6265b1fdcdb9",
-          "arm": "work-c1x",
+          "arm_label": "work-c1x",
           "verdict": "verified",
+          "state": "",
           "context_version": 1,
           "context_entry_refs": [
             "ctx-750ac8c4f08c"
           ],
+          "head_commit": "50181396d2484cb6ecea21993f919cda729998a1",
           "duration_s": 302.6,
+          "session_id": "8145c6ee-b376-480a-95b4-dff428e46c88",
+          "attempt_id": "at-81e44c32d7",
+          "assertions_failed": [],
           "added_lines": 37,
           "files_changed": [
             "src/gui_post_training/evaluation/metrics.py"
           ],
-          "tests": "54 passed in 0.17s",
-          "failed_assertions": [],
-          "head_commit": "50181396d2484cb6ecea21993f919cda729998a1"
+          "tests_tail": "54 passed in 0.17s"
         },
         {
+          "role": "without_memory",
           "task_id": "cp-1cdd9af03ae8",
-          "arm": "work-c0x",
+          "arm_label": "work-c0x",
           "verdict": "verified",
+          "state": "",
           "context_version": 0,
           "context_entry_refs": [],
+          "head_commit": "5cdbe604051e5735920cd4c131ef76205e3b324c",
           "duration_s": 224.8,
+          "session_id": "83f24cf8-2f50-403b-8629-fab6643ffc0c",
+          "attempt_id": "at-33d228deaf",
+          "assertions_failed": [],
           "added_lines": 20,
           "files_changed": [
             "src/gui_post_training/evaluation/metrics.py"
           ],
-          "tests": "54 passed in 0.15s",
-          "failed_assertions": [],
-          "head_commit": "5cdbe604051e5735920cd4c131ef76205e3b324c"
+          "tests_tail": "54 passed in 0.15s"
         }
       ]
     }
@@ -148,17 +324,63 @@
     "with_memory_rejected": 1,
     "without_memory_verified": 3,
     "without_memory_rejected": 0,
-    "reading": "The memory arm and the control arm both pass and both fail, and they failed in opposite directions on different pairs. On this task the injected rule is not what decides the outcome."
+    "reading": "Both arms pass on some pairs and one arm fails on one pair; the difference is within single-sample Worker variance. The one disagreement runs against the memory arm, so no benefit may be claimed from this experiment.",
+    "is_statistical_claim": false
+  },
+  "evidence_levels": {
+    "pair1": {
+      "evidence_level": "historical_record_only",
+      "ledger_recoverable": false,
+      "source": {
+        "kind": "contemporaneous record written before the incident",
+        "file": "evidence/project/T62-stage2-memory-contrast.json",
+        "reexecuted": false,
+        "session_lookup": "not preserved in the surviving record"
+      },
+      "notes": [
+        "The pair's own ledger lost its -wal file during cleanup and silently reverted to the queued state, so it can no longer substantiate this pair.",
+        "Only task_id, verdict, head_commit and duration survived; session, attempt, assertions and transcript did not.",
+        "This pair is cited, not re-measured, and its evidence level is deliberately the weakest of the three."
+      ]
+    },
+    "pair2": {
+      "evidence_level": "archived_verdict",
+      "ledger_recoverable": true,
+      "source": {
+        "kind": "per-pair archive written at run time",
+        "summary": ".poc-state/t62/pairs/pair2/summary.json",
+        "session_lookup": "read-only SessionReference lookup in the surviving contrast ledgers",
+        "derived_from_rerun": false
+      },
+      "notes": [
+        "SessionReference/Attempt for cp-4ddffe2e528b, cp-7e4e0f820b6e is not retained any more; the verdict is still the one the Verifier wrote at run time, but the transcript is unavailable and no tool-call count may be derived for it."
+      ]
+    },
+    "pair3": {
+      "evidence_level": "archived_verdict",
+      "ledger_recoverable": true,
+      "source": {
+        "kind": "per-pair archive written at run time",
+        "summary": ".poc-state/t62/pairs/pair3/summary.json",
+        "session_lookup": "read-only SessionReference lookup in the surviving contrast ledgers",
+        "derived_from_rerun": false
+      },
+      "notes": []
+    }
   },
   "incident_affecting_this_record": {
     "what": "the first contrast ledger's -wal file was deleted during cleanup, silently reverting that ledger to its queued state",
-    "effect": "the ledger could no longer substantiate the first pair, so the pair was re-run instead of being cited from memory",
-    "lesson": "never delete a live SQLite -wal by hand; the worktree commits and transcripts survived, which is why the first pair could still be archived",
-    "remediation": "contrast re-run twice more to rebuild the record; the pair runner no longer deletes wal files"
+    "effect": "the ledger can no longer substantiate pair 1; the pair is cited from the record written before the incident and is labelled historical_record_only",
+    "lesson": "never delete a live SQLite -wal by hand; see scripts/t62_sqlite_cleanup.py for the guarded path",
+    "remediation": "the pair runner no longer deletes wal files; pair 1 keeps its lowest evidence level permanently"
   },
   "not_claimed": [
     "that memory reduced exploration, time, or failure rate",
+    "that memory increased the failure rate",
     "any statistical conclusion: 3 pairs, n=1 per pair, no significance",
-    "that C1's or C0's patch is better code - all passing patches were behaviourally equivalent on the probes that were run"
-  ]
+    "that pair 1 was re-verified - its ledger is gone",
+    "that a rejected verdict proves the feature was not implemented",
+    "that C1's or C0's patch is better code"
+  ],
+  "why_not_pass": "No pair-based claim is supportable: the control arm did as well or better, and one rejection is attributable to a text assertion rather than to missing functionality. The result stays INCONCLUSIVE."
 }

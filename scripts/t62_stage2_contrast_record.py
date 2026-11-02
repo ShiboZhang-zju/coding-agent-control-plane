@@ -2,188 +2,194 @@
 
 Three pairs were run. They did NOT agree, and that is the finding:
 
-  pair 1 (first attempt)  C1 verified, C0 verified
-  pair 2                  C1 rejected, C0 verified
-  pair 3                  C1 verified, C0 verified
+  pair 1 (first attempt)  with_memory verified, without_memory verified
+  pair 2                  with_memory rejected, without_memory verified
+  pair 3                  with_memory verified, without_memory verified
 
-Everything here is read from the archived pair summaries and the live ledgers /
-worktrees. Nothing is hand-written, and no pair is dropped to make the result
-look cleaner.
+The disagreement is one-sided: only pair 2 differs, and it differs against the
+memory arm. There is no pair where the memory arm passed and the control failed.
 
-The conclusion this supports is deliberately narrow: the memory is injected and
-reachable (that is proven elsewhere), but on this task the Worker's outcome is
-dominated by run-to-run variance, not by the injected knowledge. Claiming a
-benefit from pair 1 or pair 3 alone would be cherry-picking.
+Each pair is a separate, stable archive under ``evidence/project/t62/``:
+
+  pair1-archived.json   seeded once from the record written BEFORE pair 1's
+                        ledger lost its -wal file. Evidence level
+                        ``historical_record_only``: cited, never re-measured.
+  pair2.json            per-pair archive written when the pair finished.
+  pair3.json            same.
+
+Re-running this script never re-seeds pair 1, never appends a fourth pair, and
+never upgrades an archive's evidence level. If a pair is missing or malformed
+the result is BLOCKED, and if a verdict survives but its Session/Attempt does
+not the result is INCOMPLETE - never PASS.
+
+The conclusion this supports is deliberately narrow and three-layered:
+
+  1. the memory *chain* is established (candidate -> human CAS edit ->
+     verified promotion -> injected into a new Session's frozen prompt);
+  2. a memory *benefit* is NOT established (2 verified / 1 rejected with
+     memory vs 3 verified / 0 rejected without);
+  3. the Verifier may itself be mismeasuring: pair 2's memory arm passed all 54
+     tests and was rejected only by a `file_contains: normalized_1000`
+     assertion, so `rejected` there is not proof the feature was not built.
 """
 from __future__ import annotations
 
 import json
-import sqlite3
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
 
 from sanitize_evidence import write_evidence  # noqa: E402
+import t62_evidence_model as model  # noqa: E402
 
 STATE = ROOT / ".poc-state" / "t62"
-PAIRS = STATE / "pairs"
-LIVE_LEDGER = STATE / "stage2c.db"
+ARCHIVE_DIR = ROOT / "evidence" / "project" / "t62"
 OUT = ROOT / "evidence" / "project" / "T62-stage2-memory-contrast.json"
+LEGACY_RECORD = OUT        # the pre-G1 file still holds pair 1's original rows
 
-
-def ro(ledger: Path, sql: str, args: tuple = ()) -> list[dict]:
-    conn = sqlite3.connect(f"file:{ledger}?mode=ro", uri=True, timeout=20)
-    conn.row_factory = sqlite3.Row
-    try:
-        return [dict(r) for r in conn.execute(sql, args).fetchall()]
-    finally:
-        conn.close()
-
-
-def arm_of(worktree: str) -> tuple[str, int]:
-    """Return (arm label, context_version) from a worktree path."""
-    parts = Path(worktree or "").parts
-    name = parts[-3] if len(parts) >= 3 else ""
-    is_mem = name.endswith("c1") or name.endswith("c1x") or "c1" == name[-2:]
-    return (name, 1 if is_mem else 0)
-
-
-def pair_records() -> list[dict]:
-    pairs = []
-    for directory in sorted(PAIRS.glob("pair*")):
-        summary = directory / "summary.json"
-        if not summary.exists():
-            continue
-        rows = json.loads(summary.read_text(encoding="utf-8"))
-        arms = []
-        for row in rows:
-            refs = row.get("context_entry_refs") or "[]"
-            if isinstance(refs, str):
-                refs = json.loads(refs)
-            arms.append({
-                "task_id": row["task_id"],
-                "arm": row["arm"],
-                "verdict": row["verdict"],
-                "context_version": 1 if refs else 0,
-                "context_entry_refs": refs,
-                "duration_s": row.get("duration_s"),
-                "added_lines": row.get("added_lines"),
-                "files_changed": row.get("files_changed"),
-                "tests": (row.get("tests_tail") or [""])[0],
-                "failed_assertions": row.get("assertions_failed"),
-                "head_commit": row.get("head_commit"),
-            })
-        pairs.append({"pair": directory.name, "arms": arms})
-    return pairs
-
-
-EARLIER_EVIDENCE = ROOT / "evidence" / "project" / "T62-stage2-real-project.json"
-
-
-def earlier_pair() -> dict | None:
-    """Pair 1 was recorded in the acceptance file before its ledger was damaged.
-
-    Its ledger can no longer substantiate it, so it is cited from the record
-    that was written at the time, labelled as such. Dropping it would hide the
-    one pair whose directions disagreed most sharply.
-    """
-    if not EARLIER_EVIDENCE.exists():
-        return None
-    data = json.loads(EARLIER_EVIDENCE.read_text(encoding="utf-8"))
-    sessions = (data.get("observed") or {}).get("sessions") or {}
-    c1, c0 = sessions.get("C1"), sessions.get("C0")
-    if not c1 or not c0:
-        return None
-    return {
-        "pair": "pair1 (cited from T62-stage2-real-project.json; its ledger was "
-                "damaged, see incident)",
-        "arms": [
-            {"task_id": c1.get("task_id"), "arm": "work-c1",
-             "verdict": c1.get("verdict"), "context_version": 1,
-             "head_commit": c1.get("head_commit"),
-             "duration_s": c1.get("duration_s")},
-            {"task_id": c0.get("task_id"), "arm": "work-c0",
-             "verdict": c0.get("verdict"), "context_version": 0,
-             "head_commit": c0.get("head_commit"),
-             "duration_s": c0.get("duration_s")},
+LAYERS = {
+    "layer1_memory_chain_established": {
+        "result": "ESTABLISHED",
+        "proven_by": "evidence/project/T62-stage2-real-project.json",
+        "what_is_proven": [
+            "a candidate entry is produced deterministically from a verdict",
+            "a human edit is applied through memory-preview + memory-apply (CAS)",
+            "the entry is promoted to verified through context-verify with evidence",
+            "a fresh Session receives the entry in its frozen Effective Prompt",
+            "the Effective Prompt records the entry id and context version",
         ],
-    }
+        "what_is_not_proven_here": (
+            "that carrying the entry changes the Worker's outcome"),
+    },
+    "layer2_memory_benefit_not_proven": {
+        "result": "NOT_PROVEN",
+        "with_memory": {"verified": 2, "rejected": 1},
+        "without_memory": {"verified": 3, "rejected": 0},
+        "reading": (
+            "The control arm did at least as well as the memory arm. With three "
+            "pairs and n=1 per pair this shows neither a benefit nor a "
+            "degradation; it only shows the sample cannot separate them."),
+        "must_not_be_quoted_as": [
+            "memory improves the success rate",
+            "memory degrades the success rate",
+        ],
+    },
+    "layer3_verifier_maybe_mismeasuring": {
+        "result": "SUSPECTED_MEASUREMENT_BIAS",
+        "pair": "pair2",
+        "what_happened": (
+            "the with-memory arm ran the full test suite successfully (54 passed) "
+            "and was rejected solely on file_contains: normalized_1000; the "
+            "without-memory arm passed every assertion"),
+        "consequence": (
+            "a rejected verdict on this task may reflect an over-strict text "
+            "assertion rather than a missing feature, so rejected must not be "
+            "read as 'the implementation failed'"),
+        "supports": "re-run with behavioural assertions before trusting a "
+                    "rejected verdict as a failure",
+    },
+}
+
+
+def load_legacy() -> dict:
+    if not LEGACY_RECORD.exists():
+        return {}
+    return json.loads(LEGACY_RECORD.read_text(encoding="utf-8"))
+
+
+def build_pairs() -> tuple[dict, list[str], dict]:
+    legacy = load_legacy()
+    pairs, seeded = model.collect_archives(STATE, ARCHIVE_DIR, legacy)
+    # Persist any archive that had to be seeded, so the next run reads the file
+    # rather than re-deriving it. Existing archives are never rewritten.
+    written = model.write_archives(ARCHIVE_DIR, pairs, write_evidence)
+    return pairs, sorted(set(seeded) | set(written)), legacy
 
 
 def main() -> int:
-    pairs = pair_records()
-    first = earlier_pair()
-    if first:
-        pairs.insert(0, first)
-    live = ro(LIVE_LEDGER, "select id, verdict, context_version, worktree, "
-                           "context_entry_refs, head_commit, finished_at, "
-                           "started_at from work_items")
-    if not pairs and not live:
+    pairs, seeded, legacy = build_pairs()
+    validation = model.validate_archives(pairs)
+
+    if validation["result"] == model.BLOCKED:
         write_evidence(OUT, {
-            "test": "T62 stage 2 memory contrast",
-            "result": "BLOCKED",
-            "blocked_reason": "no archived pair and no live contrast ledger",
+            "test": "T62 stage 2 memory contrast (with vs without reviewed knowledge)",
+            "result": model.BLOCKED,
+            "blocked_reason": validation["problems"],
+            "pairs_present": sorted(pairs),
+            "archive_dir": "evidence/project/t62/",
+            "note": ("No conclusion is derived while the archive set is "
+                     "incomplete or inconsistent. This is deliberate: an empty "
+                     "or partial set must never read as a pass."),
         })
+        print(json.dumps({"result": model.BLOCKED,
+                          "problems": validation["problems"]},
+                         ensure_ascii=False, indent=1))
         return 2
 
-    # The live ledger is the most recent pair; its worktrees still exist.
-    live_rows = []
-    for row in live:
-        refs = row.get("context_entry_refs") or "[]"
-        if isinstance(refs, str):
-            refs = json.loads(refs)
-        name, _ = arm_of(row.get("worktree"))
-        live_rows.append({
-            "task_id": row["id"],
-            "arm": name,
-            "verdict": row["verdict"],
-            "context_version": 1 if refs else 0,
-            "context_entry_refs": refs,
-            "duration_s": (round(row["finished_at"] - row["started_at"], 1)
-                           if row.get("finished_at") and row.get("started_at")
-                           else None),
-            "head_commit": row.get("head_commit"),
-        })
-    if live_rows:
-        # The live ledger is the newest pair; if an archive of the same tasks
-        # already exists, prefer the archive and skip, so a pair is never
-        # counted twice just because its ledger is still open.
-        live_ids = {row["task_id"] for row in live_rows}
-        archived_ids = {arm["task_id"] for pair in pairs for arm in pair["arms"]}
-        if not live_ids <= archived_ids:
-            pairs.append({"pair": "live", "arms": live_rows})
+    counts = model.tally(pairs)
+    summary = model.pair_summary(pairs)
+    detail = [pairs[pair_id] for pair_id in model.PAIR_IDS if pair_id in pairs]
 
-    tally = {"with_memory": {"verified": 0, "rejected": 0},
-             "without_memory": {"verified": 0, "rejected": 0}}
-    for pair in pairs:
-        for arm in pair["arms"]:
-            bucket = ("with_memory" if arm["context_version"] > 0
-                      else "without_memory")
-            if arm["verdict"] in ("verified", "rejected"):
-                tally[bucket][arm["verdict"]] += 1
+    with_memory = counts[model.ROLE_WITH_MEMORY]
+    without_memory = counts[model.ROLE_WITHOUT_MEMORY]
 
-    pair_verdicts = []
-    for pair in pairs:
-        mem = [a for a in pair["arms"] if a["context_version"] > 0]
-        nomem = [a for a in pair["arms"] if a["context_version"] == 0]
-        pair_verdicts.append({
-            "pair": pair["pair"],
-            "with_memory": mem[0]["verdict"] if mem else None,
-            "without_memory": nomem[0]["verdict"] if nomem else None,
-            "flipped": bool(mem and nomem
-                            and mem[0]["verdict"] != nomem[0]["verdict"]),
-        })
+    flipped_pairs = [row["pair"] for row in summary if row["flipped"]]
+    memory_wins = [row["pair"] for row in summary
+                   if row["with_memory"] == "verified"
+                   and row["without_memory"] == "rejected"]
+    control_wins = [row["pair"] for row in summary
+                    if row["without_memory"] == "verified"
+                    and row["with_memory"] == "rejected"]
+
+    layers = json.loads(json.dumps(LAYERS))
+    layers["layer2_memory_benefit_not_proven"]["with_memory"] = with_memory
+    layers["layer2_memory_benefit_not_proven"]["without_memory"] = without_memory
+
+    direction = {
+        "pairs_where_memory_arm_passed_and_control_failed": memory_wins,
+        "pairs_where_control_passed_and_memory_arm_failed": control_wins,
+        "pairs_that_disagreed": flipped_pairs,
+        "reading": (
+            "The disagreement is one-sided: no pair shows the memory arm passing "
+            "while the control arm failed, and pair2 shows the control arm passing "
+            "while the memory arm was rejected. The earlier claim that the arms "
+            "diverged in both directions does not match the data and has been "
+            "withdrawn."
+            if not memory_wins else
+            "At least one pair shows memory passing where the control failed."),
+    }
 
     record = {
         "test": "T62 stage 2 memory contrast (with vs without reviewed knowledge)",
+        # Two separate things, deliberately not merged:
+        #   result             = what the experiment concluded from 3 real pairs
+        #   archive_completeness = whether all supporting evidence is still readable
+        # A missing SessionReference does not change the experimental conclusion,
+        # and the conclusion must not be used to hide an incomplete archive.
         "result": "INCONCLUSIVE",
-        "why_not_pass": (
-            "Both arms are real and the knowledge provably reaches the "
-            "memory arm's prompt, but the outcomes disagree across pairs in both "
-            "directions. That is run-to-run variance dominating, not a memory "
-            "effect, and no single pair may be quoted as evidence of benefit."),
+        "archive_completeness": validation["result"],
+        "validation": {
+            "result": validation["result"],
+            "problems": validation["problems"],
+            "incomplete": validation["incomplete"],
+            "pairs_expected": list(model.PAIR_IDS),
+            "pairs_present": sorted(pairs),
+            "task_ids_counted": len(validation["task_ids"]),
+            "duplicate_task_ids": False,
+        },
+        "result_cannot_be_upgraded_by_evidence_level": (
+            "pair1 is cited from a pre-incident record and pair2 lacks a "
+            "SessionReference; neither raises nor lowers the INCONCLUSIVE "
+            "conclusion, and neither may be used to turn it into PASS or FAIL."),
+        "why_inconclusive": (
+            "The knowledge provably reaches the memory arm's frozen prompt, but "
+            "the two arms' outcomes cannot be separated at n=3: the control arm "
+            "passed all three pairs, the memory arm passed two. That is not "
+            "evidence of benefit, and it is not evidence of harm either."),
+        "three_layer_reading": layers,
         "design": {
             "same_code_commit": "f882885",
             "same_task_text": True,
@@ -198,41 +204,70 @@ def main() -> int:
                 "without_memory": "clean project with empty context",
             },
         },
-        "pairs": pair_verdicts,
-        "tally": tally,
-        "pair_detail": pairs,
+        "archive_dir": "evidence/project/t62/",
+        "archive_files": {pair_id: model.pair_filename(pair_id)
+                          for pair_id in model.PAIR_IDS},
+        "archives_seeded_this_run": seeded,
+        "pairs": summary,
+        "tally": counts,
+        "direction_of_disagreement": direction,
+        "pair_detail": detail,
         "variance_observation": {
-            "with_memory_verified": tally["with_memory"]["verified"],
-            "with_memory_rejected": tally["with_memory"]["rejected"],
-            "without_memory_verified": tally["without_memory"]["verified"],
-            "without_memory_rejected": tally["without_memory"]["rejected"],
+            "with_memory_verified": with_memory["verified"],
+            "with_memory_rejected": with_memory["rejected"],
+            "without_memory_verified": without_memory["verified"],
+            "without_memory_rejected": without_memory["rejected"],
             "reading": (
-                "The memory arm and the control arm both pass and both fail, and "
-                "they failed in opposite directions on different pairs. On this "
-                "task the injected rule is not what decides the outcome."),
+                "Both arms pass on some pairs and one arm fails on one pair; the "
+                "difference is within single-sample Worker variance. The one "
+                "disagreement runs against the memory arm, so no benefit may be "
+                "claimed from this experiment."),
+            "is_statistical_claim": False,
+        },
+        "evidence_levels": {
+            pair_id: {
+                "evidence_level": pairs[pair_id].get("evidence_level"),
+                "ledger_recoverable": pairs[pair_id].get("ledger_recoverable"),
+                "source": pairs[pair_id].get("source"),
+                "notes": pairs[pair_id].get("notes"),
+            }
+            for pair_id in model.PAIR_IDS if pair_id in pairs
         },
         "incident_affecting_this_record": {
             "what": ("the first contrast ledger's -wal file was deleted during "
                      "cleanup, silently reverting that ledger to its queued state"),
-            "effect": ("the ledger could no longer substantiate the first pair, so "
-                       "the pair was re-run instead of being cited from memory"),
-            "lesson": ("never delete a live SQLite -wal by hand; the worktree "
-                       "commits and transcripts survived, which is why the first "
-                       "pair could still be archived"),
-            "remediation": ("contrast re-run twice more to rebuild the record; the "
-                            "pair runner no longer deletes wal files"),
+            "effect": ("the ledger can no longer substantiate pair 1; the pair is "
+                       "cited from the record written before the incident and is "
+                       "labelled historical_record_only"),
+            "lesson": ("never delete a live SQLite -wal by hand; see "
+                       "scripts/t62_sqlite_cleanup.py for the guarded path"),
+            "remediation": ("the pair runner no longer deletes wal files; pair 1 "
+                            "keeps its lowest evidence level permanently"),
         },
         "not_claimed": [
             "that memory reduced exploration, time, or failure rate",
+            "that memory increased the failure rate",
             "any statistical conclusion: 3 pairs, n=1 per pair, no significance",
-            "that C1's or C0's patch is better code - all passing patches were "
-            "behaviourally equivalent on the probes that were run",
+            "that pair 1 was re-verified - its ledger is gone",
+            "that a rejected verdict proves the feature was not implemented",
+            "that C1's or C0's patch is better code",
         ],
     }
+
+    record["why_not_pass"] = (
+        "No pair-based claim is supportable: the control arm did as well or "
+        "better, and one rejection is attributable to a text assertion rather "
+        "than to missing functionality. The result stays INCONCLUSIVE.")
+
     write_evidence(OUT, record)
-    print(json.dumps({"result": record["result"], "pairs": pair_verdicts,
-                      "tally": tally}, ensure_ascii=False, indent=1))
-    return 0
+    print(json.dumps({
+        "result": record["result"],
+        "validation": validation["result"],
+        "pairs": summary,
+        "tally": counts,
+        "seeded": seeded,
+    }, ensure_ascii=False, indent=1))
+    return 0 if validation["result"] == model.COMPLETE else 3
 
 
 if __name__ == "__main__":

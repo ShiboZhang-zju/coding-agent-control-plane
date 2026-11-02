@@ -39,6 +39,7 @@ Without the ledgers the result is BLOCKED, never inferred.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -52,7 +53,14 @@ from sanitize_evidence import write_evidence  # noqa: E402
 
 STATE = ROOT / ".poc-state" / "t62"
 PILOT_LEDGER = STATE / "stage2.db"
-EVIDENCE = ROOT / "evidence" / "project" / "T62-stage2-real-project.json"
+# The file that was written at run time, when the Worker service was up. It is
+# historical evidence and must never be overwritten by a later re-check: the
+# transcript it captured can no longer be re-read today, so re-running would
+# silently replace a real observation with "unavailable".
+HISTORICAL_EVIDENCE = ROOT / "evidence" / "project" / "T62-stage2-real-project.json"
+# Where this re-check writes. Same assertions, stricter checks, own file.
+EVIDENCE = ROOT / "evidence" / "project" / os.environ.get(
+    "T62_RECHECK_EVIDENCE", "T62-stage2-real-project-recheck.json")
 CONTRAST_EVIDENCE = ROOT / "evidence" / "project" / "T62-stage2-memory-contrast.json"
 BASE = "http://127.0.0.1:8787"
 
@@ -174,7 +182,24 @@ def main() -> int:
     contrast = (json.loads(CONTRAST_EVIDENCE.read_text(encoding="utf-8"))
                 if CONTRAST_EVIDENCE.exists() else {})
 
+    def assertion_rows(label: str) -> list[dict]:
+        return json.loads(rows[label].get("assertion_results") or "[]")
+
+    def assertions_passed(label: str) -> bool:
+        """`all([])` is True - an absent result set is not a pass."""
+        items = assertion_rows(label)
+        return bool(items) and all(item.get("passed") for item in items)
+
+    task_ids = [row.get("id") for row in rows.values() if row.get("id")]
+    unique_task_ids = len(task_ids) == len(set(task_ids))
+    ledger_total = ro(PILOT_LEDGER,
+                      "select count(*) as n from work_items")[0]["n"]
+
     checks = {
+        # ---- the ledger really holds these runs ---------------------------
+        "all_three_tasks_found": len(rows) == len(MAIN_TASKS) and all(rows.values()),
+        "task_ids_are_distinct": unique_task_ids and len(task_ids) == len(rows),
+        "ledger_holds_no_duplicate_rows": ledger_total >= len(rows),
         # ---- deployment is real -------------------------------------------
         "real_worker_session_for_a": bool(refs.get("A", {}).get("session_id")),
         "real_worker_session_for_b": bool(refs.get("B", {}).get("session_id")),
@@ -184,19 +209,24 @@ def main() -> int:
             and refs["A"]["session_id"] != refs["B"]["session_id"]),
         "attempts_recorded": all(rows[label].get("current_attempt_id")
                                  for label in ("A", "B")),
-        "transcripts_readable": transcript_ok.get("A", False)
-        and transcript_ok.get("B", False),
+        # ---- session / attempt / verdict are one chain per task -----------
+        "session_attempt_verdict_linked": all(
+            (rows[label].get("current_attempt_id") or "")
+            == (refs.get(label, {}).get("attempt_id") or "")
+            and bool(refs.get(label, {}).get("session_id"))
+            and bool(rows[label].get("verdict"))
+            for label in ("A", "B")),
+        "terminal_states_recorded": all(
+            rows[label].get("state") == "succeeded" for label in rows),
+        # "transcripts_readable" is deliberately NOT a pass/fail check: a dead
+        # local service makes the record INCOMPLETE, not failing (see result).
         # ---- verdicts came from the Verifier ------------------------------
         "a_verified": rows["A"].get("verdict") == "verified",
         "b_verified": rows["B"].get("verdict") == "verified",
         "a_commit_matches": EXPECTED["A"] in (rows["A"].get("head_commit") or ""),
         "b_commit_matches": EXPECTED["B"] in (rows["B"].get("head_commit") or ""),
-        "a_assertions_all_passed": all(
-            r.get("passed") for r in json.loads(
-                rows["A"].get("assertion_results") or "[]")),
-        "b_assertions_all_passed": all(
-            r.get("passed") for r in json.loads(
-                rows["B"].get("assertion_results") or "[]")),
+        "a_assertions_all_passed": assertions_passed("A"),
+        "b_assertions_all_passed": assertions_passed("B"),
         # ---- B inherited A's accepted code --------------------------------
         "b_starts_from_a_baseline": EXPECTED["base"] in (rows["B"].get("baseline") or ""),
         # ---- memory went through the human review path --------------------
@@ -223,15 +253,40 @@ def main() -> int:
         "pilot_main_untouched": (
             git(pilot, "rev-parse", "main") == git(pilot, "rev-parse", "origin/main")
             and EXPECTED["pilot_main"] in git(pilot, "rev-parse", "main")),
-        "no_push_to_github": True,
-        # ---- the contrast is recorded and not overstated ------------------
+        # ---- the contrast archive is complete and not overstated ----------
         "contrast_record_exists": bool(contrast),
+        # Not BLOCKED means the three archives exist and validate. An INCOMPLETE
+        # contrast (a verdict survived but its SessionReference did not) is a
+        # documented gap, not a failing check - see contrast_gaps below.
+        "contrast_archive_not_blocked":
+            (contrast.get("validation") or {}).get("result") in ("COMPLETE",
+                                                                 "INCOMPLETE"),
+        "contrast_has_exactly_three_pairs":
+            len(contrast.get("pairs") or []) == 3,
         "contrast_not_reported_as_a_benefit":
             contrast.get("result") == "INCONCLUSIVE",
-        "contrast_kept_all_its_pairs":
-            len(contrast.get("pairs") or []) >= 3,
+        "contrast_archive_completeness_is_separate":
+            "archive_completeness" in contrast,
+        "pair1_kept_as_historical_record": any(
+            (pair.get("evidence_level") == "historical_record_only")
+            for pair in contrast.get("pairs") or []),
+        "contrast_counts_three_pairs_of_arms":
+            (contrast.get("validation") or {}).get("task_ids_counted") == 6,
     }
     failed = [name for name, ok in checks.items() if not ok]
+
+    # Not an automated result: a human declaration about what left this machine.
+    # It is recorded separately and never counted as a verified check.
+    human_declarations = [
+        {"claim": "nothing in this pilot was pushed to GitHub",
+         "declared_by": "human:t62-owner",
+         "verified_automatically": False,
+         "how_to_verify_independently":
+             "compare the pilot remote's refs / GitHub branch list out of band"},
+    ]
+
+    transcript_gaps = [label for label in ("A", "B")
+                       if not transcript_ok.get(label, False)]
 
     observed = {
         "pilot": {
@@ -240,7 +295,8 @@ def main() -> int:
             "main_head": git(pilot, "rev-parse", "main")[:8],
             "origin_main_head": git(pilot, "rev-parse", "origin/main")[:8],
             "pilot_branch_head": git(pilot, "rev-parse", "pilot/t62-memory")[:8],
-            "pushed": False,
+            # Declared by a human, not measured here - see human_declarations.
+            "pushed": "declared_false_by_operator_not_measured",
         },
         "sessions": {
             label: {
@@ -306,22 +362,62 @@ def main() -> int:
         ],
     }
 
+    # A missing transcript is INCOMPLETE, not FAIL and above all not PASS: the
+    # verdict was still written by the Verifier, but the behaviour cannot be
+    # re-read today, so "everything was verified" would be an overstatement.
+    if failed:
+        result = "FAIL"
+    elif transcript_gaps:
+        result = "INCOMPLETE"
+    else:
+        result = "PASS"
+
+    historical = (json.loads(HISTORICAL_EVIDENCE.read_text(encoding="utf-8"))
+                  if HISTORICAL_EVIDENCE.exists() else {})
+    historical_checks = historical.get("checks") or {}
+
     evidence = {
-        "test": "T62 stage 2 real-project two-session memory reuse",
+        "test": "T62 stage 2 real-project two-session memory reuse (re-check)",
+        "recheck_of": HISTORICAL_EVIDENCE.name,
+        "historical_record": {
+            "file": HISTORICAL_EVIDENCE.name,
+            "result_at_run_time": historical.get("result"),
+            "checks_at_run_time": len(historical_checks),
+            "transcripts_readable_at_run_time":
+                historical_checks.get("transcripts_readable"),
+            "note": ("written while the Worker service was up, so it holds the "
+                     "transcripts this re-check cannot read today; it is cited, "
+                     "not regenerated, and was not overwritten"),
+        },
         "worker_started": True,
         "real_model_called": True,
         "real_project_touched": ("isolated clone only; pilot main "
                                  f"{git(pilot, 'rev-parse', 'main')[:8]} untouched"),
         "checks": checks,
+        "human_declarations_not_automated": human_declarations,
+        "automated_checks_counted": len(checks),
+        "transcript_gaps": {
+            "sessions_missing_transcript": transcript_gaps,
+            "effect": ("verdicts, commits, prompts and memory chain are still "
+                       "re-derivable; per-arm tool-call behaviour is not"),
+            "service": BASE,
+        },
         "observed": observed,
-        "result": "PASS" if not failed else "FAIL",
+        "result": result,
         "failed": failed,
+        "why_not_pass": (None if result == "PASS" else
+                         ("real check(s) failed: " + ", ".join(failed))
+                         if failed else
+                         "no check failed, but a required transcript is "
+                         "unavailable, so the record is incomplete rather than "
+                         "passing"),
     }
     write_evidence(EVIDENCE, evidence)
     print(json.dumps({"result": evidence["result"], "failed": failed,
                       "passed": sum(1 for v in checks.values() if v),
-                      "total": len(checks)}, ensure_ascii=False))
-    return 0 if not failed else 1
+                      "total": len(checks),
+                      "incomplete": transcript_gaps}, ensure_ascii=False))
+    return 0 if result == "PASS" else (3 if result == "INCOMPLETE" else 1)
 
 
 if __name__ == "__main__":

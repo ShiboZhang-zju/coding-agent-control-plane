@@ -1,0 +1,67 @@
+{
+  "schema": "t62.pair_archive/1",
+  "pair_id": "pair2",
+  "evidence_level": "archived_verdict",
+  "ledger_recoverable": true,
+  "source": {
+    "kind": "per-pair archive written at run time",
+    "summary": ".poc-state/t62/pairs/pair2/summary.json",
+    "session_lookup": "read-only SessionReference lookup in the surviving contrast ledgers",
+    "derived_from_rerun": false
+  },
+  "notes": [
+    "SessionReference/Attempt for cp-4ddffe2e528b, cp-7e4e0f820b6e is not retained any more; the verdict is still the one the Verifier wrote at run time, but the transcript is unavailable and no tool-call count may be derived for it."
+  ],
+  "complete": true,
+  "problems": [],
+  "verdicts": {
+    "with_memory": "rejected",
+    "without_memory": "verified"
+  },
+  "flipped": true,
+  "arms": [
+    {
+      "role": "with_memory",
+      "task_id": "cp-4ddffe2e528b",
+      "arm_label": ".codebuddy",
+      "verdict": "rejected",
+      "state": "",
+      "context_version": 1,
+      "context_entry_refs": [
+        "ctx-a66eab0cb804"
+      ],
+      "head_commit": "579cb660c82a7424c7e3bbb009297c240cb21585",
+      "duration_s": 272.7,
+      "session_id": null,
+      "attempt_id": null,
+      "assertions_failed": [
+        "file_contains:normalized_1000"
+      ],
+      "added_lines": 54,
+      "files_changed": [
+        "src/gui_post_training/evaluation/metrics.py",
+        "src/gui_post_training/evaluation/parsing.py"
+      ],
+      "tests_tail": "54 passed in 0.26s"
+    },
+    {
+      "role": "without_memory",
+      "task_id": "cp-7e4e0f820b6e",
+      "arm_label": ".codebuddy",
+      "verdict": "verified",
+      "state": "",
+      "context_version": 0,
+      "context_entry_refs": [],
+      "head_commit": "9feef0379d5d38ce83879f2c942943fb4b26cd3f",
+      "duration_s": 295.3,
+      "session_id": null,
+      "attempt_id": null,
+      "assertions_failed": [],
+      "added_lines": 35,
+      "files_changed": [
+        "src/gui_post_training/evaluation/metrics.py"
+      ],
+      "tests_tail": "54 passed in 0.42s"
+    }
+  ]
+}

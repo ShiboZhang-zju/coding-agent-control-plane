@@ -24,18 +24,31 @@ T54 关系验收与 T55 资源/引用/分页收口均已通过，本轮未运行
 导出、严格差异预览和显式 CAS 应用；T56–T61 共 93 项确定性检查通过，
 含未应用编辑保护、Ledger 路径隔离与知识可信度标签。
 
-**T62 Real Project Memory Pilot（真实项目双 Session 记忆复用）Stage 2 已执行并验收**
-（`evidence/project/T62-stage2-real-project.json`，27/27 Pass）：在
+**T62 Real Project Memory Pilot（真实项目双 Session 记忆复用）Stage 2 已执行**
+（运行时记录 `evidence/project/T62-stage2-real-project.json`，27/27 Pass；
+G1 复核 `evidence/project/T62-stage2-real-project-recheck.json`，34/34 自动检查
+通过但因服务离线、transcript 不可读而为 **INCOMPLETE**）：在
 `gui-agent-post-training` 的隔离克隆上，真实 Session A 修复解析器边界缺陷
 （Verifier `verified`，提交 5a215fc）→ M2 回写候选 → 人工 Markdown 审核 +
 CAS apply + `context-verify` 晋升（v4）→ 全新 Session B 在 `metrics.py` 完成
 相关任务（`verified`，66eb601），其冻结 Prompt 携带该条目的 ID 与版本。
-Pilot 仓库 `main`（4a1cdc02）未被改动，产物未 push。
+Pilot 仓库 `main`（4a1cdc02）未被改动；"未 push" 是操作员声明，
+不计入自动验收（`human_declarations_not_automated`）。
 
-受控对照（同提交、同指令、同断言，仅 context_version 1 vs 0）结果为
-**INCONCLUSIVE**（`T62-stage2-memory-contrast.json`）：3 组中 2 组双臂通过、
-1 组有记忆被拒而控制臂通过。**记忆确实被注入且可追溯，但本轮不能证明它带来
-收益；恰恰相反，n=3 下控制臂表现更好。** 该结论不得被单组成功样本改写。
+受控对照（同提交、同指令、同断言，仅 context_version 1 vs 0）的结论分三层
+（`T62-stage2-memory-contrast.json`，逐组归档在 `evidence/project/t62/`）：
+
+1. **记忆链路成立**：candidate 可产出、人工改动可经 CAS 应用、条目可经审核晋升为
+   verified、新 Session 能拿到该知识、Effective Prompt 可追溯到条目 ID 与版本。
+2. **记忆收益未证明**：有记忆 2 verified / 1 rejected，无记忆 3 verified / 0 rejected。
+   既不能证明记忆有效，也不能证明记忆有害（n=3，单组 n=1）。
+3. **Verifier 可能存在测量偏差**：pair2 有记忆臂 54 项测试全过，仅
+   `file_contains: normalized_1000` 断言失败；因此 `rejected` 不等于功能没实现。
+
+对照结果的唯一分歧是 pair2，且方向对记忆臂不利——**不存在"有记忆通过、无记忆失败"
+的 pair**（旧表述 "failed in opposite directions" 与数据不符，已撤回）。
+pair1 的原始 Ledger 因 WAL 被误删不可恢复，仅以事故前同期记录引用，证据等级为
+`historical_record_only`，永久低于 pair2/pair3。该结论不得被单组成功样本改写。
 模型身份（端点/模型 id）不属于测试结果，不出现在代码默认值、日志或证据中。
 已知限制：真实决策模型偶发保守转人工（`--resume` 解锁）；agent job 的 worker
 权限要求项目级 `permissions.allow`（T38 fixture 已内置，见
@@ -679,7 +692,10 @@ python scripts/t59_memory_injection_acceptance.py # 新任务注入/旧 Prompt �
 python scripts/t60_memory_export_safety.py       # 未应用编辑保护 / Ledger 路径隔离
 python scripts/t61_memory_apply_refresh.py       # apply 后单 Entry 版本刷新
 python scripts/t62_real_project_pilot.py         # T62 Stage 1 只读预演（需 LD_MODEL_*）
+python scripts/t62_stage2_contrast_record.py     # T62 三组对照归档 + 汇总（先跑这个）
+python scripts/t62_stage2_supporting_record.py   # T62 行为支撑记录（服务离线则 INCOMPLETE）
 python scripts/t62_stage2_real_project.py        # T62 Stage 2 真实双 Session 记忆闭环
+python -m pytest tests/test_t62_g1_evidence.py -q # G1 证据治理回归（28 项）
 python scripts/t53_real_chat_e2e.py        # M4-D 真实模型 + 真实 Worker 对话闭环
                                            # 需 LD_MODEL_* 与 serve_ctl start；否则记为 BLOCKED
 

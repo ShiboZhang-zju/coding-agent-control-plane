@@ -1,0 +1,209 @@
+{
+  "test": "T62 stage 2 real-project two-session memory reuse (re-check)",
+  "recheck_of": "T62-stage2-real-project.json",
+  "historical_record": {
+    "file": "T62-stage2-real-project.json",
+    "result_at_run_time": "PASS",
+    "checks_at_run_time": 27,
+    "transcripts_readable_at_run_time": true,
+    "note": "written while the Worker service was up, so it holds the transcripts this re-check cannot read today; it is cited, not regenerated, and was not overwritten"
+  },
+  "worker_started": true,
+  "real_model_called": true,
+  "real_project_touched": "isolated clone only; pilot main 4a1cdc02 untouched",
+  "checks": {
+    "all_three_tasks_found": true,
+    "task_ids_are_distinct": true,
+    "ledger_holds_no_duplicate_rows": true,
+    "real_worker_session_for_a": true,
+    "real_worker_session_for_b": true,
+    "a_and_b_are_different_sessions": true,
+    "attempts_recorded": true,
+    "session_attempt_verdict_linked": true,
+    "terminal_states_recorded": true,
+    "a_verified": true,
+    "b_verified": true,
+    "a_commit_matches": true,
+    "b_commit_matches": true,
+    "a_assertions_all_passed": true,
+    "b_assertions_all_passed": true,
+    "b_starts_from_a_baseline": true,
+    "reviewed_entry_verified": true,
+    "reviewed_entry_has_two_evidence_refs": true,
+    "reviewed_entry_revised_by_human": true,
+    "reviewed_entry_was_candidate_first": true,
+    "b_entry_verified": true,
+    "b_entry_carries_reviewed_body": true,
+    "b_entry_id_in_frozen_prompt": true,
+    "b_prompt_has_knowledge_block": true,
+    "b_context_version_positive": true,
+    "rejected_b_run_preserved": true,
+    "pilot_main_untouched": true,
+    "contrast_record_exists": true,
+    "contrast_archive_not_blocked": true,
+    "contrast_has_exactly_three_pairs": true,
+    "contrast_not_reported_as_a_benefit": true,
+    "contrast_archive_completeness_is_separate": true,
+    "pair1_kept_as_historical_record": true,
+    "contrast_counts_three_pairs_of_arms": true
+  },
+  "human_declarations_not_automated": [
+    {
+      "claim": "nothing in this pilot was pushed to GitHub",
+      "declared_by": "human:t62-owner",
+      "verified_automatically": false,
+      "how_to_verify_independently": "compare the pilot remote's refs / GitHub branch list out of band"
+    }
+  ],
+  "automated_checks_counted": 34,
+  "transcript_gaps": {
+    "sessions_missing_transcript": [
+      "A",
+      "B"
+    ],
+    "effect": "verdicts, commits, prompts and memory chain are still re-derivable; per-arm tool-call behaviour is not",
+    "service": "http://127.0.0.1:8787"
+  },
+  "observed": {
+    "pilot": {
+      "repository": "ShiboZhang-zju/gui-agent-post-training",
+      "isolation": "local clone + branch pilot/t62-memory",
+      "main_head": "4a1cdc02",
+      "origin_main_head": "4a1cdc02",
+      "pilot_branch_head": "aabe7730",
+      "pushed": "declared_false_by_operator_not_measured"
+    },
+    "sessions": {
+      "A": {
+        "task_id": "cp-50dc18149ac2",
+        "attempt_id": "at-83627df7d8",
+        "session_id": "bee64efb-fd4d-4fd8-a245-a9bfc92583cd",
+        "verdict": "verified",
+        "state": "succeeded",
+        "head_commit": "5a215fcc619455aa6de350f6f0fa204c7cb26ba5",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "prompt_chars": 704,
+        "duration_s": 243.7,
+        "tool_calls": null,
+        "reads": null,
+        "edits": null
+      },
+      "B": {
+        "task_id": "cp-5a2bd464ca89",
+        "attempt_id": "at-56df34c8f6",
+        "session_id": "886bc958-4c37-4398-b313-7d8e9969f799",
+        "verdict": "verified",
+        "state": "succeeded",
+        "head_commit": "66eb60143c20ca0a423a68056fd832f4396fa7ea",
+        "context_version": 1,
+        "context_entry_refs": [
+          "ctx-04ef3bcad05b"
+        ],
+        "prompt_chars": 1437,
+        "duration_s": 331.8,
+        "tool_calls": null,
+        "reads": null,
+        "edits": null
+      },
+      "B_rejected": {
+        "task_id": "cp-570efa369576",
+        "attempt_id": "at-5f4580e680",
+        "session_id": "a66588eb-98db-42a9-9d88-51c4df083a20",
+        "verdict": "rejected",
+        "state": "succeeded",
+        "head_commit": "aabe7730296a4194256801cb424bf095a93a3da6",
+        "context_version": 4,
+        "context_entry_refs": [
+          "ctx-ec635ddbab33",
+          "ctx-6abff69eb333"
+        ],
+        "prompt_chars": 1888,
+        "duration_s": 554.4,
+        "tool_calls": null,
+        "reads": null,
+        "edits": null
+      }
+    },
+    "memory_review": {
+      "entry_id": "ctx-ec635ddbab33",
+      "candidate_version_seen": 2,
+      "human_edited_version": 3,
+      "promoted_version": 4,
+      "verification": "verified",
+      "evidence_refs": [
+        "evidence/project-updates/cp-50dc18149ac2/at-83627df7d8.json",
+        "evidence/project/T62-stage2-taskA-parsing.json"
+      ],
+      "b_entry_id": "ctx-04ef3bcad05b",
+      "b_entry_version": 1
+    },
+    "contrast_summary": {
+      "file": "T62-stage2-memory-contrast.json",
+      "result": "INCONCLUSIVE",
+      "pairs": [
+        {
+          "pair": "pair1",
+          "evidence_level": "historical_record_only",
+          "ledger_recoverable": false,
+          "with_memory": "verified",
+          "without_memory": "verified",
+          "flipped": false,
+          "complete": true
+        },
+        {
+          "pair": "pair2",
+          "evidence_level": "archived_verdict",
+          "ledger_recoverable": true,
+          "with_memory": "rejected",
+          "without_memory": "verified",
+          "flipped": true,
+          "complete": true
+        },
+        {
+          "pair": "pair3",
+          "evidence_level": "archived_verdict",
+          "ledger_recoverable": true,
+          "with_memory": "verified",
+          "without_memory": "verified",
+          "flipped": false,
+          "complete": true
+        }
+      ],
+      "tally": {
+        "with_memory": {
+          "verified": 2,
+          "rejected": 1
+        },
+        "without_memory": {
+          "verified": 3,
+          "rejected": 0
+        }
+      }
+    },
+    "ld_confound": {
+      "what_happened": "two LD goals with byte-identical goal text were paraphrased by the decision model into different task descriptions (Chinese vs English) with different assertions",
+      "consequence": "the LD-driven pair could not isolate memory; the controlled pair was built instead of discarding the observation"
+    },
+    "human_interventions": [
+      "registered the isolated pilot project",
+      "created each goal once via get_or_create",
+      "rewrote one M2 candidate into a reusable rule",
+      "applied it via memory-preview + memory-apply (CAS)",
+      "promoted it via context-verify with two evidence refs",
+      "built the memory-free comparison copies"
+    ],
+    "pre_existing_failures_not_caused_by_this_work": [
+      "tests/test_dataset.py has 4 failures on the untouched baseline f882885 as well, so they are not a regression from A or B"
+    ],
+    "not_claimed": [
+      "that memory improved the outcome - the contrast came out INCONCLUSIVE",
+      "any statistical improvement: three pairs, no significance",
+      "that any passing patch is better code; the probes found no behavioural difference between the arms that passed",
+      "token usage: the Worker API returns null for every usage field"
+    ]
+  },
+  "result": "INCOMPLETE",
+  "failed": [],
+  "why_not_pass": "no check failed, but a required transcript is unavailable, so the record is incomplete rather than passing"
+}

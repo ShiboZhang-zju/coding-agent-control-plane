@@ -35,7 +35,19 @@ def patterns() -> list[tuple[str, str]]:
         (repo_json, "<REPO>"),
         (str(ROOT), "<REPO>"),
         (str(ROOT).replace("\\", "/"), "<REPO>"),
+        # git-bash / MSYS form of the same absolute path: F:\x\repo -> /f/x/repo.
+        # Worker shell commands are full of these (review G1), and the
+        # backslash-only patterns above never matched them.
+        (git_bash_path(ROOT), "<REPO>"),
     ]
+
+
+def git_bash_path(path: Path | str) -> str:
+    """`F:\\a\\b` -> `/f/a/b`, the form a git-bash shell echoes back."""
+    text = str(path).replace("\\", "/")
+    if len(text) > 1 and text[1] == ":":
+        return "/" + text[0].lower() + text[2:]
+    return text
 
 
 def regexes() -> list[tuple[str, str]]:
@@ -54,6 +66,14 @@ def regexes() -> list[tuple[str, str]]:
         (rf"/[A-Za-z]/Users/{re.escape(user)}", "<HOME>"),
         # any POSIX-style home, including JSON-escaped "\/Users\/<name>"
         (r"[/\\]+Users[/\\]+[A-Za-z0-9._-]+", "<HOME>"),
+        # A drive-letter path that is neither HOME nor this repo: still a
+        # machine-specific absolute path and must not survive. Kept after the
+        # two substitutions above so <HOME>/<REPO> are not re-matched.
+        (r"(?<![<\w])[A-Za-z]:[\\/]+[A-Za-z0-9._ -]+(?:[\\/]+[A-Za-z0-9._ -]+)+",
+         "<ABS-PATH>"),
+        # git-bash drive form: /f/coding-agent-control-plane/... (/c/Users/...)
+        (r"(?<![\w<])/[A-Za-z]/[A-Za-z0-9._-]+/[A-Za-z0-9._/\-]+",
+         "<ABS-PATH>"),
     ]
 
 

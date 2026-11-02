@@ -26,9 +26,34 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+sys.path.insert(0, str(ROOT / "scripts"))
+from t62_sqlite_cleanup import (  # noqa: E402
+    LedgerInUse,
+    fresh_ledger_path,
+    remove_scratch_ledger,
+    wal_size,
+)
+
 STATE = ROOT / ".poc-state" / "t62"
 LEDGER = STATE / "stage2c.db"
 PILOT_LEDGER = STATE / "stage2.db"
+ACTIVE_LEDGER_FILE = STATE / "contrast-active-ledger.txt"
+
+
+def active_ledger() -> Path:
+    """The ledger this run is actually using.
+
+    `setup` may refuse to reuse `stage2c.db` once it holds a verdict, so `run`
+    and `status` must poll the file setup actually created rather than the
+    historical name.
+    """
+    if ACTIVE_LEDGER_FILE.exists():
+        candidate = Path(ACTIVE_LEDGER_FILE.read_text(encoding="utf-8").strip())
+        if candidate.exists():
+            return candidate
+    return LEDGER
+
+
 SRC = STATE / "pilot-work"
 BASE = "http://127.0.0.1:8787"
 COMMIT = "f882885"
@@ -108,11 +133,31 @@ def setup() -> int:
     from controlplane.project_service import ProjectService
     from controlplane.store import TaskStore
 
-    if LEDGER.exists():
-        LEDGER.unlink()
+    # A contrast ledger is only scratch while it holds no verdict. Once it has
+    # one it is evidence (pair 1 lost its record that way), so it is archived and
+    # the next pair gets a brand-new file instead of a deleted one.
+    ledger = LEDGER
+    try:
+        remove_scratch_ledger(ledger)
+    except LedgerInUse as exc:
+        archived = fresh_ledger_path(STATE / "stage2c-used.db")
+        print(json.dumps({
+            "ledger_reused": False,
+            "reason": str(exc),
+            "next_ledger": archived.name,
+        }, ensure_ascii=False))
+        ledger = Path(archived)
+    if wal_size(ledger):
+        raise SystemExit(
+            f"{ledger.name}-wal still holds {wal_size(ledger)} bytes; stop the "
+            "runtime and Worker before starting a new pair")
+
+    # `run` and `status` must poll the ledger this setup actually created, not
+    # the historical filename it may have refused to delete.
+    ACTIVE_LEDGER_FILE.write_text(str(ledger), encoding="utf-8")
 
     adapter = CodeBuddyAdapter(Api(base=BASE), autologin=True)
-    store = TaskStore(LEDGER)
+    store = TaskStore(ledger)
     plane = ControlPlane(adapter, store, require_registered_projects=True,
                          worker_instance_id="wi-t62c")
     service = ProjectService(plane)
@@ -163,7 +208,7 @@ def run() -> int:
     env["PYTHONIOENCODING"] = "utf-8"
     argv = [
         sys.executable, str(ROOT / "scripts" / "run_controlplane.py"),
-        "--ledger", str(LEDGER), "--base", BASE,
+        "--ledger", str(active_ledger()), "--base", BASE,
         "--known-interval", "5", "--dispatch-interval", "2",
         "--max-concurrent", "1", "--scan-on-start",
     ]
@@ -177,15 +222,55 @@ def run() -> int:
 
 
 def status() -> int:
-    conn = sqlite3.connect(f"file:{LEDGER}?mode=ro", uri=True, timeout=20)
+    """Ready only when exactly one memory arm and one control arm are terminal.
+
+    `all(...)` over an empty list is True, which used to let a ledger that had
+    silently reverted to queued (T62-F07) report "done". An empty or single-arm
+    ledger is now BLOCKED, never done.
+    """
+    ledger = active_ledger()
+    if not ledger.exists():
+        print(json.dumps({"done": False, "result": "BLOCKED",
+                          "reason": f"{ledger.name} does not exist"},
+                         ensure_ascii=False, indent=1))
+        return 2
+    conn = sqlite3.connect(f"file:{ledger}?mode=ro", uri=True, timeout=20)
     conn.row_factory = sqlite3.Row
     try:
         rows = [dict(r) for r in conn.execute(
-            "select id, project_id, state, verdict from work_items")]
+            "select id, project_id, state, verdict, context_version, "
+            "context_entry_refs from work_items")]
     finally:
         conn.close()
-    done = all(r["state"] in ("succeeded", "failed") for r in rows)
-    print(json.dumps({"done": done, "tasks": rows}, ensure_ascii=False, indent=1))
+
+    problems = []
+    if len(rows) != 2:
+        problems.append(f"expected exactly 2 arms, ledger holds {len(rows)}")
+    with_mem = [r for r in rows
+                if int(r.get("context_version") or 0) > 0
+                or (r.get("context_entry_refs") or "[]") not in ("[]", "")]
+    without = [r for r in rows if r not in with_mem]
+    if len(with_mem) != 1:
+        problems.append(f"expected exactly 1 memory arm, found {len(with_mem)}")
+    if len(without) != 1:
+        problems.append(f"expected exactly 1 control arm, found {len(without)}")
+    ids = [r["id"] for r in rows]
+    if len(ids) != len(set(ids)):
+        problems.append("duplicate task id in ledger")
+    unfinished = [r["id"] for r in rows
+                  if r["state"] not in ("succeeded", "failed")
+                  or r["verdict"] not in ("verified", "rejected")]
+    if unfinished:
+        problems.append(f"not terminal yet: {', '.join(unfinished)}")
+    if len(rows) != 2 and not unfinished:
+        problems.append("arm set is wrong even though both rows are terminal")
+
+    done = not problems
+    print(json.dumps({"done": done,
+                      "result": "READY" if done else "BLOCKED",
+                      "problems": problems,
+                      "ledger": ledger.name,
+                      "tasks": rows}, ensure_ascii=False, indent=1))
     return 0 if done else 3
 
 
