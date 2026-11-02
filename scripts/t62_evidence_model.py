@@ -26,6 +26,7 @@ archives, and re-running never appends a pair that already exists.
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 ARCHIVE_SCHEMA = "t62.pair_archive/1"
@@ -156,7 +157,14 @@ def normalize_pair(pair_id: str, rows: list[dict], *, source: dict,
         "schema": ARCHIVE_SCHEMA,
         "pair_id": pair_id,
         "evidence_level": evidence_level,
+        # Two different questions, deliberately not one flag:
+        #   ledger_recoverable  - can the ORIGINAL ledger still substantiate this?
+        #   archive_readable    - can this archive file be read today?
+        # pair2's ledger was reset, so its ledger is not recoverable even though
+        # its archive reads fine. Conflating them would let a weaker pair look
+        # stronger than it is.
         "ledger_recoverable": bool(ledger_recoverable),
+        "archive_readable": True,
         "source": source,
         "notes": list(notes or []),
         "complete": not problems,
@@ -211,8 +219,44 @@ def _session_map(state_dir: Path) -> dict[str, dict]:
     return found
 
 
+def _still_in_a_ledger(state_dir: Path, task_ids: list[str]) -> bool:
+    """Is every task still an actual row in one of the surviving ledgers?"""
+    if not task_ids:
+        return False
+    present: set[str] = set()
+    state = Path(state_dir)
+    for name in ("stage2c.db", "stage2c-pair2.db", "stage2c-pair2-final.db"):
+        path = state / name
+        if not path.exists():
+            continue
+        try:
+            conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+        except sqlite3.Error:
+            continue
+        try:
+            for task_id in task_ids:
+                row = conn.execute(
+                    "select 1 from work_items where id=?", (task_id,)).fetchone()
+                if row:
+                    present.add(task_id)
+        except sqlite3.Error:
+            pass
+        finally:
+            conn.close()
+    return all(task_id in present for task_id in task_ids)
+
+
 def build_archived_pair(state_dir: Path, pair_id: str) -> dict | None:
-    """pair2 / pair3: from the per-pair archive written when they finished."""
+    """pair2 / pair3: from the per-pair archive written when they finished.
+
+    `ledger_recoverable` is derived, not asserted: it is true only if the pair's
+    own task rows (with their verdicts) still exist in a surviving ledger. What
+    it does NOT mean is "the whole run is reconstructible": pair2's rows and
+    verdicts survive, but its `session_references` table is empty, so the
+    Session/Attempt link is gone and `validate_archives()` reports the set as
+    INCOMPLETE. The two facts use two fields (`ledger_recoverable` vs the
+    per-arm `session_id`/`attempt_id`) precisely so neither hides the other.
+    """
     rows = read_summary(state_dir, pair_id)
     if rows is None:
         return None
@@ -224,6 +268,9 @@ def build_archived_pair(state_dir: Path, pair_id: str) -> dict | None:
         item.setdefault("session_id", extra.get("session_id"))
         item.setdefault("attempt_id", extra.get("attempt_id"))
         enriched.append(item)
+
+    task_ids = [row.get("task_id") or "" for row in rows]
+    recoverable = _still_in_a_ledger(state_dir, task_ids)
     record = normalize_pair(
         pair_id, enriched,
         source={
@@ -232,10 +279,16 @@ def build_archived_pair(state_dir: Path, pair_id: str) -> dict | None:
             "session_lookup": "read-only SessionReference lookup in the "
                               "surviving contrast ledgers",
             "derived_from_rerun": False,
+            "ledger_rows_present_now": recoverable,
         },
         evidence_level="archived_verdict",
-        ledger_recoverable=True,
+        ledger_recoverable=recoverable,
     )
+    if not recoverable:
+        record["notes"].append(
+            "The pair's task rows are no longer in any surviving ledger, so the "
+            "original ledger cannot substantiate this pair today; only this "
+            "archive can.")
     missing = [arm["task_id"] for arm in record["arms"]
                if not arm["session_id"] or not arm["attempt_id"]]
     if missing:
@@ -328,8 +381,137 @@ def collect_archives(state_dir: Path, archive_dir: Path,
     return pairs, seeded
 
 
+def audit_archive(pair_id: str, record: dict, *,
+                  expected_level: str | None = None) -> list[str]:
+    """Re-check a *loaded* archive from scratch. Returns structural problems.
+
+    A stored `"complete": true, "problems": []` is a claim made by whoever wrote
+    the file, not a fact about it: any edit to `arms` would otherwise go
+    unnoticed because nothing recomputes it. Everything below is derived from
+    `arms` alone, so hand-editing an archive cannot silently pass.
+    """
+    problems: list[str] = []
+
+    if not isinstance(record, dict):
+        return [f"{pair_id}: archive is not an object"]
+
+    if record.get("schema") != ARCHIVE_SCHEMA:
+        problems.append(f"{pair_id}: unknown archive schema "
+                        f"{record.get('schema')!r}")
+    if record.get("pair_id") != pair_id:
+        problems.append(f"{pair_id}: record says pair_id "
+                        f"{record.get('pair_id')!r}, but it is stored/filed as "
+                        f"{pair_id!r}")
+
+    level = record.get("evidence_level")
+    if level not in EVIDENCE_LEVELS:
+        problems.append(f"{pair_id}: unknown evidence level {level!r}")
+    if expected_level is not None and level != expected_level:
+        problems.append(f"{pair_id}: evidence level is {level!r}, expected "
+                        f"{expected_level!r}")
+
+    arms = record.get("arms")
+    if not isinstance(arms, list):
+        problems.append(f"{pair_id}: `arms` is {type(arms).__name__}, not a list")
+        arms = []
+
+    # Arm count, then roles, then ids, then verdicts - recomputed, never trusted.
+    if len(arms) != 2:
+        problems.append(f"{pair_id}: arm count is {len(arms)}, expected exactly 2")
+
+    roles: dict[str, int] = {}
+    ids: list[str] = []
+    for arm in arms:
+        if not isinstance(arm, dict):
+            problems.append(f"{pair_id}: an arm is {type(arm).__name__}, not an object")
+            continue
+        role = arm.get("role")
+        roles[role] = roles.get(role, 0) + 1
+        task_id = arm.get("task_id") or ""
+        if not task_id:
+            problems.append(f"{pair_id}: an arm has no task_id")
+        else:
+            ids.append(task_id)
+        verdict = arm.get("verdict")
+        if verdict not in TERMINAL_VERDICTS:
+            problems.append(f"{pair_id}: {task_id or '<unknown>'}: verdict "
+                            f"{verdict!r} is not terminal {TERMINAL_VERDICTS}")
+        state = arm.get("state")
+        if state and state not in TERMINAL_STATES:
+            problems.append(f"{pair_id}: {task_id or '<unknown>'}: state "
+                            f"{state!r} is not terminal {TERMINAL_STATES}")
+
+    if roles.get(ROLE_WITH_MEMORY) != 1:
+        problems.append(f"{pair_id}: expected exactly one {ROLE_WITH_MEMORY} arm, "
+                        f"got {roles.get(ROLE_WITH_MEMORY, 0)}")
+    if roles.get(ROLE_WITHOUT_MEMORY) != 1:
+        problems.append(f"{pair_id}: expected exactly one {ROLE_WITHOUT_MEMORY} "
+                        f"arm, got {roles.get(ROLE_WITHOUT_MEMORY, 0)}")
+    unknown_roles = [r for r in roles if r not in
+                     (ROLE_WITH_MEMORY, ROLE_WITHOUT_MEMORY)]
+    if unknown_roles:
+        problems.append(f"{pair_id}: unknown arm role(s) {unknown_roles}")
+
+    if len(ids) != len(set(ids)):
+        problems.append(f"{pair_id}: task ids are not distinct inside the pair: {ids}")
+
+    # Recompute the stored summary and compare. A mismatch means the file was
+    # edited after it was written.
+    recomputed_verdicts = {arm.get("role"): arm.get("verdict")
+                           for arm in arms if isinstance(arm, dict)}
+    stored_verdicts = record.get("verdicts")
+    if stored_verdicts != recomputed_verdicts:
+        problems.append(f"{pair_id}: stored verdicts {stored_verdicts!r} do not "
+                        f"match the arms {recomputed_verdicts!r}")
+    recomputed_flipped = (len(set(recomputed_verdicts.values())) > 1
+                          if len(recomputed_verdicts) == 2 else False)
+    if bool(record.get("flipped")) != recomputed_flipped:
+        problems.append(f"{pair_id}: stored flipped={record.get('flipped')!r} but "
+                        f"the arms give flipped={recomputed_flipped}")
+
+    if record.get("complete") is not True:
+        problems.append(f"{pair_id}: archive is marked complete="
+                        f"{record.get('complete')!r}")
+    stored_problems = record.get("problems")
+    if not isinstance(stored_problems, list):
+        problems.append(f"{pair_id}: `problems` is "
+                        f"{type(stored_problems).__name__}, not a list")
+    elif stored_problems:
+        problems.extend(f"{pair_id}: {p}" for p in stored_problems)
+
+    # `ledger_recoverable` describes the ORIGINAL ledger, not the archive.
+    # Getting this backwards is how pair1 would quietly gain credibility.
+    recoverable = record.get("ledger_recoverable")
+    if not isinstance(recoverable, bool):
+        problems.append(f"{pair_id}: ledger_recoverable is "
+                        f"{recoverable!r}, not a bool")
+    elif level == "historical_record_only" and recoverable:
+        problems.append(f"{pair_id}: historical pair must not claim a recoverable "
+                        "ledger")
+    else:
+        # For an archived pair the flag must agree with what the source recorded
+        # when the archive was built. pair2's ledger was reset, so an archive
+        # claiming `true` there would be describing a stronger state than exists.
+        source_state = (record.get("source") or {}).get("ledger_rows_present_now")
+        if isinstance(source_state, bool) and source_state != recoverable:
+            problems.append(
+                f"{pair_id}: ledger_recoverable={recoverable} contradicts the "
+                f"source's ledger_rows_present_now={source_state}")
+
+    if record.get("archive_readable") is not True:
+        problems.append(f"{pair_id}: this record was loaded, so "
+                        f"archive_readable must be true, got "
+                        f"{record.get('archive_readable')!r}")
+
+    return problems
+
+
 def validate_archives(pairs: dict) -> dict:
-    """Fail closed over the archive set. No pair, no pass."""
+    """Fail closed over the archive set. No pair, no pass.
+
+    Every record is re-audited here rather than trusting what it says about
+    itself, so a corrupted or hand-edited archive is BLOCKED, not read.
+    """
     problems: list[str] = []
     incomplete: list[str] = []
 
@@ -343,14 +525,18 @@ def validate_archives(pairs: dict) -> dict:
             f"unexpected pair archive(s) {', '.join(extra)}: the experiment has "
             "exactly three pairs and re-running must not accumulate more")
 
+    # pair1 is the only pair allowed to be historical, and it must be.
+    expected_levels = {"pair1": "historical_record_only"}
+
     seen: dict[str, str] = {}
     for pair_id, record in pairs.items():
-        if record.get("schema") != ARCHIVE_SCHEMA:
-            problems.append(f"{pair_id}: unknown archive schema "
-                            f"{record.get('schema')!r}")
-        for problem in record.get("problems") or []:
-            problems.append(f"{pair_id}: {problem}")
+        problems.extend(audit_archive(
+            pair_id, record, expected_level=expected_levels.get(pair_id)))
+        if not isinstance(record, dict):
+            continue
         for arm in record.get("arms") or []:
+            if not isinstance(arm, dict):
+                continue
             task_id = arm.get("task_id") or ""
             if not task_id:
                 continue
@@ -362,12 +548,10 @@ def validate_archives(pairs: dict) -> dict:
         if record.get("evidence_level") == "historical_record_only":
             # Allowed to lack session/attempt - that is exactly why its level is
             # lower. It must never be read as a re-verified measurement.
-            if record.get("ledger_recoverable"):
-                problems.append(
-                    f"{pair_id}: historical pair must not claim a recoverable ledger")
             continue
         lacking = [arm.get("task_id") for arm in record.get("arms") or []
-                   if not arm.get("session_id") or not arm.get("attempt_id")]
+                   if isinstance(arm, dict)
+                   and (not arm.get("session_id") or not arm.get("attempt_id"))]
         if lacking:
             incomplete.append(
                 f"{pair_id}: no SessionReference/Attempt retained for "

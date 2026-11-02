@@ -3,6 +3,7 @@
   "pair_id": "pair3",
   "evidence_level": "archived_verdict",
   "ledger_recoverable": true,
+  "archive_readable": true,
   "source": {
     "kind": "per-pair archive written at run time",
     "summary": ".poc-state/t62/pairs/pair3/summary.json",

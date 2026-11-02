@@ -4,7 +4,8 @@
   "validation": {
     "archive_validation": "INCOMPLETE",
     "arms_recorded": 9,
-    "arms_with_readable_transcript": 3,
+    "arms_with_live_transcript": 0,
+    "arms_with_historical_observation": 3,
     "arms_without_transcript": [
       "cp-133a8c27b707",
       "cp-1cdd9af03ae8",
@@ -12,11 +13,6 @@
       "cp-6265b1fdcdb9",
       "cp-69d3691973ed",
       "cp-7e4e0f820b6e"
-    ],
-    "arms_carried_forward_from_run_time": [
-      "cp-50dc18149ac2",
-      "cp-570efa369576",
-      "cp-5a2bd464ca89"
     ],
     "service_error": "URLError: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>",
     "service_reachable": false

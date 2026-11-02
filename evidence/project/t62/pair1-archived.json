@@ -3,6 +3,7 @@
   "pair_id": "pair1",
   "evidence_level": "historical_record_only",
   "ledger_recoverable": false,
+  "archive_readable": true,
   "source": {
     "kind": "contemporaneous record written before the incident",
     "file": "evidence/project/T62-stage2-memory-contrast.json",

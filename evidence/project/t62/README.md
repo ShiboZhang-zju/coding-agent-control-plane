@@ -57,3 +57,12 @@ python -m pytest tests/test_t62_g1_evidence.py -q
 
 归档一旦存在就**不会**被重写：重复运行不增加组数、不改变字节内容，
 也不升级任何一组的证据等级。
+
+读取归档时会**重新校验结构**（Arm 数量、角色、task_id 唯一性、终态、
+`verdicts`/`flipped` 重算比对、`pair_id` 与文件一致），不信任文件自称的
+`complete: true`。手工改坏任一归档即 BLOCKED。
+
+`ledger_recoverable` 只回答"原始 Ledger 是否还能举证"，`archive_readable`
+回答"本归档是否读得到"。pair2 的任务行与 verdict 仍在 ledger 中
+（`ledger_recoverable=true`），但其 `session_references` 表为空，
+因此整组仍判 INCOMPLETE。两个字段互不替代。

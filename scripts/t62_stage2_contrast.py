@@ -136,6 +136,9 @@ def setup() -> int:
     # A contrast ledger is only scratch while it holds no verdict. Once it has
     # one it is evidence (pair 1 lost its record that way), so it is archived and
     # the next pair gets a brand-new file instead of a deleted one.
+    #
+    # The guard has no opt-out: setup() must not be able to talk itself into
+    # deleting a ledger that holds a verdict or in-flight work.
     ledger = LEDGER
     try:
         remove_scratch_ledger(ledger)
@@ -145,6 +148,7 @@ def setup() -> int:
             "ledger_reused": False,
             "reason": str(exc),
             "next_ledger": archived.name,
+            "kept_as_evidence": ledger.name,
         }, ensure_ascii=False))
         ledger = Path(archived)
     if wal_size(ledger):

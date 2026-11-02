@@ -8,8 +8,16 @@
     "transcripts_readable_at_run_time": true,
     "note": "written while the Worker service was up, so it holds the transcripts this re-check cannot read today; it is cited, not regenerated, and was not overwritten"
   },
-  "worker_started": true,
-  "real_model_called": true,
+  "worker_started": {
+    "value": true,
+    "measured_by": "T62-stage2-real-project.json",
+    "measured_in_this_run": false
+  },
+  "real_model_called": {
+    "value": true,
+    "measured_by": "T62-stage2-real-project.json",
+    "measured_in_this_run": false
+  },
   "real_project_touched": "isolated clone only; pilot main 4a1cdc02 untouched",
   "checks": {
     "all_three_tasks_found": true,

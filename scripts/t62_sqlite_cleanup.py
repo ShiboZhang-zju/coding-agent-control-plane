@@ -10,13 +10,22 @@ any live row.
 
 The rules encoded here:
 
-  * a ledger that still has live rows, a `-wal` with content, or an open handle
-    is NOT scratch, and this module refuses to touch it;
+  * a ledger that holds a verdict, holds a non-pending row, has a `-wal` with
+    content, or has an open handle is NOT scratch, and this module refuses to
+    touch it. **The refusal is unconditional** - it is not a parameter a caller
+    can relax, because the one caller that forgot to pass it would recreate
+    exactly the incident this module exists to prevent;
   * SQLite never has its `-wal`/`-shm` deleted by hand - they are removed by
     SQLite itself through `PRAGMA wal_checkpoint(TRUNCATE)` followed by closing
     every connection cleanly;
   * the caller may only delete the *main* file, and only when the checkpoint
-    reported that nothing is left in the WAL.
+    reported that nothing is left in the WAL;
+  * a clean checkpoint proves "no connection is holding this file **right now**",
+    not "no Worker is running against it". It is one signal among several, never
+    the deciding one.
+
+Preferred path: don't delete at all. `fresh_ledger_path()` gives each run its
+own file and the old one stays as an archive.
 
 Nothing here reads or rewrites historical data; it only decides whether a file
 is safe to drop.
@@ -27,9 +36,56 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# A verdict means a task was accepted or rejected: that is evidence, not scratch.
+TERMINAL_VERDICTS = ("verified", "rejected", "inconclusive")
+
+# Rows that are allowed to exist in a ledger we may still delete: never started,
+# nothing decided. Everything else - running, lost, dispatched-unknown, or a
+# state we do not recognise - blocks deletion.
+SCRATCH_SAFE_STATES = ("", "queued", "ready", "pending", "needs_approval")
+
+# States that prove work is (or may be) in flight right now.
+ACTIVE_STATES = ("starting", "running", "waiting_for_approval", "dispatch_unknown")
+
 
 class LedgerInUse(RuntimeError):
     """The ledger is live (or may be): deleting it would lose real history."""
+
+
+@dataclass
+class LedgerInspection:
+    path: str
+    exists: bool = True
+    total_rows: int = 0
+    verdict_rows: int = 0
+    active_rows: int = 0
+    pending_rows: int = 0
+    unrecognised_rows: int = 0
+    states: dict[str, int] = field(default_factory=dict)
+    schema_readable: bool = True
+
+    @property
+    def is_scratch(self) -> bool:
+        """True only when every row is undecided and nothing is in flight."""
+        return (self.exists and self.schema_readable
+                and self.verdict_rows == 0
+                and self.active_rows == 0
+                and self.unrecognised_rows == 0)
+
+    def blockers(self) -> list[str]:
+        out: list[str] = []
+        if not self.exists:
+            return out
+        if not self.schema_readable:
+            out.append("schema not understood (no readable work_items/verdict)")
+        if self.verdict_rows:
+            out.append(f"{self.verdict_rows} row(s) carry a verdict")
+        if self.active_rows:
+            out.append(f"{self.active_rows} row(s) are in flight "
+                       f"({', '.join(sorted(k for k, v in self.states.items() if v and k in ACTIVE_STATES))})")
+        if self.unrecognised_rows:
+            out.append(f"{self.unrecognised_rows} row(s) have an unrecognised state")
+        return out
 
 
 @dataclass
@@ -38,7 +94,14 @@ class CleanupReport:
     actions: list[str] = field(default_factory=list)
     deleted: bool = False
     wal_bytes: int = 0
-    live_rows: int = 0
+    inspection: LedgerInspection | None = None
+
+    @property
+    def live_rows(self) -> int:
+        """Rows that make the ledger evidence: verdicts plus in-flight work."""
+        if self.inspection is None:
+            return 0
+        return self.inspection.verdict_rows + self.inspection.active_rows
 
 
 def sidecars(ledger: Path) -> list[Path]:
@@ -50,33 +113,61 @@ def wal_size(ledger: Path) -> int:
     return wal.stat().st_size if wal.exists() else 0
 
 
-def live_row_count(ledger: Path) -> int:
-    """Number of work items in a terminal-with-verdict or running state."""
+def inspect_ledger(ledger: Path) -> LedgerInspection:
+    """Read-only census of a ledger: what is in it, and is any of it evidence?"""
+    ledger = Path(ledger)
+    report = LedgerInspection(path=str(ledger))
     if not ledger.exists():
-        return 0
+        report.exists = False
+        return report
+
     try:
         conn = sqlite3.connect(f"file:{ledger}?mode=ro", uri=True, timeout=5)
     except sqlite3.Error as exc:
         raise LedgerInUse(f"cannot open {ledger.name} read-only: {exc}") from exc
     try:
-        return int(conn.execute(
-            "select count(*) from work_items where verdict is not null "
-            "and verdict not in ('', 'pending')").fetchone()[0])
-    except sqlite3.Error:
+        rows = conn.execute(
+            "select state, verdict from work_items").fetchall()
+    except sqlite3.Error as exc:
         # Unknown schema: refuse to call it scratch rather than assume it is.
+        report.schema_readable = False
         raise LedgerInUse(
-            f"{ledger.name} has no readable work_items/verdict column")
+            f"{ledger.name} has no readable work_items/verdict columns: {exc}"
+        ) from exc
     finally:
         conn.close()
+
+    for state, verdict in rows:
+        state = (state or "").strip()
+        verdict = (verdict or "").strip()
+        report.total_rows += 1
+        report.states[state or "<empty>"] = report.states.get(state or "<empty>", 0) + 1
+        if verdict and verdict != "pending":
+            report.verdict_rows += 1
+        elif state in ACTIVE_STATES:
+            report.active_rows += 1
+        elif state in SCRATCH_SAFE_STATES:
+            report.pending_rows += 1
+        else:
+            # succeeded/failed/cancelled/lost with no verdict, or a state we do
+            # not know: either way, real work happened here.
+            report.unrecognised_rows += 1
+    return report
+
+
+def live_row_count(ledger: Path) -> int:
+    """Rows that make the ledger evidence (verdicts + in-flight + unknown)."""
+    report = inspect_ledger(ledger)
+    return report.verdict_rows + report.active_rows + report.unrecognised_rows
 
 
 def checkpoint(ledger: Path) -> tuple[bool, int]:
     """Flush the WAL into the main file through SQLite, then close cleanly.
 
     Returns (busy, wal_bytes). `busy` is SQLite's own answer to "could this
-    connection take the write lock and truncate?" - a live reader/writer (an open
-    runtime or a running Worker) makes it non-zero, which is exactly the signal
-    we need instead of guessing from file sizes.
+    connection take the write lock and truncate?". It catches an open *handle*;
+    it does NOT prove no Worker is running (a Worker between two calls holds no
+    handle), so it is never the only guard.
     """
     conn = sqlite3.connect(str(ledger), timeout=15)
     try:
@@ -89,11 +180,13 @@ def checkpoint(ledger: Path) -> tuple[bool, int]:
     return busy, wal_size(ledger)
 
 
-def remove_scratch_ledger(ledger: Path, *, allow_pending: bool = True) -> CleanupReport:
+def remove_scratch_ledger(ledger: Path) -> CleanupReport:
     """Delete a scratch ledger safely, or raise `LedgerInUse`.
 
-    `allow_pending` permits queued/unverified rows (a scratch ledger created for
-    the next run), but never a ledger that holds verdicts.
+    The safety check has no opt-out: a ledger holding a verdict, holding
+    in-flight work, or holding a state this module does not understand is
+    refused on every call path, including the default one. Use
+    `fresh_ledger_path()` when you want a new ledger and want to keep the old.
     """
     ledger = Path(ledger)
     report = CleanupReport(path=str(ledger))
@@ -102,16 +195,19 @@ def remove_scratch_ledger(ledger: Path, *, allow_pending: bool = True) -> Cleanu
         return report
 
     try:
-        report.live_rows = live_row_count(ledger)
-    except LedgerInUse:
+        report.inspection = inspect_ledger(ledger)
+    except LedgerInUse as exc:
         report.actions.append("refused: schema not understood")
-        raise
-    if report.live_rows and not allow_pending:
-        report.actions.append(
-            f"refused: {report.live_rows} row(s) carry a verdict")
+        raise LedgerInUse(str(exc)) from exc
+
+    blockers = report.inspection.blockers()
+    if blockers:
+        report.actions.append("refused: " + "; ".join(blockers))
         raise LedgerInUse(
-            f"{ledger.name} holds {report.live_rows} verdict(s); it is evidence, "
-            "not scratch - archive it instead of deleting it")
+            f"{ledger.name} is evidence, not scratch ({'; '.join(blockers)}). "
+            "Archive it and start the next pair on a fresh ledger "
+            "(`fresh_ledger_path()`); never delete a ledger that carries a "
+            "verdict or in-flight work.")
 
     busy, report.wal_bytes = checkpoint(ledger)
     if busy or report.wal_bytes:
@@ -130,7 +226,8 @@ def remove_scratch_ledger(ledger: Path, *, allow_pending: bool = True) -> Cleanu
     except OSError as exc:
         report.actions.append(f"refused: main file is still locked ({exc})")
         raise LedgerInUse(
-            f"{ledger.name} cannot be removed: {exc}. A handle is still open.")
+            f"{ledger.name} cannot be removed: {exc}. A handle is still open."
+        ) from exc
     report.deleted = True
     report.actions.append("checkpointed, then removed the main file only")
     for leftover in sidecars(ledger):

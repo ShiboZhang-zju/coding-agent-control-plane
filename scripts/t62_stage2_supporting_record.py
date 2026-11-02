@@ -287,6 +287,9 @@ def main() -> int:
 
     readable = [tid for tid, arm in arms.items()
                 if arm.get("transcript") == "available"]
+    # Split "available" into what THIS run read and what an earlier run read.
+    live = [tid for tid in readable if tid not in inherited]
+    historical = [tid for tid in readable if tid in inherited]
 
     per_pair = {}
     for pair_id in model.PAIR_IDS:
@@ -321,9 +324,14 @@ def main() -> int:
         "validation": {
             "archive_validation": validation["result"],
             "arms_recorded": len(arms),
-            "arms_with_readable_transcript": len(readable),
+            # Three different things, named so they cannot be confused:
+            #   live        - read from the service during THIS run
+            #   historical  - a real observation, but read at run time by an
+            #                 earlier run and carried forward
+            #   missing     - never observed; no number may be quoted
+            "arms_with_live_transcript": len(live),
+            "arms_with_historical_observation": len(inherited),
             "arms_without_transcript": sorted(set(filter(None, transcript_gaps))),
-            "arms_carried_forward_from_run_time": sorted(set(inherited)),
             "service_error": service_error,
             "service_reachable": service_error is None,
         },
@@ -362,7 +370,8 @@ def main() -> int:
     print(json.dumps({
         "result": result,
         "arms": len(arms),
-        "readable": len(readable),
+        "live_transcript": len(live),
+        "historical_observation": len(historical),
         "missing": sorted(set(filter(None, transcript_gaps))),
     }, ensure_ascii=False))
     return 0 if result == model.COMPLETE else 3

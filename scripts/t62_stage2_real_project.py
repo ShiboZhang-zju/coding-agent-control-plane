@@ -192,14 +192,19 @@ def main() -> int:
 
     task_ids = [row.get("id") for row in rows.values() if row.get("id")]
     unique_task_ids = len(task_ids) == len(set(task_ids))
-    ledger_total = ro(PILOT_LEDGER,
-                      "select count(*) as n from work_items")[0]["n"]
+    # A real duplicate check: the same id appearing twice in the ledger is the
+    # thing we care about. `count(*) >= len(rows)` only proved the table was not
+    # smaller than the task list, which says nothing about duplicates.
+    ledger_id_rows = ro(PILOT_LEDGER, "select id from work_items")
+    ledger_ids = [row["id"] for row in ledger_id_rows]
+    duplicated_in_ledger = sorted(
+        {tid for tid in ledger_ids if ledger_ids.count(tid) > 1})
 
     checks = {
         # ---- the ledger really holds these runs ---------------------------
         "all_three_tasks_found": len(rows) == len(MAIN_TASKS) and all(rows.values()),
         "task_ids_are_distinct": unique_task_ids and len(task_ids) == len(rows),
-        "ledger_holds_no_duplicate_rows": ledger_total >= len(rows),
+        "ledger_holds_no_duplicate_rows": not duplicated_in_ledger,
         # ---- deployment is real -------------------------------------------
         "real_worker_session_for_a": bool(refs.get("A", {}).get("session_id")),
         "real_worker_session_for_b": bool(refs.get("B", {}).get("session_id")),
@@ -389,8 +394,19 @@ def main() -> int:
                      "transcripts this re-check cannot read today; it is cited, "
                      "not regenerated, and was not overwritten"),
         },
-        "worker_started": True,
-        "real_model_called": True,
+        # This re-check starts no Worker and calls no model. Claiming either as a
+        # bare `true` would be a fact nobody measured in this run, so they are
+        # inherited from the run-time record and labelled as inherited.
+        "worker_started": {
+            "value": bool(historical.get("worker_started")),
+            "measured_by": HISTORICAL_EVIDENCE.name,
+            "measured_in_this_run": False,
+        },
+        "real_model_called": {
+            "value": bool(historical.get("real_model_called")),
+            "measured_by": HISTORICAL_EVIDENCE.name,
+            "measured_in_this_run": False,
+        },
         "real_project_touched": ("isolated clone only; pilot main "
                                  f"{git(pilot, 'rev-parse', 'main')[:8]} untouched"),
         "checks": checks,

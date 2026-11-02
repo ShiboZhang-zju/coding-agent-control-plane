@@ -21,9 +21,48 @@ EVID = ROOT / "evidence"
 HOME = os.path.expanduser("~")
 
 SENSITIVE_KEYS = {
-    "password", "passwd", "authorization", "cookie", "api_key", "apikey",
-    "access_token", "refresh_token", "client_secret", "private_key", "secret",
+    # bare `token` is the commonest spelling of all and used to be missing: the
+    # old set only had access_token/refresh_token, so {"token": "..."} passed
+    # structured redaction untouched.
+    "token", "password", "passwd", "authorization", "cookie", "api_key",
+    "apikey", "access_token", "refresh_token", "id_token", "auth_token",
+    "client_secret", "private_key", "secret", "secret_key", "session_token",
 }
+
+# Suffixes that make a key credential-like even when the prefix varies
+# (github_token, workerToken, ...). camelCase is split before matching, so this
+# list is always lower_snake_case.
+SENSITIVE_SUFFIXES = ("_token", "_secret", "_password", "_passwd", "_apikey",
+                      "_api_key", "_authorization", "_cookie", "_private_key")
+
+# Names that *start* with token_ but measure usage rather than carry a credential.
+TOKEN_METRICS = ("_count", "_usage", "_total", "_limit", "_budget", "_estimate",
+                 "_stats", "_counter")
+
+
+def normalize_key(key: Any) -> str:
+    """`accessToken` / `Access-Token` / `access_token` -> `access_token`.
+
+    Without the camelCase split, `accessToken` collapsed to `accesstoken`, which
+    matched nothing, so every camelCase field bypassed structured redaction.
+    """
+    text = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key))
+    text = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "_", text)
+    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+
+
+def is_sensitive_key(key: Any) -> bool:
+    normalized = normalize_key(key)
+    if not normalized:
+        return False
+    if normalized in SENSITIVE_KEYS:
+        return True
+    if normalized.startswith("token_"):
+        # `token_usage` / `token_count` are metrics, not credentials; redacting
+        # them would delete real evidence for no security gain.
+        if not any(normalized.endswith(m) for m in TOKEN_METRICS):
+            return True
+    return any(normalized.endswith(suffix) for suffix in SENSITIVE_SUFFIXES)
 
 
 def patterns() -> list[tuple[str, str]]:
@@ -102,15 +141,17 @@ def sanitize_text(text: str) -> tuple[str, int]:
 
 
 def redact_sensitive(value: Any) -> Any:
-    """Recursively remove credential-like values while preserving structure."""
+    """Recursively remove credential-like values while preserving structure.
+
+    Key matching is spelling-agnostic (`token`, `accessToken`, `access-token`
+    are the same field), and it recurses through every nested object/list so a
+    credential cannot hide one level down.
+    """
     if isinstance(value, dict):
         out = {}
         for key, item in value.items():
-            normalized = re.sub(r"[^a-z0-9]+", "_", str(key).lower()).strip("_")
-            sensitive = (normalized in SENSITIVE_KEYS
-                         or normalized.endswith("_token")
-                         or normalized.startswith("token_"))
-            out[key] = "<redacted>" if sensitive else redact_sensitive(item)
+            out[key] = ("<redacted>" if is_sensitive_key(key)
+                        else redact_sensitive(item))
         return out
     if isinstance(value, list):
         return [redact_sensitive(item) for item in value]

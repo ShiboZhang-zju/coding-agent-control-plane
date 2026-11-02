@@ -180,6 +180,96 @@ def test_committed_archives_hold_the_real_three_pairs():
     assert counts["without_memory"] == {"verified": 3, "rejected": 0}
 
 
+def _tamper(pairs: dict, target: str, **changes) -> dict:
+    """Copy the archive set and apply an edit, as a person editing the JSON would."""
+    clone = json.loads(json.dumps(pairs))
+    clone[target].update(changes)
+    return clone
+
+
+def test_archive_with_arms_removed_is_blocked_on_read():
+    """A stored 'complete: true' must not survive losing its arms.
+
+    This is the exact shape the reviewer described: the file still reads, still
+    claims completeness, but the arms are gone.
+    """
+    pairs = {pair_id: model.load_archive(EVID / "t62", pair_id)
+             for pair_id in model.PAIR_IDS}
+    assert model.validate_archives(pairs)["result"] in (model.COMPLETE,
+                                                        model.INCOMPLETE)
+    tampered = _tamper(pairs, "pair2", arms=[], problems=[], complete=True)
+    result = model.validate_archives(tampered)
+    assert result["result"] == model.BLOCKED
+    assert any("arm count" in p for p in result["problems"])
+
+
+def test_archive_with_one_arm_is_blocked_on_read():
+    pairs = {pair_id: model.load_archive(EVID / "t62", pair_id)
+             for pair_id in model.PAIR_IDS}
+    one_arm = [pairs["pair2"]["arms"][0]]
+    tampered = _tamper(pairs, "pair2", arms=one_arm)
+    assert model.validate_archives(tampered)["result"] == model.BLOCKED
+
+
+def test_archive_with_stale_verdicts_is_blocked_on_read():
+    pairs = {pair_id: model.load_archive(EVID / "t62", pair_id)
+             for pair_id in model.PAIR_IDS}
+    # Flip the stored verdicts without touching the arms.
+    tampered = _tamper(pairs, "pair2", verdicts={
+        "with_memory": "verified", "without_memory": "verified"}, flipped=False)
+    result = model.validate_archives(tampered)
+    assert result["result"] == model.BLOCKED
+    assert any("do not match the arms" in p for p in result["problems"])
+
+
+def test_archive_with_mismatched_flipped_is_blocked():
+    pairs = {pair_id: model.load_archive(EVID / "t62", pair_id)
+             for pair_id in model.PAIR_IDS}
+    tampered = _tamper(pairs, "pair2", flipped=False)  # arms still disagree
+    result = model.validate_archives(tampered)
+    assert result["result"] == model.BLOCKED
+    assert any("flipped" in p for p in result["problems"])
+
+
+def test_archive_with_wrong_pair_id_is_blocked():
+    pairs = {pair_id: model.load_archive(EVID / "t62", pair_id)
+             for pair_id in model.PAIR_IDS}
+    tampered = _tamper(pairs, "pair2", pair_id="pair9")
+    result = model.validate_archives(tampered)
+    assert result["result"] == model.BLOCKED
+    assert any("stored/filed as" in p for p in result["problems"])
+
+
+def test_historical_archive_cannot_claim_a_recoverable_ledger():
+    pairs = {pair_id: model.load_archive(EVID / "t62", pair_id)
+             for pair_id in model.PAIR_IDS}
+    tampered = _tamper(pairs, "pair1", ledger_recoverable=True)
+    result = model.validate_archives(tampered)
+    assert result["result"] == model.BLOCKED
+    assert any("historical pair must not claim" in p for p in result["problems"])
+
+
+def test_pair1_cannot_be_relabelled_as_a_stronger_level():
+    pairs = {pair_id: model.load_archive(EVID / "t62", pair_id)
+             for pair_id in model.PAIR_IDS}
+    tampered = _tamper(pairs, "pair1", evidence_level="archived_verdict",
+                       ledger_recoverable=True)
+    result = model.validate_archives(tampered)
+    assert result["result"] == model.BLOCKED
+    assert any("expected 'historical_record_only'" in p
+               for p in result["problems"])
+
+
+def test_duplicate_task_id_inside_a_pair_is_blocked_on_read():
+    pairs = {pair_id: model.load_archive(EVID / "t62", pair_id)
+             for pair_id in model.PAIR_IDS}
+    arms = json.loads(json.dumps(pairs["pair3"]["arms"]))
+    arms[1]["task_id"] = arms[0]["task_id"]
+    result = model.validate_archives(_tamper(pairs, "pair3", arms=arms))
+    assert result["result"] == model.BLOCKED
+    assert any("not distinct" in p for p in result["problems"])
+
+
 def test_pair1_archive_is_not_upgraded_by_later_evidence_levels():
     record = model.load_archive(EVID / "t62", "pair1")
     assert record["evidence_level"] == "historical_record_only"
@@ -404,38 +494,61 @@ def test_acceptance_scripts_do_not_unlink_a_live_ledger():
                  "t62_stage2_supporting_record.py"):
         text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
         assert "LEDGER.unlink()" not in text, name
-        assert "-wal" not in text or "wal_size" in text or True, name
+        assert ".unlink()" not in text.replace("leftover", ""), (
+            f"{name} still calls unlink() directly; deletion must go through "
+            "t62_sqlite_cleanup.remove_scratch_ledger()")
+        # No script may remove a sidecar itself; mentioning "-wal" in prose is
+        # fine, calling unlink on it is not.
+        for sidecar in ('"-wal"', "'-wal'", "-wal\""):
+            assert f"{sidecar}.unlink" not in text.replace(" ", ""), name
+        assert "shutil.rmtree" not in text, name
 
 
 # --------------------------------------------------------------------------- #
 # SQLite cleanup guard
 # --------------------------------------------------------------------------- #
-def _ledger(path: Path, rows: int, verdict: str = "verified") -> None:
+def _ledger(path: Path, rows: int, verdict: str = "verified",
+            state: str = "succeeded") -> None:
     conn = sqlite3.connect(str(path))
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("create table work_items (id text primary key, state text, "
                  "verdict text)")
     for index in range(rows):
         conn.execute("insert into work_items values (?,?,?)",
-                     (f"cp-{index}", "succeeded", verdict))
+                     (f"cp-{index}", state, verdict))
     conn.commit()
     conn.close()
 
 
 def test_scratch_ledger_without_verdicts_can_be_removed(tmp_path):
+    """Only never-started rows count as scratch: queued, no verdict."""
     ledger = tmp_path / "scratch.db"
-    _ledger(ledger, 2, verdict="pending")
+    _ledger(ledger, 2, verdict="", state="queued")
     report = remove_scratch_ledger(ledger)
     assert report.deleted is True
     assert not ledger.exists()
     assert wal_size(ledger) == 0
 
 
-def test_ledger_with_verdicts_is_refused_and_data_survives(tmp_path):
+def test_pending_verdict_in_terminal_state_is_not_scratch(tmp_path):
+    """`succeeded` + pending verdict means work happened but was never judged."""
+    ledger = tmp_path / "odd.db"
+    _ledger(ledger, 2, verdict="pending", state="succeeded")
+    with pytest.raises(LedgerInUse):
+        remove_scratch_ledger(ledger)
+    assert ledger.exists()
+
+
+def test_ledger_with_verdicts_is_refused_on_the_default_path(tmp_path):
+    """The old bug: the guard was only enforced when a caller opted in.
+
+    `remove_scratch_ledger(ledger)` is exactly what setup() calls, so that - not
+    the `allow_pending=False` variant - is what must be tested.
+    """
     ledger = tmp_path / "evidence.db"
     _ledger(ledger, 2)
     with pytest.raises(LedgerInUse):
-        remove_scratch_ledger(ledger, allow_pending=False)
+        remove_scratch_ledger(ledger)
     assert ledger.exists()
     conn = sqlite3.connect(f"file:{ledger}?mode=ro", uri=True)
     try:
@@ -444,29 +557,110 @@ def test_ledger_with_verdicts_is_refused_and_data_survives(tmp_path):
         conn.close()
 
 
+def test_single_verdict_is_enough_to_refuse(tmp_path):
+    ledger = tmp_path / "one-verdict.db"
+    _ledger(ledger, 2, verdict="pending")
+    conn = sqlite3.connect(str(ledger))
+    conn.execute("update work_items set verdict='verified' where id='cp-0'")
+    conn.commit()
+    conn.close()
+    with pytest.raises(LedgerInUse):
+        remove_scratch_ledger(ledger)
+    assert ledger.exists()
+
+
+def test_inconclusive_verdict_is_also_evidence(tmp_path):
+    ledger = tmp_path / "inconclusive.db"
+    _ledger(ledger, 1, verdict="inconclusive")
+    with pytest.raises(LedgerInUse):
+        remove_scratch_ledger(ledger)
+    assert ledger.exists()
+
+
+def test_running_task_blocks_removal(tmp_path):
+    ledger = tmp_path / "running.db"
+    _ledger(ledger, 1, verdict="pending", state="running")
+    with pytest.raises(LedgerInUse):
+        remove_scratch_ledger(ledger)
+    assert ledger.exists()
+
+
+def test_dispatch_unknown_blocks_removal(tmp_path):
+    ledger = tmp_path / "unknown.db"
+    _ledger(ledger, 1, verdict="pending", state="dispatch_unknown")
+    with pytest.raises(LedgerInUse):
+        remove_scratch_ledger(ledger)
+    assert ledger.exists()
+
+
+def test_terminal_state_without_verdict_blocks_removal(tmp_path):
+    """A succeeded row whose verdict was never written is still real work."""
+    ledger = tmp_path / "no-verdict.db"
+    _ledger(ledger, 1, verdict="", state="succeeded")
+    with pytest.raises(LedgerInUse):
+        remove_scratch_ledger(ledger)
+    assert ledger.exists()
+
+
+def test_unrecognised_state_blocks_removal(tmp_path):
+    ledger = tmp_path / "weird.db"
+    _ledger(ledger, 1, verdict="pending", state="teleported")
+    with pytest.raises(LedgerInUse):
+        remove_scratch_ledger(ledger)
+    assert ledger.exists()
+
+
 def test_wal_is_never_deleted_by_hand(tmp_path):
     ledger = tmp_path / "live.db"
-    _ledger(ledger, 1)
+    _ledger(ledger, 1, verdict="pending")
     wal = Path(f"{ledger}-wal")
-    before = wal.stat().st_size if wal.exists() else 0
     # Simulate a live connection holding the WAL open.
     holder = sqlite3.connect(str(ledger))
     holder.execute("PRAGMA journal_mode=WAL")
-    holder.execute("insert into work_items values ('cp-x','succeeded','pending')")
+    holder.execute("insert into work_items values ('cp-x','queued','pending')")
     holder.commit()
     try:
-        if wal.exists() and wal.stat().st_size:
-            with pytest.raises(LedgerInUse):
-                remove_scratch_ledger(ledger)
+        with pytest.raises(LedgerInUse):
+            remove_scratch_ledger(ledger)
     finally:
         holder.close()
+    # Nothing was deleted: the ledger, its rows and the WAL all survive.
     assert ledger.exists()
     conn = sqlite3.connect(f"file:{ledger}?mode=ro", uri=True)
     try:
         assert conn.execute("select count(*) from work_items").fetchone()[0] >= 1
     finally:
         conn.close()
-    assert before >= 0
+    assert not wal.exists() or wal.stat().st_size >= 0
+
+
+def test_refusal_never_deletes_wal_or_shm(tmp_path):
+    """A refused call must not touch the sidecars at all.
+
+    Closing the holder connection is itself what lets SQLite fold a WAL away, so
+    the assertion is scoped to the refused call: at the moment it raises, the
+    ledger and its data are untouched, and this module never calls unlink on a
+    sidecar (checked statically too).
+    """
+    ledger = tmp_path / "keep.db"
+    _ledger(ledger, 1)
+    holder = sqlite3.connect(str(ledger))
+    holder.execute("PRAGMA journal_mode=WAL")
+    holder.execute("insert into work_items values ('cp-y','succeeded','pending')")
+    holder.commit()
+    try:
+        with pytest.raises(LedgerInUse):
+            remove_scratch_ledger(ledger)
+        # Still inside the refusal: nothing removed, rows intact.
+        assert ledger.exists()
+        rows = holder.execute("select count(*) from work_items").fetchone()[0]
+        assert rows >= 1
+    finally:
+        holder.close()
+    # And the module contains no sidecar deletion at all.
+    source = (ROOT / "scripts" / "t62_sqlite_cleanup.py").read_text(encoding="utf-8")
+    assert "-wal\").unlink" not in source
+    assert "sidecars(" in source and ".unlink()" in source.split("sidecars(")[0]
 
 
 def test_fresh_ledger_path_avoids_the_existing_file(tmp_path):
@@ -504,6 +698,56 @@ def test_absolute_paths_are_sanitised():
     assert "coding-agent-control-plane" not in cleaned
     assert "somebody" not in cleaned
     assert "abcdef123456" not in cleaned
+
+
+def test_structured_keys_are_redacted_in_any_spelling():
+    """JSON *fields*, not substrings: camelCase used to bypass the whole filter."""
+    from sanitize_evidence import redact_sensitive
+
+    payload = {
+        "token": "s1",
+        "accessToken": "s2",
+        "clientSecret": "s3",
+        "Access-Token": "s4",
+        "apiKey": "s5",
+        "github_token": "s6",
+        "nested": {"refreshToken": "s7", "ok": "keep-me"},
+        "list": [{"idToken": "s8"}, {"note": "keep-me-too"}],
+    }
+    cleaned = redact_sensitive(payload)
+    dumped = json.dumps(cleaned)
+    for secret in ("s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"):
+        assert f'"{secret}"' not in dumped, f"{secret} survived structured redaction"
+    # Structure and harmless values are preserved.
+    assert cleaned["nested"]["ok"] == "keep-me"
+    assert cleaned["list"][1]["note"] == "keep-me-too"
+
+
+def test_token_metrics_are_not_redacted_as_secrets():
+    """`token_count` is a measurement; redacting it would delete real evidence."""
+    from sanitize_evidence import is_sensitive_key
+
+    assert is_sensitive_key("token") is True
+    assert is_sensitive_key("accessToken") is True
+    assert is_sensitive_key("token_count") is False
+    assert is_sensitive_key("max_tokens") is False
+
+
+def test_write_evidence_redacts_before_the_bytes_hit_disk(tmp_path):
+    """The end-to-end path: a serialized evidence file must carry no secret."""
+    from sanitize_evidence import write_evidence
+
+    target = tmp_path / "e.json"
+    write_evidence(target, {
+        "accessToken": "super-secret",
+        "worker": {"clientSecret": "another-secret"},
+        "cmd": "cd F:\\coding-agent-control-plane\\.poc-state && pytest",
+    })
+    text = target.read_text(encoding="utf-8")
+    assert "super-secret" not in text
+    assert "another-secret" not in text
+    assert "coding-agent-control-plane" not in text
+    json.loads(text)  # still valid JSON
 
 
 def test_committed_t62_evidence_has_no_machine_path():
