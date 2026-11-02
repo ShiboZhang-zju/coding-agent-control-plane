@@ -1,0 +1,194 @@
+{
+  "test": "T62 real-project memory pilot, stage 1 (read-only rehearsal)",
+  "worker_started": false,
+  "real_model_called": true,
+  "real_project_touched": false,
+  "fixture": "<REPO>/sandbox/t62-rehearsal-*",
+  "deployment": {
+    "ld_chat": "in-process LDChat over the real intent model",
+    "worker": "none (stub adapter reference only)",
+    "repo": "throwaway Git fixture, not a real project"
+  },
+  "model": {
+    "endpoint_configured": true,
+    "timeout_s": 180.0,
+    "max_tokens": 1024,
+    "contract": "m4-d.intent.v1"
+  },
+  "checks": {
+    "real_intent_model_used": true,
+    "no_worker_dispatched": true,
+    "fixture_is_throwaway_git_repo": true,
+    "read_turns_have_no_side_effects": true,
+    "read_turns_render_from_ledger": true,
+    "verified_background_injected": true,
+    "verified_constraint_injected": true,
+    "verified_constraint_marked_mandatory": true,
+    "candidate_marked_untrusted": true,
+    "prompt_records_entry_refs": true,
+    "goal_created_by_conversation": true,
+    "goal_has_no_dispatched_task": true,
+    "goal_status_read_back_from_ledger": true,
+    "markdown_edit_applied_with_cas": true,
+    "new_prompt_has_edited_knowledge": true,
+    "old_prompt_still_frozen": true,
+    "no_verdict_or_success_written": true
+  },
+  "observed": {
+    "conversation_id": "conv-0ba82b8a331f",
+    "confirmation_required_for_goal": false,
+    "goal_ids": [
+      "goal-73e9eccd12b7"
+    ],
+    "goal_status": [
+      "active"
+    ],
+    "goal_task_count": [
+      0
+    ],
+    "work_item_count": 0,
+    "context_version_after_apply": 4,
+    "prompt_entry_ids": [
+      "ctx-7d22ca9353e8",
+      "ctx-afc85b49842e",
+      "ctx-cc63c6939acd"
+    ],
+    "prompt_chars": 756,
+    "prompt_has_verified_constraint_block": true,
+    "memory_edit_status": {
+      "applied": true,
+      "changed_fields": [
+        "body"
+      ],
+      "markdown_refresh_status": "refreshed"
+    },
+    "turns": [
+      {
+        "message": "现在有哪些项目？",
+        "intent": "list_projects",
+        "intent_source": "model",
+        "requires_confirmation": false,
+        "goal_ids": [],
+        "before": {
+          "work_items": 0,
+          "goals": 0,
+          "context_version": 3
+        },
+        "after": {
+          "work_items": 0,
+          "goals": 0,
+          "context_version": 3
+        },
+        "side_effects": {
+          "work_items": 0,
+          "goals": 0,
+          "context_version": 0
+        },
+        "answer_head": "Current projects (all figures derived from the ledger):\n\n- t62-rehearsal (prj-33aa8efbbd): 0 tasks, 0 verified, 0 rejected, 0 needing attention"
+      },
+      {
+        "message": "t62-rehearsal 现在进行到哪了？",
+        "intent": "project_status",
+        "intent_source": "model",
+        "requires_confirmation": false,
+        "goal_ids": [],
+        "before": {
+          "work_items": 0,
+          "goals": 0,
+          "context_version": 3
+        },
+        "after": {
+          "work_items": 0,
+          "goals": 0,
+          "context_version": 3
+        },
+        "side_effects": {
+          "work_items": 0,
+          "goals": 0,
+          "context_version": 0
+        },
+        "answer_head": "Project t62-rehearsal (prj-33aa8efbbd)\n\nTasks: 0 total, 0 active, 0 verified, 0 rejected, 0 inconclusive, 0 awaiting approval."
+      },
+      {
+        "message": "t62-rehearsal 这个项目的配置是怎么读取的？",
+        "intent": "knowledge_query",
+        "intent_source": "model",
+        "requires_confirmation": false,
+        "goal_ids": [],
+        "before": {
+          "work_items": 0,
+          "goals": 0,
+          "context_version": 3
+        },
+        "after": {
+          "work_items": 0,
+          "goals": 0,
+          "context_version": 3
+        },
+        "side_effects": {
+          "work_items": 0,
+          "goals": 0,
+          "context_version": 0
+        },
+        "answer_head": "No project knowledge in prj-33aa8efbbd matched that. Say what you want to record and I will stage it as a candidate entry for review."
+      },
+      {
+        "message": "在 t62-rehearsal 项目完成：在 t62-rehearsal 项目中新增 configlib 包，实现 load_config 读取字典配置。",
+        "intent": "submit_goal",
+        "intent_source": "model",
+        "requires_confirmation": false,
+        "goal_ids": [
+          "goal-73e9eccd12b7"
+        ],
+        "before": {
+          "work_items": 0,
+          "goals": 0,
+          "context_version": 3
+        },
+        "after": {
+          "work_items": 0,
+          "goals": 1,
+          "context_version": 3
+        },
+        "side_effects": {
+          "work_items": 0,
+          "goals": 1,
+          "context_version": 0
+        },
+        "answer_head": "Goal goal-73e9eccd12b7 created for project prj-33aa8efbbd: 在 t62-rehearsal 项目中新增 configlib 包，实现 load_config 读取字典配置。\n\nThe LD goal runner will advance it automatically, one bounded decision at a time, whenever the observed state changes. Progress and verdicts come from the ledger; ask me again later to read them.\n\nThe lifetime budget is stamped when the LD first advances this goal (bounded decisions"
+      },
+      {
+        "message": "t62-rehearsal 的目标现在怎么样了？",
+        "intent": "goal_status",
+        "intent_source": "model",
+        "requires_confirmation": false,
+        "goal_ids": [
+          "goal-73e9eccd12b7"
+        ],
+        "before": {
+          "work_items": 0,
+          "goals": 1,
+          "context_version": 3
+        },
+        "after": {
+          "work_items": 0,
+          "goals": 1,
+          "context_version": 3
+        },
+        "side_effects": {
+          "work_items": 0,
+          "goals": 0,
+          "context_version": 0
+        },
+        "answer_head": "Goals of project prj-33aa8efbbd:\n\n- goal-73e9eccd12b7 [active]: 在 t62-rehearsal 项目中新增 configlib 包，实现 load_config 读取字典配置。\n  tasks 0/not yet stamped, decisions 0/not yet stamped, verified 0, current task none"
+      }
+    ]
+  },
+  "not_proven_here": [
+    "a real Worker executing and the Verifier judging the result",
+    "a second Session (B) inheriting A's verified work",
+    "whether memory injection measurably helps a real task"
+  ],
+  "result": "PASS",
+  "failed": []
+}

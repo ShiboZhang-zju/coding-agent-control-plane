@@ -122,6 +122,29 @@ Knowledge 章节不再将 candidate/unverified 条目误称为 verified。
 | M4F-R06 | `controlplane/project_memory_md.py::export()` | 导出器以 LF 落盘，`Path.write_text`（Windows 默认换行转换）或编辑器会把同一 Entry 改写为 CRLF；原实现按**原始字节**比较，于是把纯换行差异判为"本地编辑"，一次 apply 之后普通 `memory-export` 永久拒绝导出（T61 在 e681521 上实际回归失败）。现改用换行无关的内容比较（`_same_entry_content`）。 | `python scripts/t61_memory_apply_refresh.py`：apply 后普通导出必须成功（`ordinary_export_after_apply_succeeds`）。 | 已修复；T61 10/10 Pass |
 | M4F-R07 | `scripts/t58_markdown_memory.py` / `scripts/t60_memory_export_safety.py` | `file_snapshot()` 用 `str(path.relative_to(dir))` 作键，Windows 产出 `entries\\x.md` 而断言查 `entries/x.md`，两个套件在 Windows 上恒定 `KeyError` 失败——不是产品缺陷，但会掩盖真实回归。现改为 `as_posix()`。 | 在 Windows 上直接运行 T58/T60，均应 Pass。 | 已修复；T58 26/26、T60 16/16 Pass |
 
+## T62 Real Project Memory Pilot（2026-11-02）
+
+T62 分两阶段：Stage 1 只读预演（不动真实仓库、不起 Worker），Stage 2 真实项目
+两任务记忆闭环（需真实仓库 + 真实 Worker）。Stage 1 已完成：
+
+- 脚本 `scripts/t62_real_project_pilot.py`；证据
+  `evidence/project/T62-real-project-pilot-stage1.json`（17 项检查，真实模型）
+  与首次失败 `evidence/project/T62a-stage1-initial-fail.json`（真实复跑，非手写）。
+- 部署形态：真实 intent 模型（`LD_MODEL_*`）驱动的 `LDChat` + 真实 `LDGoalStore`；
+  Worker 只有一个名字引用（`AdapterRef('stub')`），**全程未派发任何 WorkItem**。
+- 已验证：只读三问零副作用（WorkItem/Goal/context_version 增量均为 0）；verified
+  background / verified constraint 完整进入 Effective Prompt 且约束在强制区块；
+  candidate 标 `[CANDIDATE]` 且不满足 verified 前置；`entry_refs` 可追溯到三个
+  条目 ID；对话提交 Goal 只产生 1 个 Goal 且 `current_task_id` 为空；Goal 状态由
+  LD Chat 从 Ledger 读回；人工 Markdown 编辑经 `memory-preview` + CAS
+  `memory-apply` 后只影响**新** Prompt，旧 Prompt 冻结；未写入任何 verdict。
+- 首次失败的两项均为**验收脚本自身缺陷**（`turn['intent']` 实为 dict、
+  `BuiltContext.entry_refs` 是字符串列表），未触及 `controlplane/` 与 `ld/`；
+  修复前先真实复跑留证（`T62a`），再以修复后的脚本复跑（`T62-...stage1`）。
+- 未证明（不能算 Pass）：真实 Worker 执行与 Verifier 判定、Session B 继承 A 的
+  已验收工作、记忆注入对真实任务是否有可量化收益。这三项属 Stage 2，
+  `M4F-R03` 仍为 BLOCKED。
+
 ## 处理原则
 
 - 任何"已修复/Pass"结论都必须指向可重现测试与脱敏证据；stub/确定性 Pass 不等于
