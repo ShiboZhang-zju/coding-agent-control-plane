@@ -652,6 +652,62 @@ MVP 绝不允许 Markdown 修改 `id`、`project_id`、`kind`、`verification`�
 回写任务、Goal、Attempt、Verdict 或审批。verified 晋升继续走独立的
 `project context-verify` + evidence 流程。
 
+### 6.3e 只读驾驶舱（UI-0）
+
+Owner 不必再翻多个 CLI 才能回答"我现在有哪些项目、哪些 Goal 在推进、哪里需要我"。
+
+```powershell
+# 1) 启动（只读；不会创建 Ledger，也不会写任何一行）
+python scripts/dashboard_server.py `
+  --ledger .poc-state/ledger.db `
+  --host 127.0.0.1 `
+  --port 8765
+
+# 2) 浏览器打开
+#    http://127.0.0.1:8765
+
+# 3) 只想在终端里确认某个 Ledger 能读？（不启 HTTP 服务）
+python scripts/dashboard_server.py --ledger .poc-state/ledger.db --probe
+
+# 4) 停止：Ctrl-C
+```
+
+**页面上有什么**
+
+| 位置 | 内容 |
+|---|---|
+| 顶部摘要 | 项目总数、活跃 Goal、活动 WorkItem、待人工处理、Rejected、Inconclusive；另有 `needs_human / needs_approval / dispatch_unknown / suspected_lost / session_binding_conflict` 的细分 |
+| 左侧导航 | 每个 Project 的名称、active、任务数与 Goal 数、待处理数、最近活动时间（无可信时间戳时显示"无时间戳"） |
+| 主体项目列表 | Project、当前 Goal（含状态）、Goal 状态分布、WorkItem 状态分布、最近任务、需人工处理数、最近活动 |
+| 全局人工介入区 | Goal `needs_human`、WorkItem `needs_approval`、`rejected`/`inconclusive`、`dispatch_unknown`、`suspected_lost`、SessionBindingConflict，**各自保留原始状态名** |
+| 项目详情 A–F | 项目概要（Context Version / Goal 分布 / 阻塞数）、Goal 列表（ID、摘要、决策数、任务数、当前任务、停止原因）、WorkItem 列表（State/Verdict/Queue/Attempt/Workspace/Context Version/Attention）、Session/Worker（含 `liveness: unknown`）、Project Memory 计数（Verified/Candidate/Unverified/Needs Merge）、本项目待人工处理项 |
+
+交互只有：切换 Project、筛选 Goal/WorkItem、复制 ID、手动刷新、10 秒自动刷新（可暂停、页面隐藏时自动停）、Project → Goal → WorkItem → Session 关联跳转、深浅色切换。
+**没有任何写操作**：不能提交/恢复 Goal、不能审批、不能取消、不能改 Context、不能删除项目、不能执行 shell。
+
+**为什么它不可能写数据**
+
+1. 连接用 `file:...?mode=ro` 打开，并额外执行 `PRAGMA query_only=ON`；
+2. 只读构造路径 `TaskStore(..., read_only=True)` 不执行 DDL、迁移、workspace 回填、
+   旧 JSON 导入和降级标记写入；
+3. Ledger 不存在时直接报 `ledger_missing`，绝不新建；
+4. 每个请求一条短连接，用完关闭，不长期持有 WAL 读快照；
+5. HTTP 只有 GET/HEAD，其余方法 405；没有接受请求体的路由；
+6. `tests/test_ui0_dashboard.py` 用行内容摘要 + 文件字节摘要 + 逐表计数 + `context_version`
+   对比"服务前后"，并直接在 Dashboard 自己的连接上尝试 14 条写语句（全部被 SQLite 拒绝）。
+
+**已知限制**
+
+- **没有身份认证**，所以只允许绑定 loopback（`0.0.0.0`/局域网地址会被直接拒绝）。
+  不要用端口转发把它暴露出去。
+- `Ledger` 只记录**绑定关系**，不记录 Worker 心跳；页面上的存活状态恒为 `unknown`，
+  存在 SessionReference 不代表 Worker 在线。
+- 不展示项目完成百分比：任务数不等于工作量。
+- 只显示 Project Memory 的计数与条目元数据，不显示知识正文，也不显示 Effective Prompt。
+- 只读连接读 WAL 库时，SQLite 可能创建/复用同目录的 `-shm` 索引文件；这是 SQLite
+  的读日志机制，不改变任何行内容（测试按行内容与文件字节校验，已明确区分）。
+- UI-0 不含写操作；提交 Goal、审批、恢复、取消留给 UI-1。
+
 ### 6.4 传统队列流程（仍然支持，未改变）
 
 ```powershell
@@ -739,6 +795,7 @@ fixture 已内置项目级 `permissions.allow`。已知限制见
 ```
 adapters/base.py                厂商无关的 Worker Adapter 契约 + 统一状态机
 adapters/codebuddy/             唯一允许出现 CodeBuddy 专有知识的地方
+dashboard/                      【UI-0】只读驾驶舱：ledger 会话 / 白名单投影 / HTTP API / 静态页面
 controlplane/store.py           SQLite Ledger：work items / approvals / context / workspaces
 controlplane/plane.py           门面：dispatch / enqueue / refresh / cancel / resume / summary
 controlplane/verify.py          产物断言验收（不看 worker 终态）
@@ -781,10 +838,15 @@ sandbox/                        两个一次性 Git 仓库（不入库）
 | M4-D | Conversational LD | **已完成**（T50–T53） |
 | M4-E | 两级关联召回（Chain of Recall / Inline & Spill / Fast Path） | **确定性完成**（T54 31 项 + T55 19 项 Pass；未运行真实模型/Worker） |
 | M4-F | Markdown Project Memory MVP（导出/预览/显式 CAS 应用/注入验收） | **确定性完成**（T56–T61；未运行真实模型/Worker） |
+| **UI-0** | **只读项目管理驾驶舱**（单机 MVP 的可视化扩展，不是新阶段） | **已完成**（32 项确定性测试 + 真实 HTTP/浏览器验证） |
 | M5 | Distributed Workspace（多节点、远程派工、受控同步） | 未实现 |
 
 历史计划 [docs/V0.2_PLAN.md](docs/V0.2_PLAN.md) 描述的是 v0.2 阶段（本地单用户
 控制平面），其范围已实现，不再作为后续路线图使用。
+
+UI-0 是**当前单机 MVP 的可视化扩展**，不是 M5 的一部分，也不是新里程碑：
+它不引入新状态机、不改变执行链路，只是把已有 Ledger 事实投影到浏览器里。
+详见 [6.3e 只读驾驶舱（UI-0）](#63e-只读驾驶舱ui-0)。
 
 ---
 
@@ -800,6 +862,9 @@ sandbox/                        两个一次性 Git 仓库（不入库）
 - **验收独立于 Worker 自述。** Worker 报 `done` 不算通过；只有产物断言 + baseline
   归属 + 副作用检查通过才是 `verified`；无断言的成功任务是 `inconclusive`。
 - **服务只绑 `127.0.0.1`**，`--auth password`，不使用 `--auth none`。
+- **UI-0 驾驶舱同样只绑 loopback**：它没有账号体系，`--host` 只接受
+  `127.0.0.1 / ::1 / localhost`，其它地址直接拒绝启动；不发 CORS 头，校验
+  `Host`，并下发 `Content-Security-Policy` 禁止外部资源。
 - **不写凭据。** 密码、Token、Cookie、Authorization 头不入库；证据写盘前统一脱敏。
 - **真实执行与模拟测试必须分开。** 本文档与证据中，只有脚本实际跑出的结果才标记为
   Pass；未验证的一律写"未验证"。

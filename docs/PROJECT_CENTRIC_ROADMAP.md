@@ -29,7 +29,14 @@ Human Owner → LD → Project(Context/WorkItems/Sessions) → Control Plane →
 | **M4-D** | Conversational LD（自然语言查询 / 提交 Goal / 阻塞解释 / 显式确认恢复） | M4-C | **已完成**（T50/T51/T52 确定性 + T53 真实模型与真实 Worker 对话闭环） |
 | **M4-E** | 关联召回（Chain of Recall + Inline & Spill + Fast/Slow Path） | M4-D | **确定性完成**（T54 31 项 + T55 19 项 Pass；未运行真实模型/Worker） |
 | **M4-F** | Markdown Project Memory MVP（导出/预览/显式 CAS 单条应用） | M4-E | **确定性完成**（T56–T61；未运行真实模型/Worker） |
+| **UI-0** | 只读项目管理驾驶舱（本地 Web Dashboard） | M1–M4 + G1 | **已完成**（32 项确定性测试 + 真实 HTTP/浏览器验证） |
 | M5 | Distributed Workspace | M1–M4 | 未实现 |
+
+**UI-0 不是 M5，也不是新阶段。** 它是当前单机 MVP 的**可视化扩展**：
+读的是同一份 SQLite Ledger，用的是同一套 `ProjectService` / `LDGoalStore` 查询，
+不新增 Agent、状态机、事件总线、调度器或缓存数据库，也不改变任何执行链路。
+它只有一种能力——把已有事实投射成一个 Owner 能一眼看懂的页面。所有写操作
+（提交/恢复 Goal、审批、取消、修改 Context）属于 UI-1，本轮不做。
 
 依赖是**功能依赖**而非排期依赖。M4-B 的依赖任务交接走控制平面确定性
 升级（`checkpoint_mode=reachable`），不把 Handoff 暴露为模型决策。
@@ -814,6 +821,52 @@ Markdown 默认位于 `<ledger-dir>/projects/<project-id>/memory/`，只是本�
 - 多文件/整项目原子导入、后台 watch、通用双向实时同步。
 - 候选自动去重、知识评分、语义合并或 Memory Agent。
 - 真实本地项目的“LD 对话 → Worker → 记忆更新 → 新 Session 复用”验收。
+
+---
+
+## UI-0 — 只读项目管理驾驶舱（单机 MVP 的可视化扩展）
+
+**定位**：不是新里程碑，不是 M5。M1–M4 与 G1 已经让控制平面能跑，Owner 却没有
+一个"一眼看清全局"的入口——只能逐个执行 `project brief / progress / tasks /
+sessions`、`ld goal list`、`ld recall`。UI-0 补的是这个可视化缺口。
+
+### 交付
+
+| 交付物 | 实现位置 |
+|---|---|
+| 只读 Ledger 会话（`mode=ro` + `PRAGMA query_only=ON`，短连接，无 DDL/迁移/回填） | `controlplane/store.py::TaskStore(read_only=True)`、`dashboard/ledger.py` |
+| 白名单投影（不复制状态机，不计算项目完成率，不推断 Worker 存活） | `dashboard/projections.py` |
+| HTTP API（GET/HEAD only，Host 校验，无 CORS，CSP，loopback-only） | `dashboard/api.py` |
+| 原生 HTML/CSS/JS 单页（无构建、无 CDN、`textContent`-only 渲染） | `dashboard/static/` |
+| 启动与探测入口 | `scripts/dashboard_server.py`（`--probe` 只读自检） |
+| 验收测试 | `tests/test_ui0_dashboard.py`（32 项，含真实 HTTP 与浏览器截图验证） |
+
+### 硬约束
+
+1. Ledger 是唯一权威；Dashboard 不存任何状态，不缓存，不写第二份真相。
+2. 只允许 GET/HEAD；所有写方法 405。写入拦截在 SQLite 连接层，不在路由层。
+3. 不得创建/迁移 Ledger；缺失即报 `ledger_missing`。
+4. 只绑 loopback；`0.0.0.0` 直接拒绝启动。
+5. 不返回项目根路径、Effective Prompt、Context 正文、Worker 日志、凭据。
+6. 状态保留原始类型，不把 approval / lost / rejected 折叠成"失败"。
+7. 不提供项目完成百分比。
+
+### 退出条件（本轮已验证）
+
+- 3 个项目（含 1 个无任务）、2 个 active Goal、1 个 needs_human Goal；
+  verified / rejected / needs_approval / running / dispatch_unknown WorkItem
+  与一条真实 SessionReference 全部正确投影。
+- Dashboard 计数与 `ProjectService` / Ledger 逐项一致（测试用同一服务做独立 oracle）。
+- 服务前后：逐表行数、行内容摘要、文件字节摘要、`context_version` 全部不变；
+  Dashboard 自己的连接上 14 条写语句全部被 SQLite 拒绝。
+- 真实 HTTP + 真实浏览器渲染通过；Runtime 写库后刷新即可看到新状态。
+
+### 尚未实现（属于 UI-1 或后续）
+
+- 任何写操作（Submit/Resume Goal、Approve/Deny、Cancel、Context 编辑）。
+- 身份认证与多用户（因此只能 loopback）。
+- WebSocket / SSE 推送（当前为 10 秒轮询 + 手动刷新）。
+- LD Chat 接入、Goal 决策历史时间线、Evidence 详情查看。
 
 ---
 

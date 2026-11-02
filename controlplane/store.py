@@ -60,6 +60,7 @@ import sys
 import threading
 import time
 import uuid
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -74,6 +75,14 @@ class LedgerDegraded(RuntimeError):
     empty database, so we no longer know which tasks are already running. Dispatching
     in that state can duplicate real work, therefore everything that changes state is
     refused; only reads, diagnostics and export stay available.
+    """
+
+
+class LedgerSchemaError(RuntimeError):
+    """The ledger file exists but does not carry the tables we need.
+
+    Raised by read-only callers so a dashboard can say "incompatible schema"
+    instead of rendering an empty but confidently-wrong overview.
     """
 
 
@@ -324,9 +333,34 @@ def _load(value: str | None, default: Any) -> Any:
 
 
 class TaskStore:
-    """Ledger facade used by the control plane (name kept for compatibility)."""
+    """Ledger facade used by the control plane (name kept for compatibility).
 
-    def __init__(self, path: Path | str | None = None, *, migrate_legacy: bool = True):
+    Two construction modes
+    ----------------------
+    Default (``read_only=False``) is the historical behaviour: open/create the
+    file, apply the schema, migrate columns, backfill default workspaces and
+    restore the degraded marker.  Writers rely on those side effects.
+
+    ``read_only=True`` is for *observers* (UI-0 dashboard, audits).  It must not
+    have side effects, so it deliberately does something different:
+
+      * the file must already exist (a missing ledger is an error, never an
+        implicitly created empty database);
+      * the connection is opened as ``file:...?mode=ro`` so SQLite itself — not
+        a routing convention — refuses every write;
+      * ``PRAGMA query_only=ON`` is a second, connection-level lock;
+      * no DDL, no migration, no backfill, no legacy JSON import, no degraded
+        marker write, and no ``journal_mode`` change (that pragma writes).
+
+    What a read-only connection *can* still touch is SQLite's own ``-shm``
+    index file for a WAL database, which SQLite may create/reuse to read the
+    log.  That is not a content change and is documented in the dashboard
+    README section; the read-only tests assert on row content, not on the
+    absence of ``-shm``.
+    """
+
+    def __init__(self, path: Path | str | None = None, *, migrate_legacy: bool = True,
+                 read_only: bool = False):
         base = Path(path) if path else DEFAULT_PATH
         # allow callers to pass the old *.json path
         if base.suffix.lower() == ".json":
@@ -341,6 +375,10 @@ class TaskStore:
         #: non-empty value means the fail-closed guarantee is process-local only.
         self.degraded_marker_error = ""
         self._lock = threading.RLock()   # parallel dispatch (T11) writes from threads
+        self.read_only = bool(read_only)
+        if self.read_only:
+            self._conn = self._open_read_only(base)
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = self._open()
         self._conn.executescript(SCHEMA)
@@ -365,6 +403,44 @@ class TaskStore:
             return conn
         except sqlite3.DatabaseError as exc:
             return self._quarantine(exc)
+
+    def _open_read_only(self, base: Path) -> sqlite3.Connection:
+        """Open an existing ledger with no possibility of writing to it.
+
+        Failures are raised, never "recovered": quarantining a corrupt file
+        means truncating it, which is exactly what a read-only observer must
+        not do.  The caller (dashboard API) maps these to distinct HTTP error
+        classes instead of showing a stack trace.
+        """
+        if not base.exists():
+            raise FileNotFoundError(f"ledger does not exist: {base}")
+        uri = base.resolve().as_uri() + "?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=5,
+                               check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=5000")
+        # Connection-level belt to the uri-level braces: even if a caller
+        # somehow obtained a writable handle, SQLite refuses every write.
+        conn.execute("PRAGMA query_only=ON")
+        return conn
+
+    def schema_tables(self) -> set[str]:
+        """Tables actually present in the ledger (read-only introspection)."""
+        rows = self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        return {row["name"] for row in rows}
+
+    def require_schema(self, required: Iterable[str]) -> None:
+        """Raise ``LedgerSchemaError`` when a required table is missing.
+
+        A ledger from a much older or unrelated build must be reported as
+        incompatible rather than silently producing empty dashboards.
+        """
+        missing = sorted(set(required) - self.schema_tables())
+        if missing:
+            raise LedgerSchemaError(
+                "ledger schema is incompatible; missing tables: "
+                + ", ".join(missing))
 
     def _quarantine(self, exc: Exception) -> sqlite3.Connection:
         """Never silently start empty: keep a copy, truncate in place, and shout.

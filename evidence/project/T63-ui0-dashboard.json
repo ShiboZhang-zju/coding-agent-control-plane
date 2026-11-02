@@ -1,0 +1,323 @@
+{
+  "test": "T63-UI0-readonly-dashboard",
+  "mode": "black-box HTTP against a throw-away ledger; no Worker, no model",
+  "ledger": ".poc-state\\ui0\\t63.db",
+  "server": {
+    "bind": "127.0.0.1",
+    "port": "ephemeral",
+    "routes": [
+      "/api/health",
+      "/api/overview",
+      "/api/projects",
+      "/api/projects/{id}",
+      "/api/projects/{id}/goals|tasks|sessions|memory-summary"
+    ]
+  },
+  "read_only_proof": {
+    "before": {
+      "counts": {
+        "approvals": 0,
+        "attempts": 1,
+        "context_update_receipts": 0,
+        "events": 0,
+        "evidence": 0,
+        "ld_goal_decisions": 0,
+        "ld_goals": 3,
+        "project_context_entries": 6,
+        "project_context_revisions": 0,
+        "project_context_state": 2,
+        "projects": 3,
+        "session_references": 1,
+        "sqlite_sequence": 0,
+        "work_items": 7,
+        "workspaces": 3
+      },
+      "content_digest": "8a396d79cb38088cb6b250a70b2f32d2c3ae0055f676992b3b72d8b7dcb19fc2",
+      "file_digest": "379f9474a6634ca07af204f8388c0b35018431e00f8d994c8aba47564c438e85"
+    },
+    "after": {
+      "counts": {
+        "approvals": 0,
+        "attempts": 1,
+        "context_update_receipts": 0,
+        "events": 0,
+        "evidence": 0,
+        "ld_goal_decisions": 0,
+        "ld_goals": 3,
+        "project_context_entries": 6,
+        "project_context_revisions": 0,
+        "project_context_state": 2,
+        "projects": 3,
+        "session_references": 1,
+        "sqlite_sequence": 0,
+        "work_items": 8,
+        "workspaces": 3
+      },
+      "content_digest": "45ff45ee4a698f8deed2bd3de75fa303d446013862ca0084da3f207b2271514b",
+      "file_digest": "d1d0dec67871331cba9ac3f395016d7c2fc3c0db8177260d32c0c5ab9c5580f6"
+    },
+    "allowed_delta": {
+      "work_items": 1,
+      "reason": "test itself wrote one fixture WorkItem to prove refresh sees Runtime updates"
+    }
+  },
+  "checks": [
+    {
+      "check": "index.html served",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "bytes": 2322
+      }
+    },
+    {
+      "check": "/app.js served",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "bytes": 46977
+      }
+    },
+    {
+      "check": "/styles.css served",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "bytes": 17944
+      }
+    },
+    {
+      "check": "no CORS header",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "check": "CSP same-origin only",
+      "pass": true,
+      "detail": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    },
+    {
+      "check": "cache disabled",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "check": "health ok",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "reachable": true
+      }
+    },
+    {
+      "check": "overview projects",
+      "pass": true,
+      "detail": {
+        "projects": 3
+      }
+    },
+    {
+      "check": "overview goals",
+      "pass": true,
+      "detail": {
+        "goals": 3,
+        "active": 2
+      }
+    },
+    {
+      "check": "overview needs_human goal",
+      "pass": true,
+      "detail": 1
+    },
+    {
+      "check": "overview attention items",
+      "pass": true,
+      "detail": 6
+    },
+    {
+      "check": "overview rejected/inconclusive kept apart",
+      "pass": true,
+      "detail": {
+        "rejected": 1,
+        "inconclusive": 1
+      }
+    },
+    {
+      "check": "/api/projects",
+      "pass": true,
+      "detail": 200
+    },
+    {
+      "check": "detail alpha",
+      "pass": true,
+      "detail": 200
+    },
+    {
+      "check": "detail goal ownership",
+      "pass": true,
+      "detail": 2
+    },
+    {
+      "check": "detail task ownership",
+      "pass": true,
+      "detail": 4
+    },
+    {
+      "check": "detail memory buckets",
+      "pass": true,
+      "detail": {
+        "verified": 2,
+        "candidate": 2,
+        "unverified": 1,
+        "needs_merge": 1
+      }
+    },
+    {
+      "check": "no project completion percent",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "check": "empty project renders",
+      "pass": true,
+      "detail": 200
+    },
+    {
+      "check": "session reference bound",
+      "pass": true,
+      "detail": "bound"
+    },
+    {
+      "check": "session liveness not inferred",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "check": "section goals",
+      "pass": true,
+      "detail": 200
+    },
+    {
+      "check": "section tasks",
+      "pass": true,
+      "detail": 200
+    },
+    {
+      "check": "section sessions",
+      "pass": true,
+      "detail": 200
+    },
+    {
+      "check": "section memory-summary",
+      "pass": true,
+      "detail": 200
+    },
+    {
+      "check": "POST rejected",
+      "pass": true,
+      "detail": 405
+    },
+    {
+      "check": "PUT rejected",
+      "pass": true,
+      "detail": 405
+    },
+    {
+      "check": "PATCH rejected",
+      "pass": true,
+      "detail": 405
+    },
+    {
+      "check": "DELETE rejected",
+      "pass": true,
+      "detail": 405
+    },
+    {
+      "check": "path traversal blocked",
+      "pass": true,
+      "detail": 403
+    },
+    {
+      "check": "foreign Host rejected",
+      "pass": true,
+      "detail": 403
+    },
+    {
+      "check": "unknown API is JSON 404",
+      "pass": true,
+      "detail": 404
+    },
+    {
+      "check": "no prompt/body/path leaked",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "xss name returned verbatim (escaped by renderer)",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "check": "xss title returned verbatim",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "check": "non-loopback bind refused",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "check": "loopback allow-list",
+      "pass": true,
+      "detail": [
+        "127.0.0.1",
+        "::1",
+        "localhost"
+      ]
+    },
+    {
+      "check": "live write visible (running)",
+      "pass": true,
+      "detail": "running"
+    },
+    {
+      "check": "live write visible (verified)",
+      "pass": true,
+      "detail": "verified"
+    },
+    {
+      "check": "no read snapshot left open after requests",
+      "pass": true,
+      "detail": 0
+    },
+    {
+      "check": "read-only connection refuses writes",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "check": "only the fixture's own work item was added",
+      "pass": true,
+      "detail": {
+        "work_items": 1,
+        "unexpected": {}
+      }
+    },
+    {
+      "check": "goals/context/attempts/evidence untouched",
+      "pass": true,
+      "detail": {
+        "ld_goals": 0,
+        "attempts": 0,
+        "evidence": 0
+      }
+    }
+  ],
+  "summary": {
+    "total": 43,
+    "passed": 43,
+    "failed": 0
+  },
+  "result": "Pass"
+}
