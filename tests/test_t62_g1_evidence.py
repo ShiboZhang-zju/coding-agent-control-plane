@@ -355,6 +355,133 @@ def test_pair3_ledger_still_substantiates_its_verdicts():
     assert record["source"]["verdicts_still_in_ledger"] is True
 
 
+def test_new_run_ledger_is_discoverable_by_scan_not_by_fixed_name(tmp_path):
+    """`setup()` allocates stage2c-runN.db; the old fixed tuple could not see it."""
+    state = tmp_path / "state"
+    state.mkdir()
+    run_ledger = state / "stage2c-run3.db"
+    conn = sqlite3.connect(str(run_ledger))
+    conn.execute("create table work_items (id text primary key, verdict text)")
+    conn.execute("insert into work_items values ('cp-n','verified')")
+    conn.commit()
+    conn.close()
+
+    found = model.candidate_ledgers(state)
+    assert run_ledger in found
+    # And it can substantiate a pair whose verdicts live there.
+    assert model._still_in_a_ledger(state, {"cp-n": "verified"}) is True
+
+
+def test_ledger_log_makes_the_right_file_first(tmp_path):
+    """A recorded path wins over whatever else happens to be lying around."""
+    state = tmp_path / "state"
+    state.mkdir()
+    older = state / "stage2c.db"
+    newer = state / "stage2c-run7.db"
+    for path, verdict in ((older, "pending"), (newer, "verified")):
+        conn = sqlite3.connect(str(path))
+        conn.execute("create table work_items (id text primary key, verdict text)")
+        conn.execute("insert into work_items values ('cp-x', ?)", (verdict,))
+        conn.commit()
+        conn.close()
+    (state / model.LEDGER_LOG).write_text(f"{older}\n{newer}\n", encoding="utf-8")
+
+    ordered = model.candidate_ledgers(state)
+    assert ordered[0] == newer  # newest logged entry first
+    assert model._still_in_a_ledger(state, {"cp-x": "verified"}) is True
+
+
+def test_pair_metadata_ledger_path_is_used_when_present(tmp_path):
+    state = tmp_path / "state"
+    pair_dir = state / "pairs" / "pair9"
+    pair_dir.mkdir(parents=True)
+    ledger = state / "stage2c-run9.db"
+    conn = sqlite3.connect(str(ledger))
+    conn.execute("create table work_items (id text primary key, verdict text)")
+    conn.execute("insert into work_items values ('cp-9','verified')")
+    conn.commit()
+    conn.close()
+    (pair_dir / "ledger.json").write_text(
+        json.dumps({"ledger_path": str(ledger)}), encoding="utf-8")
+    (pair_dir / "summary.json").write_text(json.dumps([{
+        "task_id": "cp-9", "arm": "c1", "verdict": "verified",
+        "context_version": 1, "context_entry_refs": [], "head_commit": "a" * 40,
+        "duration_s": 1.0, "assertions_failed": [], "files_changed": [],
+        "added_lines": 1, "tests_tail": "1 passed",
+    }]), encoding="utf-8")
+
+    hint = model.recorded_ledger(state, "pair9")
+    assert hint == ledger
+    record = model.build_archived_pair(state, "pair9")
+    assert record["source"]["ledger_path"].endswith("stage2c-run9.db")
+    assert record["source"]["ledger_from"] == "pair run metadata"
+
+
+def test_recorded_ledger_pointing_nowhere_is_not_followed(tmp_path):
+    """A stale metadata path must not be trusted into returning recoverability."""
+    state = tmp_path / "state"
+    pair_dir = state / "pairs" / "pair8"
+    pair_dir.mkdir(parents=True)
+    (pair_dir / "ledger.json").write_text(
+        json.dumps({"ledger_path": str(tmp_path / "gone.db")}), encoding="utf-8")
+    assert model.recorded_ledger(state, "pair8") is None
+
+
+# --------------------------------------------------------------------------- #
+# active-ledger pointer: fail closed, never fall back to a historical ledger
+# --------------------------------------------------------------------------- #
+def _contrast_module(tmp_path, pointer: str | None, *, target_exists: bool):
+    """Import the contrast script with its STATE pointed at tmp_path."""
+    import importlib
+
+    contrast = importlib.import_module("t62_stage2_contrast")
+    contrast.STATE = tmp_path
+    contrast.LEDGER = tmp_path / "stage2c.db"
+    contrast.ACTIVE_LEDGER_FILE = tmp_path / "contrast-active-ledger.txt"
+    # A historical ledger existing is exactly the trap we must not fall into.
+    real = tmp_path / "stage2c.db"
+    conn = sqlite3.connect(str(real))
+    conn.execute("create table work_items (id text primary key, verdict text)")
+    conn.commit()
+    conn.close()
+    if pointer is not None:
+        contrast.ACTIVE_LEDGER_FILE.write_text(pointer, encoding="utf-8")
+    if target_exists:
+        (tmp_path / "stage2c-run1.db").write_text("", encoding="utf-8")
+    return contrast
+
+
+def test_active_ledger_without_pointer_is_blocked(tmp_path):
+    contrast = _contrast_module(tmp_path, None, target_exists=False)
+    with pytest.raises(contrast.NoActiveLedger):
+        contrast.active_ledger()
+    assert contrast.status() == 2
+
+
+def test_active_ledger_with_missing_target_is_blocked(tmp_path):
+    missing = tmp_path / "stage2c-run1.db"
+    contrast = _contrast_module(tmp_path, str(missing), target_exists=False)
+    with pytest.raises(contrast.NoActiveLedger):
+        contrast.active_ledger()
+    assert contrast.status() == 2
+
+
+def test_active_ledger_never_falls_back_to_a_finished_ledger(tmp_path):
+    """The historical stage2c.db exists, but must not be silently used."""
+    contrast = _contrast_module(tmp_path, None, target_exists=False)
+    assert contrast.LEDGER.exists()  # the trap is present
+    with pytest.raises(contrast.NoActiveLedger):
+        contrast.active_ledger()
+
+
+def test_active_ledger_returns_the_pointer_target(tmp_path):
+    contrast = _contrast_module(tmp_path, None, target_exists=False)
+    target = tmp_path / "stage2c-run2.db"
+    target.write_text("", encoding="utf-8")
+    contrast.ACTIVE_LEDGER_FILE.write_text(str(target), encoding="utf-8")
+    assert contrast.active_ledger() == target
+
+
 def test_pair1_archive_is_not_upgraded_by_later_evidence_levels():
     record = model.load_archive(EVID / "t62", "pair1")
     assert record["evidence_level"] == "historical_record_only"

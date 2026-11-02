@@ -180,13 +180,97 @@ def normalize_pair(pair_id: str, rows: list[dict], *, source: dict,
 # reading the per-pair sources
 # --------------------------------------------------------------------------- #
 def read_summary(state_dir: Path, pair_id: str) -> list[dict] | None:
+    """The pair's per-arm rows. A dict wrapper (`{"arms": [...], "ledger_path": ..}`)
+    is accepted so run metadata can live in the same file."""
     path = Path(state_dir) / "pairs" / pair_id / "summary.json"
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(data, dict):
+        data = data.get("arms")
+    return data if isinstance(data, list) else None
 
 
-def _session_map(state_dir: Path) -> dict[str, dict]:
+def recorded_ledger(state_dir: Path, pair_id: str) -> Path | None:
+    """The ledger a pair says it ran on, if the run recorded one.
+
+    Two accepted shapes so the metadata can live either beside the summary or
+    inside it:
+      pairs/<pair>/ledger.json  -> {"ledger_path": "..."}
+      summary.json              -> {"ledger_path": "...", "arms": [...]}
+    A path that does not exist is reported as None, never silently followed.
+    """
+    pair_dir = Path(state_dir) / "pairs" / pair_id
+    for path in (pair_dir / "ledger.json", pair_dir / "summary.json"):
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            raw = data.get("ledger_path")
+            if raw:
+                candidate = Path(raw)
+                if not candidate.is_absolute():
+                    candidate = (Path.cwd() / candidate)
+                return candidate if candidate.exists() else None
+    return None
+
+
+def _relative(path: Path) -> str:
+    """Repo-relative where possible; never leaks an absolute machine path."""
+    try:
+        return Path(path).resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return Path(path).name
+
+
+# Ledger filenames the pilot is known to have used. This is a *fallback*, not the
+# source of truth: `setup()` now allocates `stage2c-runN.db`, so a hard-coded list
+# would make a brand-new, perfectly valid experiment look unrecoverable.
+HISTORICAL_LEDGERS = ("stage2c.db", "stage2c-pair2.db", "stage2c-pair2-final.db")
+# Every ledger `setup()` ever created, one absolute path per line, in order.
+LEDGER_LOG = "contrast-ledgers.txt"
+
+
+def candidate_ledgers(state_dir: Path, hint: Path | None = None) -> list[Path]:
+    """Every ledger worth reading, most specific first, deduplicated.
+
+    Order: an explicit hint, then the run log (newest last, so reversed), then
+    any `stage2c*.db` present, then the historical names. Globbing is what makes
+    `stage2c-runN.db` findable at all; the old fixed tuple did not.
+    """
+    state = Path(state_dir)
+    seen: list[Path] = []
+
+    def add(path: Path | None) -> None:
+        if path is None:
+            return
+        path = Path(path)
+        if path.exists() and path.suffix == ".db" and path not in seen:
+            seen.append(path)
+
+    add(hint)
+
+    log = state / LEDGER_LOG
+    if log.exists():
+        try:
+            lines = [ln.strip() for ln in
+                     log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        except OSError:
+            lines = []
+        for line in reversed(lines):
+            add(Path(line))
+    for path in sorted(state.glob("stage2c*.db"), reverse=True):
+        add(path)
+    for name in HISTORICAL_LEDGERS:
+        add(state / name)
+    add(state / "stage2.db")
+    return seen
+
+
+def _session_map(state_dir: Path, hint: Path | None = None) -> dict[str, dict]:
     """Best-effort session/attempt lookup from the surviving ledgers.
 
     Read-only. A missing entry stays missing - it is never fabricated, and an
@@ -196,11 +280,7 @@ def _session_map(state_dir: Path) -> dict[str, dict]:
     import sqlite3
 
     found: dict[str, dict] = {}
-    state = Path(state_dir)
-    for name in ("stage2c.db", "stage2c-pair2.db", "stage2c-pair2-final.db"):
-        path = state / name
-        if not path.exists():
-            continue
+    for path in candidate_ledgers(state_dir, hint):
         try:
             conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
         except sqlite3.Error:
@@ -220,7 +300,8 @@ def _session_map(state_dir: Path) -> dict[str, dict]:
 
 
 def _still_in_a_ledger(state_dir: Path,
-                       expected: dict[str, str]) -> bool:
+                       expected: dict[str, str],
+                       hint: Path | None = None) -> bool:
     """Can ONE surviving ledger still substantiate every task with its verdict?
 
     `expected` maps task_id -> the verdict the archive recorded. A row that still
@@ -232,11 +313,7 @@ def _still_in_a_ledger(state_dir: Path,
     """
     if not expected:
         return False
-    state = Path(state_dir)
-    for name in ("stage2c.db", "stage2c-pair2.db", "stage2c-pair2-final.db"):
-        path = state / name
-        if not path.exists():
-            continue
+    for path in candidate_ledgers(state_dir, hint):
         try:
             conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
         except sqlite3.Error:
@@ -272,7 +349,8 @@ def build_archived_pair(state_dir: Path, pair_id: str) -> dict | None:
     rows = read_summary(state_dir, pair_id)
     if rows is None:
         return None
-    sessions = _session_map(state_dir)
+    hint = recorded_ledger(state_dir, pair_id)
+    sessions = _session_map(state_dir, hint)
     enriched = []
     for row in rows:
         item = dict(row)
@@ -284,17 +362,27 @@ def build_archived_pair(state_dir: Path, pair_id: str) -> dict | None:
     # Compare against the verdict the archive recorded, not merely the row id.
     expected_verdicts = {str(row.get("task_id") or ""): str(row.get("verdict") or "")
                          for row in rows if row.get("task_id")}
-    recoverable = _still_in_a_ledger(state_dir, expected_verdicts)
+    recoverable = _still_in_a_ledger(state_dir, expected_verdicts, hint)
+    source = {
+        "kind": "per-pair archive written at run time",
+        "summary": f".poc-state/t62/pairs/{pair_id}/summary.json",
+        "session_lookup": "read-only SessionReference lookup in the "
+                          "surviving contrast ledgers",
+        "derived_from_rerun": False,
+        "verdicts_still_in_ledger": recoverable,
+    }
+    if hint is not None:
+        # The ledger this pair actually ran on, when the run wrote it down. A
+        # fixed filename list cannot work now that every round allocates a new
+        # file (`stage2c-runN.db`).
+        source["ledger_path"] = _relative(hint)
+        source["ledger_from"] = "pair run metadata"
+    else:
+        source["ledger_from"] = ("not recorded for this pair; discovered by "
+                                 "scanning .poc-state/t62 for stage2c*.db")
     record = normalize_pair(
         pair_id, enriched,
-        source={
-            "kind": "per-pair archive written at run time",
-            "summary": f".poc-state/t62/pairs/{pair_id}/summary.json",
-            "session_lookup": "read-only SessionReference lookup in the "
-                              "surviving contrast ledgers",
-            "derived_from_rerun": False,
-            "verdicts_still_in_ledger": recoverable,
-        },
+        source=source,
         evidence_level="archived_verdict",
         ledger_recoverable=recoverable,
     )

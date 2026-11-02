@@ -42,18 +42,33 @@ PILOT_LEDGER = STATE / "stage2.db"
 ACTIVE_LEDGER_FILE = STATE / "contrast-active-ledger.txt"
 
 
-def active_ledger() -> Path:
-    """The ledger this run is actually using.
+class NoActiveLedger(RuntimeError):
+    """There is no current ledger to run against or report on."""
 
-    `setup` may refuse to reuse `stage2c.db` once it holds a verdict, so `run`
-    and `status` must poll the file setup actually created rather than the
-    historical name.
+
+def active_ledger() -> Path:
+    """The ledger this round is actually using. Fails closed.
+
+    Every round now allocates a new file, so falling back to the historical
+    `stage2c.db` would silently point `run()` at a finished experiment - and
+    `status()` would then report on old data as if it were this round's. A
+    missing pointer, an unreadable pointer, or a pointer to a file that no longer
+    exists is an error, not a default.
     """
-    if ACTIVE_LEDGER_FILE.exists():
-        candidate = Path(ACTIVE_LEDGER_FILE.read_text(encoding="utf-8").strip())
-        if candidate.exists():
-            return candidate
-    return LEDGER
+    if not ACTIVE_LEDGER_FILE.exists():
+        raise NoActiveLedger(
+            "no active-ledger pointer: run `setup` for this round before `run` "
+            "or `status`. There is deliberately no fallback to a historical "
+            f"ledger ({LEDGER.name}).")
+    raw = ACTIVE_LEDGER_FILE.read_text(encoding="utf-8").strip()
+    if not raw:
+        raise NoActiveLedger(f"{ACTIVE_LEDGER_FILE.name} is empty; re-run `setup`")
+    candidate = Path(raw)
+    if not candidate.exists():
+        raise NoActiveLedger(
+            f"active-ledger pointer targets {candidate.name}, which does not "
+            "exist; re-run `setup` rather than falling back to an old ledger")
+    return candidate
 
 
 SRC = STATE / "pilot-work"
@@ -157,9 +172,13 @@ def setup() -> int:
             f"{ledger.name}-wal still holds {wal_size(ledger)} bytes; stop the "
             "runtime and Worker before starting a new pair")
 
-    # `run` and `status` must poll the ledger this setup actually created, not
-    # the historical filename it may have refused to delete.
+    # `run` and `status` read this pointer, and they fail closed without it: with
+    # a new filename per round there is no safe default to fall back to.
     ACTIVE_LEDGER_FILE.write_text(str(ledger), encoding="utf-8")
+    # The archive module finds ledgers by scanning `stage2c*.db`, but an explicit
+    # log means it never has to guess which file belongs to which round.
+    with open(STATE / "contrast-ledgers.txt", "a", encoding="utf-8") as log:
+        log.write(str(ledger) + "\n")
 
     adapter = CodeBuddyAdapter(Api(base=BASE), autologin=True)
     store = TaskStore(ledger)
@@ -208,12 +227,20 @@ def setup() -> int:
 
 
 def run() -> int:
+    # Resolve the ledger BEFORE opening the log or spawning anything: a missing
+    # pointer must not start a Runtime pointed at an old experiment.
+    try:
+        ledger = active_ledger()
+    except NoActiveLedger as exc:
+        print(json.dumps({"runtime_pid": None, "result": "BLOCKED",
+                          "reason": str(exc)}, ensure_ascii=False))
+        return 2
     log = open(STATE / "contrast-runtime.log", "ab")
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
     argv = [
         sys.executable, str(ROOT / "scripts" / "run_controlplane.py"),
-        "--ledger", str(active_ledger()), "--base", BASE,
+        "--ledger", str(ledger), "--base", BASE,
         "--known-interval", "5", "--dispatch-interval", "2",
         "--max-concurrent", "1", "--scan-on-start",
     ]
@@ -233,7 +260,13 @@ def status() -> int:
     silently reverted to queued (T62-F07) report "done". An empty or single-arm
     ledger is now BLOCKED, never done.
     """
-    ledger = active_ledger()
+    try:
+        ledger = active_ledger()
+    except NoActiveLedger as exc:
+        print(json.dumps({"done": False, "result": "BLOCKED",
+                          "reason": str(exc), "ledger": None},
+                         ensure_ascii=False, indent=1))
+        return 2
     if not ledger.exists():
         print(json.dumps({"done": False, "result": "BLOCKED",
                           "reason": f"{ledger.name} does not exist"},
