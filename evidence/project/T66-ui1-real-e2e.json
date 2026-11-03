@@ -1,0 +1,382 @@
+{
+  "test": "T66 UI-1 real end-to-end (console -> real LLM -> real Worker)",
+  "mode": "normal deployment: serve_ctl worker + dashboard_server --enable-chat + run_controlplane --advance-goals, one shared ledger; the operator only publishes and reads via HTTP",
+  "model": {
+    "configured": true,
+    "id_persisted": false
+  },
+  "worker_start": {
+    "result": "started",
+    "port": 8787,
+    "bind": "127.0.0.1:8787",
+    "auth": "password"
+  },
+  "projects": {
+    "happy": "prj-6aa9571169",
+    "readonly": "prj-1f723f3423"
+  },
+  "S1": {
+    "goal": {
+      "status": "completed",
+      "decision_count": 2,
+      "model_decision_count": 2,
+      "task_count": 1,
+      "resume_count": 0,
+      "max_decisions_total": 30,
+      "max_tasks_total": 4,
+      "last_decision": "{\"step\": 2, \"action\": \"finish\", \"next_state\": \"finished\", \"task_id\": null, \"recovered\": null}"
+    },
+    "tasks": [
+      {
+        "task_id": "cp-24db32d33803",
+        "state": "succeeded",
+        "verdict": "verified",
+        "session_id": true,
+        "worktree": true,
+        "head_commit": true,
+        "assertion_results": [
+          {
+            "kind": "file_exists",
+            "target": "configlib/__init__.py",
+            "value": null,
+            "passed": true,
+            "owned": true,
+            "observed": "changed since baseline"
+          },
+          {
+            "kind": "file_contains",
+            "target": "configlib/__init__.py",
+            "value": "def load_config",
+            "passed": true,
+            "owned": true,
+            "observed": "contains value=True, changed_since_baseline=True"
+          }
+        ],
+        "assertion_owned": [
+          true,
+          true
+        ],
+        "metadata": {
+          "submitted_by": "ld",
+          "ld_goal_ref": "sha256:b07fe96a60c664d91506c0ac12eddac8f8eadab72407800bdf0669b50a48f04b"
+        }
+      }
+    ],
+    "steps": [
+      {
+        "step": 1,
+        "state": "committed",
+        "action": "submit_task",
+        "reason": "目标尚未有任何任务；提交唯一任务：在非 main/master 的特性分支上实现 configlib.load_config，使 test_load.py 通过，并以 configlib/__init__.py 的文件断言作为验收依据。"
+      },
+      {
+        "step": 2,
+        "state": "committed",
+        "action": "finish",
+        "reason": "唯一任务 cp-24db32d33803 已被 Verifier 判定为 verified，目标要求（configlib/__init__.py 中出现 def load_config 且 test_load.py 通过）已由该任务的声明断言独立验收，无需再提交同类任务。"
+      }
+    ],
+    "stalled": false,
+    "idle_s": 10.0,
+    "timeline_tail": [
+      {
+        "elapsed_s": 411.0,
+        "goal_status": "waiting",
+        "decision_count": 1,
+        "model_decision_count": 1,
+        "task_count": 1,
+        "current_task_id": "cp-24db32d33803",
+        "resume_count": 0,
+        "tasks": [
+          {
+            "task_id": "cp-24db32d33803",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "elapsed_s": 421.0,
+        "goal_status": "waiting",
+        "decision_count": 1,
+        "model_decision_count": 1,
+        "task_count": 1,
+        "current_task_id": "cp-24db32d33803",
+        "resume_count": 0,
+        "tasks": [
+          {
+            "task_id": "cp-24db32d33803",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "elapsed_s": 431.0,
+        "goal_status": "waiting",
+        "decision_count": 1,
+        "model_decision_count": 1,
+        "task_count": 1,
+        "current_task_id": "cp-24db32d33803",
+        "resume_count": 0,
+        "tasks": [
+          {
+            "task_id": "cp-24db32d33803",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "elapsed_s": 441.0,
+        "goal_status": "waiting",
+        "decision_count": 1,
+        "model_decision_count": 1,
+        "task_count": 1,
+        "current_task_id": "cp-24db32d33803",
+        "resume_count": 0,
+        "tasks": [
+          {
+            "task_id": "cp-24db32d33803",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "elapsed_s": 451.0,
+        "goal_status": "waiting",
+        "decision_count": 1,
+        "model_decision_count": 1,
+        "task_count": 1,
+        "current_task_id": "cp-24db32d33803",
+        "resume_count": 0,
+        "tasks": [
+          {
+            "task_id": "cp-24db32d33803",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          }
+        ]
+      },
+      {
+        "elapsed_s": 461.1,
+        "goal_status": "completed",
+        "decision_count": 2,
+        "model_decision_count": 2,
+        "task_count": 1,
+        "current_task_id": "cp-24db32d33803",
+        "resume_count": 0,
+        "tasks": [
+          {
+            "task_id": "cp-24db32d33803",
+            "state": "succeeded",
+            "verdict": "verified",
+            "session": true
+          }
+        ]
+      }
+    ],
+    "runtime_log_tail": "{\"event\": \"runtime_starting\", \"worker\": \"codebuddy\", \"node_id\": \"local\", \"worker_instance_id\": \"local-codebuddy-default\", \"ledger\": \"<REPO>\\\\.poc-state\\\\t66\\\\t66-9fd15a1b.db\", \"known_interval_s\": 5.0, \"orphan_scan_interval_s\": 60.0, \"dispatch_interval_s\": 1.0, \"max_concurrent_tasks\": 2, \"goal_advancement\": true, \"goal_interval_s\": 3.0}\n{\"event\": \"runtime_starting\", \"worker\": \"codebuddy\", \"node_id\": \"local\", \"worker_instance_id\": \"local-codebuddy-default\", \"ledger\": \"<REPO>\\\\.poc-state\\\\t66\\\\t66-19e55ec2.db\", \"known_interval_s\": 5.0, \"orphan_scan_interval_s\": 60.0, \"dispatch_interval_s\": 1.0, \"max_concurrent_tasks\": 2, \"goal_advancement\": true, \"goal_interval_s\": 3.0}\n{\"event\": \"runtime_starting\", \"worker\": \"codebuddy\", \"node_id\": \"local\", \"worker_instance_id\": \"local-codebuddy-default\", \"ledger\": \"<REPO>\\\\.poc-state\\\\t66\\\\t66-d965862c.db\", \"known_interval_s\": 5.0, \"orphan_scan_interval_s\": 60.0, \"dispatch_interval_s\": 1.0, \"max_concurrent_tasks\": 2, \"goal_advancement\": true, \"goal_interval_s\": 3.0}\n{\"event\": \"runtime_starting\", \"worker\": \"codebuddy\", \"node_id\": \"local\", \"worker_instance_id\": \"local-codebuddy-default\", \"ledger\": \"<REPO>\\\\.poc-state\\\\t66\\\\t66-a272c2f3.db\", \"known_interval_s\": 5.0, \"orphan_scan_interval_s\": 60.0, \"dispatch_interval_s\": 1.0, \"max_concurrent_tasks\": 2, \"goal_advancement\": true, \"goal_interval_s\": 3.0}\n"
+  },
+  "S1b_dashboard": {
+    "goal": {
+      "goal_id": "goal-b07fe96a60c6",
+      "status": "completed",
+      "linked_task_count": 1,
+      "linked_task_ids": [
+        "cp-24db32d33803"
+      ],
+      "linked_task_counts": {
+        "verified": 1
+      },
+      "linked_verified_count": 1,
+      "task_count": 1
+    },
+    "tasks": [
+      {
+        "task_id": "cp-24db32d33803",
+        "state": "succeeded",
+        "verdict": "verified",
+        "goal_ref": "sha256:b07fe96a60c664d91506c0ac12eddac8f8eadab72407800bdf0669b50a48f04b",
+        "goal_id": null
+      }
+    ]
+  },
+  "S3_failure_path": {
+    "goal": {
+      "status": "needs_human",
+      "decision_count": 3,
+      "task_count": 1,
+      "last_decision": "{\"step\": 3, \"action\": \"request_human\", \"next_state\": \"human_required\", \"task_id\": null, \"recovered\": null}"
+    },
+    "tasks": [
+      {
+        "task_id": "cp-76ccc267a1a4",
+        "state": "succeeded",
+        "verdict": "inconclusive",
+        "assertion_results": []
+      }
+    ],
+    "dashboard_goal": {
+      "goal_id": "goal-1d875a124b27",
+      "status": "needs_human",
+      "linked_task_count": 1,
+      "linked_verified_count": 0
+    },
+    "timeline_tail": [
+      {
+        "elapsed_s": 130.5,
+        "goal_status": "waiting",
+        "decision_count": 2,
+        "model_decision_count": 2,
+        "task_count": 1,
+        "current_task_id": "cp-76ccc267a1a4",
+        "resume_count": 0,
+        "tasks": [
+          {
+            "task_id": "cp-76ccc267a1a4",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "elapsed_s": 140.5,
+        "goal_status": "waiting",
+        "decision_count": 2,
+        "model_decision_count": 2,
+        "task_count": 1,
+        "current_task_id": "cp-76ccc267a1a4",
+        "resume_count": 0,
+        "tasks": [
+          {
+            "task_id": "cp-76ccc267a1a4",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "elapsed_s": 150.6,
+        "goal_status": "waiting",
+        "decision_count": 2,
+        "model_decision_count": 2,
+        "task_count": 1,
+        "current_task_id": "cp-76ccc267a1a4",
+        "resume_count": 0,
+        "tasks": [
+          {
+            "task_id": "cp-76ccc267a1a4",
+            "state": "running",
+            "verdict": "pending",
+            "session": true
+          }
+        ]
+      },
+      {
+        "elapsed_s": 160.6,
+        "goal_status": "waiting",
+        "decision_count": 2,
+        "model_decision_count": 2,
+        "task_count": 1,
+        "current_task_id": "cp-76ccc267a1a4",
+        "resume_count": 0,
+        "tasks": [
+          {
+            "task_id": "cp-76ccc267a1a4",
+            "state": "succeeded",
+            "verdict": "inconclusive",
+            "session": true
+          }
+        ]
+      },
+      {
+        "elapsed_s": 170.7,
+        "goal_status": "needs_human",
+        "decision_count": 3,
+        "model_decision_count": 3,
+        "task_count": 1,
+        "current_task_id": "cp-76ccc267a1a4",
+        "resume_count": 0,
+        "tasks": [
+          {
+            "task_id": "cp-76ccc267a1a4",
+            "state": "succeeded",
+            "verdict": "inconclusive",
+            "session": true
+          }
+        ]
+      }
+    ]
+  },
+  "S2_restart": {
+    "dashboard_restarted": true,
+    "goal_status_after_restart": "completed",
+    "linked_task_ids_after_restart": [
+      "cp-24db32d33803"
+    ],
+    "task_count_after_restart": 1,
+    "task_verdicts_after_restart": [
+      "verified"
+    ],
+    "goal_row_after_restart": {
+      "status": "completed",
+      "decision_count": 2,
+      "task_count": 1
+    }
+  },
+  "checks": {
+    "S1.publish_http_200": true,
+    "S1.publish_created_one_goal": true,
+    "S1.publish_did_not_create_work_item": true,
+    "S1.did_not_stall": true,
+    "S1.runtime_woke_the_ld": true,
+    "S1.exactly_one_submit_step": true,
+    "S1.llm_produced_the_decision": true,
+    "S1.ld_submitted_exactly_one_task": true,
+    "S1.task_submitted_by_ld": true,
+    "S1.real_codebuddy_session": true,
+    "S1.real_verifier_verified": true,
+    "S1.task_changed_the_repo": true,
+    "S1.goal_completed_by_ld": true,
+    "S1.zero_human_resumes": true,
+    "S1.main_branch_untouched": true,
+    "S1.load_config_really_written": true,
+    "S1b.dashboard_lists_the_goal": true,
+    "S1b.dashboard_goal_status_is_ledger_status": true,
+    "S1b.dashboard_links_the_forwarded_task": true,
+    "S1b.dashboard_task_shows_verified_verdict": true,
+    "S1b.dashboard_task_carries_the_goal_ref": true,
+    "S1b.no_invented_progress_percentage": true,
+    "S3.readonly_publish_accepted": true,
+    "S3.did_not_stall": true,
+    "S3.no_task_reached_verified": true,
+    "S3.negative_only_evidence_not_accepted": true,
+    "S3.goal_not_completed": true,
+    "S3.dashboard_does_not_claim_completion": true,
+    "S2.dashboard_came_back": true,
+    "S2.goal_status_survived": true,
+    "S2.links_survived": true,
+    "S2.verdicts_survived": true,
+    "S2.no_duplicate_dispatch": true,
+    "S2.ledger_truth_unchanged": true
+  },
+  "patched_env": false,
+  "not_covered": [
+    "browser click-through (this run drives the same HTTP API the page uses)",
+    "Runner heartbeat/liveness (still design-limited, see UI1-R01)"
+  ],
+  "result": "Pass",
+  "ledger": {
+    "path_relative": ".poc-state\\t66\\t66-a272c2f3.db",
+    "sha256": "c9fb8119a14472297bfa9d2c9416f8cf1a98df06f742f33667eefa5f8a5c8eb1"
+  }
+}

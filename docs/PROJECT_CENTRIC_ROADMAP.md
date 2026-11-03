@@ -963,6 +963,52 @@ console POST /api/chat/publish
 
 ---
 
+## UI-1 最终验收（T66，2026-11-03）
+
+T65 证明的是"控制台不能自己派工"；T66 证明的是"控制台发布的目标，真实的
+LD 与真实的 Worker 能跑完"。部署与运维实际使用完全一致：
+
+```
+serve_ctl.py start                   真实 CodeBuddy HTTP 服务
+dashboard_server.py --enable-chat    真实 UI-1 Dashboard（浏览器用的同一 HTTP API）
+run_controlplane.py --advance-goals  真实常驻 Runner（自己调度）
+LD_MODEL_*                           真实 LLM 决策端点（凭据只进子进程环境）
+共享 SQLite Ledger
+```
+
+测试脚本只做两件事：通过控制台 HTTP 发布目标，然后**只读** Ledger。它从不调用
+`run_due` / `advance_due` / `run_goal` / `run_once`，从不写 verdict，从不改 Goal 状态。
+
+结果：**34/34 检查 Pass**，`resume_count = 0`（零人工介入）。
+
+| 场景 | 结果 |
+|---|---|
+| S1 控制台发布 → 真实 LLM 决策 → 真实 CodeBuddy 会话 → 真实 Verifier | 单任务、`verified`、Goal `completed`；`main` 未被改动；`load_config` 在磁盘上真实存在 |
+| S1b Dashboard 关联 | Goal → WorkItem → `verified` 全部对得上，链接来自 `metadata.ld_goal_ref`；无 `progress_percent` 之类的伪进度 |
+| S2 重启 Dashboard + Runner | 历史、状态、关联全部存活；**未重复派工**（任务数仍是 1） |
+| S3 不该成功的场景 | 只读目标未产生可验证产物 → `inconclusive` → `needs_human`；Dashboard 不显示完成 |
+
+### T66 发现的真实产品缺陷（已修复）
+
+`verdict_for()` 原先只检查"所有断言 passed"。LD 对只读目标选择了纯否定断言
+（`path_absent`），而一个**什么都没做**的任务天然满足否定断言，于是被判定
+`verified`，Goal 报 `completed`。最小复现（无 worker / 无模型 / 无 ledger）
+确认这是共用的验收规则缺陷，不是测试脚本问题。
+
+修复：`VERIFIED` 额外要求至少一条断言 `owned=True`。否定型断言通过时
+`owned=False`，因此"纯否定断言集"与"没有断言"同等降级为 `inconclusive`。
+确定性回归 `tests/test_verifier_negative_assertions.py`（9 项），真实回归见
+T66 S3。
+
+### 仍未覆盖
+
+- 浏览器真实点击路径（T66 走的是浏览器使用的同一套 HTTP API，不是 DOM 事件）。
+- Runner 心跳/在线探测（UI1-R01，设计限制）。
+- 真实 CodeBuddy session 偶发卡在 `starting…`（UI1-R08，worker 侧缺陷，
+  T66 只能检测并诚实失败）。
+
+---
+
 ## M5 — Distributed Workspace
 
 ### 目标

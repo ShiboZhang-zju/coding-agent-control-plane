@@ -1,0 +1,83 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-053d5e317a7f",
+    "project_id": "prj-48af655025",
+    "title": "Read-only report: missing configlib functions",
+    "state": "succeeded",
+    "verdict": "inconclusive",
+    "assertion_results": [],
+    "warnings": [],
+    "finished_at": 1793679724.342
+  },
+  "attempt": {
+    "id": "at-61e8175cf6",
+    "worker_job_id": "a91a6725",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793679425.3316543,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 6,
+      "work_item_id": "cp-053d5e317a7f",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-48af655025",
+        "workspace_id": "ws-e7f31065b7",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "context_injected": true
+      },
+      "created_at": 1793679423.0856333
+    },
+    {
+      "id": 7,
+      "work_item_id": "cp-053d5e317a7f",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-48af655025",
+        "root": "<REPO>\\sandbox\\t66-real-e2e-9fd15a1b\\readonly",
+        "cwd": "<REPO>\\sandbox\\t66-real-e2e-9fd15a1b\\readonly"
+      },
+      "created_at": 1793679423.4708781
+    },
+    {
+      "id": 8,
+      "work_item_id": "cp-053d5e317a7f",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\t66-real-e2e-9fd15a1b\\readonly",
+        "attempt_id": "at-61e8175cf6",
+        "approval_id": null
+      },
+      "created_at": 1793679425.3851278
+    },
+    {
+      "id": 9,
+      "work_item_id": "cp-053d5e317a7f",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "a91a6725",
+        "http": 200
+      },
+      "created_at": 1793679425.4771335
+    }
+  ]
+}

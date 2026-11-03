@@ -17,7 +17,10 @@ completed，零人工介入）**；故障恢复与副作用拒绝路径另由 T3
 | UI1-R02 | Dashboard 与 Runtime 是独立进程，二者看到的 `LD_MODEL_*` 环境可能不同 | 页面只报告 Dashboard 进程的 Chat Intent 配置；Runtime Decision Model 状态保持 `unknown`。自动推进以 Runner/Ledger 的真实结果为准。 | 设计限制 |
 | UI1-R03 | UI-1 没有账号体系、TLS 或远程访问设计 | 只允许 loopback；显式 `--enable-chat`；Bearer Token + 精确 Origin/Host + 无 CORS。禁止端口转发暴露。 | 安全边界 |
 | UI1-R04 | 只支持 M4-D 已有的 `submit_goal` / `resume_goal` 写意图 | 审批、Task cancel、Context/Memory 编辑、预算调整仍走 CLI，避免 Web 层扩成第二条执行路径。 | 范围限制 |
-| UI1-R05 | 当前环境未配置 `LD_MODEL_BASE_URL/LD_MODEL_NAME` 时无法验收真实 `LD → CodeBuddy` 自动闭环 | Web/API、确定性 Chat 与安全回归可验证；真实 E2E 必须标记 `BLOCKED_ENVIRONMENT`，不得用 Goal 创建或 stub 冒充。 | 环境相关 |
+| UI1-R05 | ~~当前环境未配置 `LD_MODEL_BASE_URL/LD_MODEL_NAME` 时无法验收真实 `LD → CodeBuddy` 自动闭环~~ 已在本机配置的 DeepSeek 端点上真实跑通 | 真实闭环已由 T66 覆盖（34/34 Pass，零人工介入）。无端点时 T66 仍记录 `EnvironmentBlocked`，不是 Pass。 | 已验证（T66） |
+| UI1-R06 | **验收规则缺陷（T66 真实 E2E 发现，已修复）**：`controlplane/verify.py::verdict_for()` 原先只要求全部断言 `passed`，不要求有断言 `owned`。若 LD 只声明否定型断言（`path_absent` / `git_clean`），一个**什么都没做**的任务会全部"通过"并被判 `verified`，Goal 进而 `completed` | 影响面：只读型目标（"分析并汇报，不要改文件"）会被整条链路误报为已完成，Dashboard 同步显示完成。修复：`VERIFIED` 额外要求至少一条断言 `owned=True`（正向证据），否则降级 `inconclusive`——与"没有断言"同等对待。确定性回归：`tests/test_verifier_negative_assertions.py`（9 项）；真实回归：T66 S3 现为 `inconclusive` → `needs_human`。 | 已修复 |
+| UI1-R07 | 真实目标文本的**范围歧义**会让模型在首个任务 verified 后再次提交同类冗余任务（run2 实证：第二个任务因在项目根产生未声明本地改动被判 `rejected`，Goal 最终 `needs_human`） | 这不是控制平面缺陷：Verifier 正确拒绝了副作用。处理：T66 目标文本显式声明"只需一个任务、verified 后立即结束"（同 M4C-11 的教训）。真实模型仍可能自行改选任务粒度，故 T66 只对"链路成立"下断言，不对模型的 git 风格下断言。 | 已缓解（fixture 质量） |
+| UI1-R08 | 真实 CodeBuddy session 偶发卡在 `starting…`（run2 实证：一个任务挂起逾 20 分钟，worker 侧无 job 记录） | worker 侧已知缺陷，控制平面无法自愈。T66 观察循环新增**停滞检测**（无可观测变化超过 1500s 即停止并记录 `stalled=true`），使运行诚实失败而非挂到预算耗尽。 | 已缓解（检测，非修复） |
 
 ## M4-C 可靠性收口轮（2026-10-31，预算 / inspect 续推 / 并发 / 常驻服务）
 

@@ -1,0 +1,83 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-76ccc267a1a4",
+    "project_id": "prj-1f723f3423",
+    "title": "只读分析 configlib 缺失函数",
+    "state": "succeeded",
+    "verdict": "inconclusive",
+    "assertion_results": [],
+    "warnings": [],
+    "finished_at": 1793686462.66
+  },
+  "attempt": {
+    "id": "at-1b4a48a7e7",
+    "worker_job_id": "078553ac",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793686363.6804867,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 6,
+      "work_item_id": "cp-76ccc267a1a4",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "ready",
+        "risk": "low",
+        "project_id": "prj-1f723f3423",
+        "workspace_id": "ws-2e2d78a775",
+        "context_version": 0,
+        "context_entry_refs": [],
+        "context_injected": true
+      },
+      "created_at": 1793686355.744458
+    },
+    {
+      "id": 7,
+      "work_item_id": "cp-76ccc267a1a4",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-1f723f3423",
+        "root": "<REPO>\\sandbox\\t66-real-e2e-a272c2f3\\readonly",
+        "cwd": "<REPO>\\sandbox\\t66-real-e2e-a272c2f3\\readonly"
+      },
+      "created_at": 1793686355.8459082
+    },
+    {
+      "id": 8,
+      "work_item_id": "cp-76ccc267a1a4",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\t66-real-e2e-a272c2f3\\readonly",
+        "attempt_id": "at-1b4a48a7e7",
+        "approval_id": null
+      },
+      "created_at": 1793686363.779327
+    },
+    {
+      "id": 9,
+      "work_item_id": "cp-76ccc267a1a4",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "078553ac",
+        "http": 200
+      },
+      "created_at": 1793686363.9262805
+    }
+  ]
+}

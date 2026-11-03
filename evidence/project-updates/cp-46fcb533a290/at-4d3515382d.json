@@ -1,0 +1,154 @@
+{
+  "schema": "project-context-update/v1",
+  "task": {
+    "task_id": "cp-46fcb533a290",
+    "project_id": "prj-eb660efe5a",
+    "title": "创建特性分支并提交 configlib 修改",
+    "state": "running",
+    "verdict": "rejected",
+    "assertion_results": [
+      {
+        "kind": "file_exists",
+        "target": "configlib/__init__.py",
+        "value": null,
+        "passed": true,
+        "owned": true,
+        "observed": "changed since baseline"
+      },
+      {
+        "kind": "file_contains",
+        "target": "configlib/__init__.py",
+        "value": "def load_config",
+        "passed": true,
+        "owned": true,
+        "observed": "contains value=True, changed_since_baseline=True"
+      }
+    ],
+    "warnings": [
+      "SIDE_EFFECT:undeclared_local_change:<REPO>\\sandbox\\t66-real-e2e-19e55ec2\\happy"
+    ],
+    "finished_at": null
+  },
+  "attempt": {
+    "id": "at-4d3515382d",
+    "worker_job_id": "a36136e8",
+    "state": "dispatched",
+    "reason": "dispatch",
+    "created_at": 1793680489.5986829,
+    "ended_at": null
+  },
+  "events": [
+    {
+      "id": 6,
+      "work_item_id": "cp-46fcb533a290",
+      "attempt_id": null,
+      "type": "work_enqueued",
+      "payload": {
+        "adapter": "codebuddy",
+        "priority": 0,
+        "queue_status": "checkpoint_unprotected",
+        "risk": "low",
+        "project_id": "prj-eb660efe5a",
+        "workspace_id": "ws-164f2d6b5c",
+        "context_version": 2,
+        "context_entry_refs": [
+          "ctx-64b8503bd8cc",
+          "ctx-5c6079a3d195"
+        ],
+        "context_injected": true
+      },
+      "created_at": 1793680482.5923853
+    },
+    {
+      "id": 7,
+      "work_item_id": "cp-46fcb533a290",
+      "attempt_id": null,
+      "type": "handoff_checkpoint_released",
+      "payload": {
+        "checkpoint_ref": "db9e53d4150f75c5e2efd6b575d9a297427923d5",
+        "ref": "refs/control-plane/handoff/cp-46fcb533a290"
+      },
+      "created_at": 1793680484.6179733
+    },
+    {
+      "id": 8,
+      "work_item_id": "cp-46fcb533a290",
+      "attempt_id": null,
+      "type": "project_boundary_checked",
+      "payload": {
+        "project_id": "prj-eb660efe5a",
+        "root": "<REPO>\\sandbox\\t66-real-e2e-19e55ec2\\happy",
+        "cwd": "<REPO>\\sandbox\\t66-real-e2e-19e55ec2\\happy"
+      },
+      "created_at": 1793680484.7822018
+    },
+    {
+      "id": 9,
+      "work_item_id": "cp-46fcb533a290",
+      "attempt_id": null,
+      "type": "handoff_checkpoint_protected",
+      "payload": {
+        "checkpoint_ref": "db9e53d4150f75c5e2efd6b575d9a297427923d5",
+        "ref": "refs/control-plane/handoff/cp-46fcb533a290",
+        "ref_commit": "db9e53d4150f75c5e2efd6b575d9a297427923d5",
+        "written": true,
+        "error": null
+      },
+      "created_at": 1793680485.2515624
+    },
+    {
+      "id": 10,
+      "work_item_id": "cp-46fcb533a290",
+      "attempt_id": null,
+      "type": "handoff_submitted",
+      "payload": {
+        "source_work_item_id": "cp-9ab069b6afa7",
+        "source_attempt_id": "at-e2137f0a84",
+        "source_session_reference_id": "sr-cf4402f988",
+        "checkpoint_ref": "db9e53d4150f75c5e2efd6b575d9a297427923d5",
+        "checkpoint_capture": {
+          "commit": "db9e53d4150f75c5e2efd6b575d9a297427923d5",
+          "base": "db9e53d4150f75c5e2efd6b575d9a297427923d5",
+          "synthetic": false,
+          "included_paths": [],
+          "skipped_paths": []
+        },
+        "checkpoint_protected": true,
+        "checkpoint_ref_protected": true,
+        "checkpoint_ready": false,
+        "handoff_signature": "71f2432793bf7d43f79ca909e3b087f3"
+      },
+      "created_at": 1793680485.3511808
+    },
+    {
+      "id": 11,
+      "work_item_id": "cp-46fcb533a290",
+      "attempt_id": null,
+      "type": "dispatch_requested",
+      "payload": {
+        "policy": {
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits",
+          "allow_unisolated_shell": false,
+          "risk": "low"
+        },
+        "cwd": "<REPO>\\sandbox\\t66-real-e2e-19e55ec2\\happy",
+        "attempt_id": "at-4d3515382d",
+        "approval_id": null
+      },
+      "created_at": 1793680489.659204
+    },
+    {
+      "id": 12,
+      "work_item_id": "cp-46fcb533a290",
+      "attempt_id": null,
+      "type": "dispatch_accepted",
+      "payload": {
+        "worker_job_id": "a36136e8",
+        "http": 200
+      },
+      "created_at": 1793680489.7727435
+    }
+  ]
+}

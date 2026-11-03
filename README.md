@@ -800,9 +800,31 @@ POST /api/chat/publish   {"project_id": "...", "objective": "实现 greet.py 并
 Memory 编辑与验证，生命周期预算调整，Runtime/Worker 启停，以及任何运维诊断。
 UI-1 不含远程终端、文件编辑器、自动审批或 M5 跨机器协同。
 
-本轮确定性 Web/API、安全和 M4-D 回归已覆盖；若未配置真实 LD 模型端点，真实
-`LD → CodeBuddy` E2E 必须记录为 `BLOCKED_ENVIRONMENT`，不能用 Goal 创建成功或
-stub 测试代替。
+**真实端到端已验收（T66）**
+
+`scripts/t66_ui1_real_e2e.py` 用与运维完全一致的部署（`serve_ctl.py start` 真实
+CodeBuddy 服务 + `dashboard_server.py --enable-chat` + `run_controlplane.py
+--advance-goals` 常驻 Runner + 真实 LLM 端点 + 共享 Ledger）跑完六步：
+
+1. 在控制台发布目标（只发 HTTP，不做别的）；
+2. 常驻 Runner 自动唤醒真实 LLM，LD 作出 `submit_task` 决策；
+3. LD 经 `LDTools → ProjectService → ControlPlane` 派发；
+4. 真实 CodeBuddy 会话修改测试仓库，真实 Verifier 判定 `verified`；
+5. Dashboard 正确显示 Goal → WorkItem → Verdict（链接来自 `metadata.ld_goal_ref`）；
+6. 重启 Dashboard 与 Runner，历史/状态/关联全部存活且**不重复派工**。
+
+失败场景同时覆盖：只读目标产生不了可验证产物 → `inconclusive` → `needs_human`，
+Dashboard 不会显示完成。结果 **34/34 Pass**，`resume_count = 0`。
+
+这轮真实跑通顺带发现并修复了一个**验收规则缺陷**：只声明否定型断言
+（`path_absent` / `git_clean`）时，一个什么都没做的任务会被判 `verified`。
+现在 `VERIFIED` 要求至少一条断言 `owned=True`，否则降级 `inconclusive`。
+回归见 `tests/test_verifier_negative_assertions.py`。
+
+未覆盖：浏览器 DOM 点击路径（T66 用的是浏览器同一套 HTTP API）、Runner 心跳
+（UI1-R01）、真实 session 卡在 `starting…` 的 worker 侧缺陷（UI1-R08，T66 只能
+检测并诚实失败）。未配置真实 LD 模型端点时，T66 仍记录为
+`BLOCKED_ENVIRONMENT`，不是 Pass。
 
 ### 6.4 传统队列流程（仍然支持，未改变）
 

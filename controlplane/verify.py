@@ -273,7 +273,20 @@ def side_effects(cwd: str, baseline: dict | None,
 # --------------------------------------------------------------------------- #
 def verdict_for(state: TaskState, state_known: bool, results: list[dict],
                 violations: list[dict] | None = None) -> Verdict:
-    """Acceptance rule shared by every adapter."""
+    """Acceptance rule shared by every adapter.
+
+    ``VERIFIED`` needs *positive, attempt-owned* evidence.  An assertion set made
+    only of negative kinds (``path_absent``, ``git_clean``) is satisfied by an
+    attempt that did nothing at all — "the file I was told not to create does not
+    exist" is true before the attempt starts.  Such a result is not a pass: it is
+    ``INCONCLUSIVE``, the same treatment as declaring no assertions, because
+    neither one can distinguish "did the work" from "did nothing".
+
+    ``owned`` is set by the kinds that can prove production
+    (``file_exists``/``file_contains``/``git_commit``/``git_branch``).  Negative
+    kinds deliberately report ``owned=False`` when they pass, which is what makes
+    this check meaningful rather than a second truth of its own.
+    """
     if violations:
         # an attempt that touched another project can never be accepted,
         # even if every declared artifact assertion passed
@@ -286,4 +299,10 @@ def verdict_for(state: TaskState, state_known: bool, results: list[dict],
         return Verdict.PENDING
     if not results:
         return Verdict.INCONCLUSIVE      # "file exists" is not "task passed"
-    return Verdict.VERIFIED if all(r["passed"] for r in results) else Verdict.REJECTED
+    if not all(r["passed"] for r in results):
+        return Verdict.REJECTED
+    if not any(r.get("owned") for r in results):
+        # every assertion was a negative one: nothing proves the attempt
+        # produced anything, so this is not acceptance.
+        return Verdict.INCONCLUSIVE
+    return Verdict.VERIFIED
