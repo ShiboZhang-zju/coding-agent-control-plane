@@ -1005,8 +1005,10 @@ LD_MODEL_*                           真实 LLM 决策端点（凭据只进子�
 - `tests/test_verifier_negative_assertions.py`（13 项），其中
   `test_passed_but_unowned_results_are_inconclusive_not_verified` 专门喂
   `passed=true, owned=false` 的**非空**结果集；
-- `scripts/t66b_supplementary_checks.py` 的**变异验证**：把 `owned` 判断从生产代码
-  移除后，该测试文件 6 项失败（`git` 恢复原文件），说明这条规则确实被测试守住；
+- `scripts/t66b_supplementary_checks.py` 的**变异验证**：从一个临时的 `git worktree`
+  副本里移除 `owned` 判断后，该测试文件 6 项失败，说明这条规则确实被测试守住。
+  变异**不发生在当前工作树**：生产源码只读，脚本记录前后 SHA-256 并核验一致，
+  临时 worktree 在 `finally` 中 `git worktree remove --force` + `prune`；
 - 同时修正文档与实现不一致：`git_branch` / `git_clean` 属于**状态断言**，不设
   `owned`，单独依赖它们同样降级为 `inconclusive`（已由测试固定）。
 

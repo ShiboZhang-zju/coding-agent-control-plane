@@ -825,7 +825,8 @@ Dashboard 不会显示完成。结果 **34/34 Pass**，`resume_count = 0`。
 **这次修复的证明范围要说清楚**：T66 的 S3 证据里 `assertion_results` 是空列表，
 它命中的是**原有**的"无断言 → `inconclusive`"分支，并没有经过新增的 `owned`
 判断。因此新规则的有效性由测试 + `scripts/t66b_supplementary_checks.py` 的变异
-验证承担（移除该判断后 13 项中有 6 项失败，源码随后恢复）。`git_branch` 和
+验证承担（在一个临时的 `git worktree` 副本里移除该判断，13 项中有 6 项失败；
+生产工作树全程只读，脚本记录改动前后的 SHA-256 证明未被触碰）。`git_branch` 和
 `git_clean` 是**状态断言**，不设 `owned`，单独依赖它们也会降级为 `inconclusive`。
 
 同样要说清楚的是，`owned=True` 只证明**被声明的**产物相对基线发生了可归因变化，
