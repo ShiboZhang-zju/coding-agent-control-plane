@@ -176,6 +176,11 @@ def test_needs_human_goal_has_a_clickable_handling_entry(browser, site: Site):
     context, page, errors = _page(browser, site, project_id=site.alpha["id"])
     try:
         page.wait_for_selector("#detailView:not([hidden])", timeout=10_000)
+        # The detail pane is rendered after the detail response arrives; wait for
+        # the control itself instead of assuming the table is already built.
+        page.wait_for_selector(
+            'button.goal-handle-btn[data-goal-id="%s"]' % site.second_id,
+            state="visible", timeout=15_000)
         row = _goal_row(page, site.second_id)
         button = row.locator("button.goal-handle-btn")
         assert button.is_visible(), "needs_human goal must expose a visible 处理 button"
@@ -184,6 +189,9 @@ def test_needs_human_goal_has_a_clickable_handling_entry(browser, site: Site):
 
         button.click()
         page.wait_for_selector("#goalHandling:not([hidden])", timeout=10_000)
+        # The dialog opens immediately with a loading placeholder; the projection
+        # arrives a moment later.  Wait for the rendered detail, not the shell.
+        page.wait_for_selector("#goalHandlingBody dl.kv-grid", timeout=15_000)
         body = page.inner_text("#goalHandlingBody")
         # The dialog is about the goal that was clicked, not the first one.
         assert site.second_id in body
@@ -248,6 +256,9 @@ def test_resume_requires_second_confirmation_and_cancel_changes_nothing(
         _connect(page, site)
         _goal_row(page, site.second_id).locator("button.goal-handle-btn").click()
         page.wait_for_selector("#goalHandling:not([hidden])", timeout=10_000)
+        # 处理 must be readable before anything is staged: the button stays
+        # disabled until the projection has rendered.
+        page.wait_for_selector("#goalHandlingStage:not([disabled])", timeout=15_000)
         with page.expect_response(
                 lambda response: "/api/chat/goal-resume" in response.url
                 and response.request.method == "POST") as staged:
@@ -299,6 +310,7 @@ def test_confirmation_resumes_only_the_clicked_goal(browser, site: Site):
         _connect(page, site)
         _goal_row(page, site.second_id).locator("button.goal-handle-btn").click()
         page.wait_for_selector("#goalHandling:not([hidden])", timeout=10_000)
+        page.wait_for_selector("#goalHandlingStage:not([disabled])", timeout=15_000)
         with page.expect_response(
                 lambda response: "/api/chat/goal-resume" in response.url
                 and response.request.method == "POST") as staged:

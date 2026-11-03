@@ -725,6 +725,10 @@
 
     const resumable = goal.status === "needs_human";
     $("goalHandlingStage").hidden = !resumable;
+    // Enabled only now: staging needs the goal/project identity from this
+    // projection, so a click during loading would be a no-op with no feedback.
+    // The operator must also be able to read the stop reason first.
+    $("goalHandlingStage").disabled = !resumable;
     $("goalHandlingStage").dataset.goalId = goal.goal_id || "";
     if (!resumable) {
       handlingStatus("该 Goal 当前状态为 " + (goal.status || "unknown")
@@ -743,6 +747,7 @@
     $("goalHandlingConfirm").hidden = true;
     $("goalHandlingConfirmText").textContent = "";
     handlingStatus("正在读取 Goal…");
+    $("goalHandlingStage").disabled = true;
     clear($("goalHandlingBody")).appendChild(
       el("p", { class: "placeholder", text: "正在读取 Goal…" }));
     getJson("/api/projects/" + encodeURIComponent(projectId) +
