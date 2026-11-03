@@ -282,6 +282,26 @@
 - **真实运行必须能诚实失败。** 观察循环要有停滞检测（无可观测变化即停止并记录
   `stalled`），不得挂到预算耗尽才输出，也不得把挂起当作进行中。
 
+#### 5.5.4 needs_human 处理入口与发布目标确认（UI-2 引入）
+
+- **处理入口先读后写。** `GET /api/projects/{id}/goals/{goal_id}/handling` 是只读
+  投影（停止原因、关联 WorkItem、Verifier 断言结果、Evidence 行 id）；打开它不得
+  派工、不得重试、不得改 verdict。`rejected` 任务必须先展示失败断言与 warnings。
+- **恢复只能针对被点名的 Goal。** `POST /api/chat/goal-resume` 只接受
+  `project_id` + `goal_id`，委派给 `LDChat.stage_resume_goal()`（复用
+  `_resume_goal` 的暂存逻辑与 `decision_count` / `stop_signature` 绑定）。它只暂存，
+  真正恢复仍是同一会话的下一条精确确认词；不得新增第二套状态机、不得改预算、
+  不得自动派工。多个 `needs_human` Goal 并存时必须命中被点名的那个。
+- **发布目标必须显式确认。** 前端两步确认展示 Project 名称、ID 与执行仓库路径；
+  切换 Project 使旧确认失效。`GET /api/chat/projects` 只在认证后的 chat surface
+  返回 `project_id/name/root/active`，只读驾驶舱投影仍不得出现 root。后端继续
+  校验 Project 注册与 Goal 幂等。
+- **观测重放不是新事件。** `project_context_updated` 以结果签名（attempt +
+  idempotency keys + statuses + entry ids）去重：同结果的重放不追加事件，但
+  "receipt 已提交、事件未写"的崩溃窗口仍能补记一次。`busy` 不记成功事件。
+- **SIDE_EFFECT 警告按发现去重，不按仓库合并。** 同一违规的重复观测不再追加，
+  不同违规（条目集合不同）仍各记一条；Verifier 拒绝逻辑不变。
+
 ### 5.6 关联召回边界（M4-E 引入）
 
 - **召回是只读关系投影，不是新的 Memory 真相。** `ld/recall.py` 只沿现有

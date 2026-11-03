@@ -152,6 +152,90 @@ def goal_status_counts(goals: list[dict]) -> dict[str, int]:
     return counts
 
 
+#: How many linked WorkItems one handling view lists.  The count stays exact;
+#: only the list is bounded so a long goal cannot produce an unbounded document.
+HANDLING_TASK_LIMIT = 20
+#: How many assertion results / warnings per task a handling view carries.
+HANDLING_DETAIL_LIMIT = 10
+#: How many Ledger evidence rows per task a handling view lists.
+HANDLING_EVIDENCE_LIMIT = 10
+
+
+def goal_handling(session: LedgerSession, project_id: str, goal_id: str,
+                  tasks: list[dict], *, project_name: str, goal: dict) -> dict:
+    """Everything an operator needs in order to *handle* one stopped goal.
+
+    This is a projection, not a decision: it reports the goal's own stop reason,
+    the WorkItems the LD actually submitted for it, the Verifier's recorded
+    assertion results for those WorkItems, and the Ledger evidence rows that
+    exist for them.  Nothing here dispatches, retries, resumes or rewrites a
+    verdict — in particular a ``rejected`` task is shown with its failed
+    assertions and nothing else, so opening "handle" can never silently re-run
+    work the Verifier refused.
+
+    Deliberately absent: prompt/effective prompt, task text, project root, worker
+    logs and evidence payloads (only the row identity is listed).
+    """
+    last = goal.get("last_decision") if isinstance(goal.get("last_decision"), dict) else {}
+    linked = [task for task in tasks
+              if task.get("goal_ref") and task.get("goal_ref") == goal.get("goal_ref")]
+    rows = []
+    for task in linked[:HANDLING_TASK_LIMIT]:
+        raw = session.store.get(task.get("task_id")) or {}
+        evidence_rows = session.store.evidence(task.get("task_id"),
+                                              limit=HANDLING_EVIDENCE_LIMIT)
+        results = raw.get("assertion_results") or []
+        rows.append({
+            # No title: a WorkItem's title defaults to a prefix of its prompt,
+            # which is exactly the execution text this view must not carry.
+            "task_id": task.get("task_id"),
+            "state": task.get("state"),
+            "verdict": task.get("verdict"),
+            "queue_status": task.get("queue_status"),
+            "attention_flags": list(task.get("attention_flags") or []),
+            "assertion_results": [
+                {"kind": result.get("kind"), "target": result.get("target"),
+                 "passed": bool(result.get("passed")),
+                 "owned": result.get("owned")}
+                for result in results
+            ][:HANDLING_DETAIL_LIMIT],
+            "failed_assertions": [
+                {"kind": result.get("kind"),
+                 "target": result.get("target"),
+                 "value": result.get("value"),
+                 "observed": str(result.get("observed") or "")[:300]}
+                for result in results if not result.get("passed")
+            ][:HANDLING_DETAIL_LIMIT],
+            # Distinct warnings only, in the order the ledger recorded them.
+            "warnings": list(dict.fromkeys(
+                str(item) for item in (raw.get("warnings") or [])))[:HANDLING_DETAIL_LIMIT],
+            "evidence": [
+                {"evidence_id": row.get("id"), "kind": row.get("kind"),
+                 "created_at": row.get("created_at")}
+                for row in evidence_rows],
+            "evidence_count": len(evidence_rows),
+            "attempt_count": len(session.store.attempts(task.get("task_id"))),
+            "created_at": task.get("created_at"),
+            "updated_at": task.get("updated_at"),
+        })
+    stop_reason = last.get("stop") if isinstance(last.get("stop"), str) else None
+    if stop_reason is None and isinstance(goal.get("stop_reason"), str):
+        stop_reason = goal["stop_reason"]
+    return {
+        "project_id": project_id,
+        "project_name": project_name,
+        "goal": goal_view(goal, project_id=project_id),
+        "stop_reason": stop_reason,
+        "last_action": last.get("action") if isinstance(last.get("action"), str) else None,
+        "last_next_state": (last.get("next_state")
+                            if isinstance(last.get("next_state"), str) else None),
+        "tasks": rows,
+        "linked_task_count": len(linked),
+        "truncated": len(linked) > HANDLING_TASK_LIMIT,
+        "derived_from": "ledger",
+    }
+
+
 # --------------------------------------------------------------------------- #
 # work items
 # --------------------------------------------------------------------------- #

@@ -762,3 +762,94 @@ a { color: var(--accent); }
   .chat-panel { width: 100vw; padding: 12px; }
   .chat-controls { grid-template-columns: 1fr; }
 }
+
+/* ------------------------------------------------------------------ */
+/* needs_human handling dialog + publication confirmation              */
+/* ------------------------------------------------------------------ */
+.link-btn-danger { color: var(--bad); border-color: var(--bad); }
+.link-btn-danger:hover { background: var(--bad-bg); color: var(--bad); }
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 14, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  /* Above the LD Chat drawer (z-index 40): the handling dialog is modal and
+   * must be reachable and readable even while the chat panel is open. */
+  z-index: 70;
+}
+.modal[hidden] { display: none; }
+.modal-card {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  max-width: min(920px, 96vw);
+  max-height: 88vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+}
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-head h2 { margin: 0; font-size: 15px; }
+.modal-body { padding: 12px 14px; overflow: auto; }
+.modal-body .kv-grid { margin-bottom: 10px; }
+.modal-section { margin-top: 14px; }
+.modal-section h3 { margin: 0 0 6px; font-size: 12.5px; }
+.modal-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}
+.goal-task-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.goal-task-card .pill-row { margin: 4px 0; }
+.goal-task-card ul { margin: 4px 0 0 18px; padding: 0; }
+.goal-task-card li { margin: 2px 0; }
+.assertion-fail { color: var(--bad); }
+.publish-notice {
+  border: 1px solid var(--warn);
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-radius: var(--radius);
+  padding: 6px 9px;
+  font-size: 11.5px;
+  margin-bottom: 8px;
+}
+.publish-notice[hidden] { display: none; }
+.publish-target {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  word-break: break-all;
+}
+.publish-confirm {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 8px 0;
+  font-size: 12px;
+}
+.publish-confirm[hidden] { display: none; }
+.publish-confirm .actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 7px;
+}

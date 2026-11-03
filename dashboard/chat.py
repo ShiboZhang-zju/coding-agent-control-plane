@@ -223,6 +223,55 @@ class ChatBridge:
             "next_step_note": _next_step_note(published.get("next_step")),
         }
 
+    def project_targets(self) -> list[dict[str, Any]]:
+        """Name/id/root of every registered project, for the publish confirmation.
+
+        The read-only dashboard projections deliberately omit roots (UI-0 rule:
+        no local machine paths in a cockpit payload).  A *publication* is a
+        different question: before creating a Goal the operator must see which
+        repository it will run in, and mistaking the project is exactly the bug
+        this endpoint exists to prevent.  So it is exposed only on the
+        authenticated chat surface, only as the three fields needed to make that
+        check, and it is still never combined with prompts or task text.
+        """
+        self._require_existing_ledger()
+        store = TaskStore(self.path, read_only=True)
+        try:
+            projects = store.all_projects()
+        finally:
+            store.close()
+        return [{"project_id": project.get("id"),
+                 "name": project.get("name"),
+                 "root": project.get("root"),
+                 "active": bool(project.get("active"))}
+                for project in sorted(projects, key=lambda item: str(item.get("id")))]
+
+    def stage_goal_resume(self, *, project_id: str, goal_id: str) -> dict[str, Any]:
+        """Stage a resume for one explicitly named stopped goal.
+
+        This is the console's "handle this goal" entry point, and it is the same
+        write intent the chat already has (``resume_goal``), reached with the goal
+        id supplied by the caller instead of guessed from a sentence.  Nothing is
+        resumed here: the pending action is stored in a (possibly new)
+        conversation and only an exact ``confirm`` turn applies it, exactly as
+        for a chat-staged resume.  No budget, WorkItem or goal state changes.
+        """
+        self._validate_project_id(project_id)
+        if not isinstance(goal_id, str) or not goal_id.strip():
+            raise ValueError("goal_id must be a non-empty string")
+        with self._chat_session() as (chat, chats, store):
+            if store.get_project(project_id) is None:
+                raise KeyError(f"no project {project_id}")
+            staged = chat.stage_resume_goal(project_id=project_id,
+                                            goal_id=goal_id.strip())
+        return {
+            **self._turn_view(staged),
+            "runner_liveness": "unknown",
+            "next_step_note": (
+                "恢复尚未生效：需要在 LD Chat 的同一会话中回复 confirm（或单击"
+                "「确认」）才会调用既有的 GoalStore.resume()。预算不会被扩大。"),
+        }
+
     @contextlib.contextmanager
     def _chat_session(self) -> Iterator[tuple[LDChat, LDChatStore, TaskStore]]:
         self._require_existing_ledger()
@@ -331,11 +380,27 @@ class ChatBridge:
             "created_at": row.get("created_at"),
         }
 
+    @staticmethod
+    def _facts_view(facts: Any) -> dict[str, Any] | None:
+        """Only the two outcome flags the console needs, never free-form facts.
+
+        ``facts`` can carry goal text, counts and stop signatures.  The web
+        projection already carries the answer text and the identifiers, so it
+        needs exactly "did the staged action apply, or was it declined" — which
+        is what the handling dialog reports after a confirm/cancel.
+        """
+        if not isinstance(facts, dict):
+            return None
+        return {key: bool(facts[key]) for key in
+                ("resumed", "cancelled", "stale_confirmation", "already_consumed")
+                if key in facts}
+
     @classmethod
     def _turn_view(cls, result: dict[str, Any]) -> dict[str, Any]:
         return {
             "conversation_id": result.get("conversation_id"),
             "answer": str(result.get("answer") or ""),
+            "facts": cls._facts_view(result.get("facts")),
             "intent": cls._intent_view(result.get("intent")),
             "intent_source": str(result.get("intent_source") or "unknown"),
             "goal_ids": [str(item) for item in (result.get("goal_ids") or [])][:20],

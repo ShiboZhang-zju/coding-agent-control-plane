@@ -1151,6 +1151,50 @@ class LDChat:
             ],
         }
 
+    def stage_resume_goal(self, *, project_id: str, goal_id: str) -> dict[str, Any]:
+        """Stage a resume for **one explicitly named goal** (console entry point).
+
+        The Dashboard's "handle this stopped goal" button must not have to guess
+        which goal the operator meant, and a chat sentence cannot: it resolves
+        ``goal_id`` from conversation hints and would pick the first live goal of
+        the project.  So this method takes the goal id from the caller and then
+        runs the *existing* staging path (:meth:`_resume_goal`), which means:
+
+        * the goal is validated to belong to the named project (refused otherwise);
+        * the action is only staged — nothing changes until a later exact
+          ``confirm`` turn is consumed by :meth:`_handle_confirmation`;
+        * the pending action is bound to the same ``decision_count`` and stop
+          signature as a chat-staged resume, so a stale confirmation is refused;
+        * no budget is touched, no WorkItem is submitted, no state is written.
+
+        A conversation is created (or reused) because that is where the durable
+        pending action lives; the operator continues in it through the normal
+        chat confirmation.
+        """
+        owned_project = self._require_project(project_id)
+        goal = self._goals.get(goal_id) or {}
+        if not goal:
+            raise ChatPolicyError(f"no goal {goal_id}")
+        if goal.get("project_id") != owned_project:
+            raise ChatPolicyError(
+                f"goal {goal_id} belongs to project {goal.get('project_id')}, "
+                f"not {owned_project}")
+        conversation = self._chats.create_conversation(project_id=owned_project)
+        conversation_id = conversation["conversation_id"]
+        self._chats.append_message(
+            conversation_id, role="user",
+            content=f"从 Dashboard 请求恢复 Goal {goal_id}（仅暂存，需二次确认）。")
+        intent = ChatIntent(
+            ChatIntentKind.RESUME_GOAL, owned_project, None, goal_id,
+            "console requested a resume of this specific goal", {})
+        answer, facts, goal_ids, pending = self._resume_goal(intent, conversation, "")
+        turn = {"answer": answer, "facts": facts, "goal_ids": goal_ids,
+                "pending_action": pending, "requires_confirmation": bool(pending),
+                "staged_for_confirmation": bool(pending)}
+        self._record_turn(conversation_id, intent, turn)
+        return {"conversation_id": conversation_id, "intent": intent.to_dict(),
+                "intent_source": "console_staged_resume", **turn}
+
     def _resume_goal(self, intent, conversation, message):
         goal = self._goals.get(intent.goal_id) or {}
         if not goal:

@@ -5,11 +5,14 @@ Design constraints (tested by ``tests/test_ui0_dashboard.py`` and
 
 * **Read-only by default.** Without ``--enable-chat`` every write method is
   rejected and all dashboard projections use ``mode=ro`` plus
-  ``PRAGMA query_only=ON``.  UI-1 adds exactly two authenticated POST routes
-  (``/api/chat/messages`` and ``/api/chat/publish``); both delegate to the
-  existing ``LDChat`` service graph through request-scoped writable
-  connections.  Neither one can submit a WorkItem, approve work or change a
-  budget.
+  ``PRAGMA query_only=ON``.  UI-1 adds exactly three authenticated POST routes
+  (``/api/chat/messages``, ``/api/chat/publish`` and ``/api/chat/goal-resume``);
+  all delegate to the existing ``LDChat`` service graph through request-scoped
+  writable connections.  None of them can submit a WorkItem, approve work,
+  change a budget or apply a state change without an explicit confirm turn.
+* **A stopped goal is readable, not acted upon.** ``GET
+  /api/projects/{id}/goals/{goal_id}/handling`` is a read-only projection:
+  stop reason, linked WorkItems, Verifier results and evidence row ids.
 * **No cross-origin use.** No ``Access-Control-Allow-Origin`` is ever emitted.
   A browser on another origin therefore cannot read responses, and the
   ``Host`` header is validated against an allow-list so a DNS-rebinding page
@@ -51,7 +54,7 @@ from .ledger import (
     ReadOnlyLedger,
     SchemaIncompatible,
 )
-from .projections import overview, project_detail
+from .projections import goal_handling, overview, project_detail
 
 #: Loopback names/addresses the server may bind.  ``0.0.0.0`` is not here on
 #: purpose: neither the read-only views nor operator chat belong on a LAN.
@@ -169,6 +172,14 @@ class DashboardApp:
                 "capabilities": self.chat.capabilities,
             }
 
+        if path == "/api/chat/projects":
+            # Authenticated: this is the publication-target list, and it carries
+            # the repository root so the operator can see *where* a Goal would be
+            # created.  It is not part of the read-only cockpit projections.
+            self._require_chat()
+            return HTTPStatus.OK, {"projects": self.chat.project_targets(),
+                                   "generated_at": _now()}
+
         chat_prefix = "/api/chat/conversations/"
         if path.startswith(chat_prefix):
             self._require_chat()
@@ -201,6 +212,10 @@ class DashboardApp:
                 section = parts[1]
                 return HTTPStatus.OK, self._read(
                     lambda session: self._section(session, project_id, section))
+            if len(parts) == 4 and parts[1] == "goals" and parts[3] == "handling":
+                return HTTPStatus.OK, self._read(
+                    lambda session: self._goal_handling(
+                        session, project_id, parts[2]))
             raise ApiError(HTTPStatus.NOT_FOUND, "not_found", "Unknown API path.")
 
         if path.startswith("/api/"):
@@ -287,6 +302,45 @@ class DashboardApp:
             raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "chat_unavailable",
                            "The chat service cannot access the ledger right now.") from None
 
+    def handle_goal_resume_request(self, payload: Any) -> dict[str, Any]:
+        """Stage a resume of one named goal; the human still has to confirm it.
+
+        Two fields only: which project and which goal.  There is deliberately no
+        field for a budget, a task, an assertion or a "force" flag — those are not
+        things this console may decide, and the resume itself is applied by the
+        existing chat confirmation path, not here.
+        """
+        self._require_chat()
+        if not isinstance(payload, dict):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_body",
+                           "The request body must be one JSON object.")
+        required = {"project_id", "goal_id"}
+        if set(payload) != required:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_fields",
+                           "The goal resume request fields are invalid.")
+        project_id = payload.get("project_id")
+        goal_id = payload.get("goal_id")
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_project",
+                           "project_id must name a registered project.")
+        if not isinstance(goal_id, str) or not goal_id.strip():
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_goal",
+                           "goal_id must name a goal of that project.")
+        try:
+            return self.chat.stage_goal_resume(project_id=project_id,
+                                               goal_id=goal_id)
+        except KeyError:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_reference",
+                           "The project does not exist.") from None
+        except (ChatPolicyError, ChatValidationError, ValueError):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "resume_request_rejected",
+                           "LDChat rejected this resume under its safety policy."
+                           ) from None
+        except (ChatBridgeError, sqlite3.Error):
+            raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "chat_unavailable",
+                           "The chat service cannot access the ledger right now."
+                           ) from None
+
     def _require_chat(self) -> None:
         if self.chat is None:
             raise ApiError(HTTPStatus.NOT_FOUND, "chat_disabled",
@@ -313,6 +367,22 @@ class DashboardApp:
             # guess the denominator from a truncated list.
             "task_counts": detail["task_counts"],
             "goal_status_counts": detail["goal_status_counts"],
+        }
+
+    @staticmethod
+    def _goal_handling(session, project_id: str, goal_id: str) -> dict[str, Any]:
+        """Read one stopped goal's handling view (read-only projection)."""
+        detail = project_detail(session, project_id)
+        goal_row = next((row for row in session.goal_rows_for(project_id)
+                         if row.get("goal_id") == goal_id), None)
+        if goal_row is None:
+            raise ApiError(HTTPStatus.NOT_FOUND, "goal_not_found",
+                           "No goal with that id exists in this project.")
+        return {
+            "generated_at": detail["generated_at"],
+            **goal_handling(session, project_id, goal_id, detail["tasks"],
+                            project_name=detail["project"]["name"],
+                            goal=goal_row),
         }
 
     # -- helpers --------------------------------------------------------- #
@@ -436,6 +506,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     _WRITE_ROUTES = {
         "/api/chat/messages": "handle_chat_message",
         "/api/chat/publish": "handle_publish_request",
+        "/api/chat/goal-resume": "handle_goal_resume_request",
     }
 
     def _dispatch_write(self) -> None:
@@ -453,8 +524,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             result = getattr(self.app, handler_name)(payload)
             if handler_name == "handle_chat_message":
                 self._audit_chat(result, payload.get("project_id"))
-            else:
+            elif handler_name == "handle_publish_request":
                 self._audit_publish(result, payload.get("project_id"))
+            else:
+                self._audit_goal_resume(result, payload.get("project_id"))
             self._send_json(HTTPStatus.OK, result, head_only=False)
         except ApiError as exc:
             self._send_error(exc)
@@ -545,6 +618,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "goal_status": result.get("status"),
             "next_step": result.get("next_step"),
             "goal_chars": result.get("goal_chars"),
+        }
+        sys.stderr.write("[dashboard.audit] " + json.dumps(
+            event, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+    @staticmethod
+    def _audit_goal_resume(result: dict[str, Any], project_id: str | None) -> None:
+        """Staging audit line.  ``staged`` means "waiting for confirm", not "resumed"."""
+        pending = result.get("pending_action") or {}
+        event = {
+            "event": "goal_resume_staged",
+            "project_id": project_id,
+            "goal_id": pending.get("goal_id") or (result.get("goal_ids") or [None])[0],
+            "conversation_id": result.get("conversation_id"),
+            "requires_confirmation": bool(result.get("requires_confirmation")),
+            "resumed": False,
         }
         sys.stderr.write("[dashboard.audit] " + json.dumps(
             event, ensure_ascii=False, separators=(",", ":")) + "\n")

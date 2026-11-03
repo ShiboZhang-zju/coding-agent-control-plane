@@ -25,6 +25,8 @@
     taskFilter: "all",
     loading: false,
     health: null,
+    handling: null,
+    publish: { confirmToken: null, projectId: null, roots: null },
     chat: {
       enabled: false,
       token: "",
@@ -600,6 +602,244 @@
              note: "尚无推进记录；Runner 存活为 unknown。" };
   }
 
+  // ------------------------------------------------------------------ //
+  // needs_human handling: open a read-only view of one stopped goal, then
+  // stage its resume through the existing LDChat confirmation flow.
+  // The browser never names a resume target by position, never picks a goal
+  // for the operator and never applies the resume itself.
+  // ------------------------------------------------------------------ //
+  function handlingStatus(text) {
+    const node = $("goalHandlingStatus");
+    if (node) node.textContent = text || "";
+  }
+
+  function closeGoalHandling() {
+    const modal = $("goalHandling");
+    if (modal) modal.hidden = true;
+    state.handling = null;
+    $("goalHandlingConfirm").hidden = true;
+    $("goalHandlingConfirmText").textContent = "";
+    handlingStatus("");
+  }
+
+  function goalHandlingTaskCard(task) {
+    const card = el("div", { class: "goal-task-card",
+                             dataset: { taskId: task.task_id } });
+    card.appendChild(el("div", { class: "pill-row" }, [
+      el("button", {
+        class: "link-btn mono small",
+        attrs: { type: "button" },
+        text: task.task_id,
+        onClick: function () {
+          closeGoalHandling();
+          focusTask(task.task_id);
+        },
+      }),
+      pill("state", task.state),
+      pill("verdict", task.verdict),
+      task.queue_status ? pill("queue", task.queue_status) : null,
+    ]));
+    if (task.attention_flags && task.attention_flags.length) {
+      card.appendChild(el("div", { class: "pill-row" },
+        task.attention_flags.map(function (flag) { return pill(null, flag); })));
+    }
+    const failures = task.failed_assertions || [];
+    if (failures.length) {
+      card.appendChild(el("div", { class: "cell-sub assertion-fail",
+        text: "Verifier 未通过的项目（" + failures.length + "）：" }));
+      const list = el("ul");
+      failures.forEach(function (failure) {
+        list.appendChild(el("li", {
+          class: "assertion-fail mono small",
+          text: failure.kind + " " + (failure.target || "—") +
+            (failure.value ? " = " + failure.value : "") +
+            (failure.observed ? " · " + failure.observed : ""),
+        }));
+      });
+      card.appendChild(list);
+    } else if (task.verdict === "rejected" || task.verdict === "inconclusive") {
+      card.appendChild(el("div", { class: "cell-sub assertion-fail",
+        text: "verdict = " + task.verdict + "：Ledger 未记录可归因的产物断言，"
+          + "这不是“通过”，重新派工前需要先看失败原因。" }));
+    }
+    const warnings = task.warnings || [];
+    if (warnings.length) {
+      card.appendChild(el("div", { class: "cell-sub", text: "warnings：" }));
+      const list = el("ul");
+      warnings.forEach(function (warning) {
+        list.appendChild(el("li", { class: "mono small", text: warning }));
+      });
+      card.appendChild(list);
+    }
+    card.appendChild(el("div", { class: "cell-sub muted",
+      text: "Attempts " + num(task.attempt_count) + " · Ledger evidence "
+        + num(task.evidence_count) + " 条"
+        + (task.evidence_count > (task.evidence || []).length
+          ? "（仅列出前 " + (task.evidence || []).length + " 条 id）" : "") }));
+    return card;
+  }
+
+  function renderGoalHandling() {
+    const body = clear($("goalHandlingBody"));
+    const data = state.handling;
+    if (!data) {
+      body.appendChild(el("p", { class: "placeholder", text: "正在读取 Goal…" }));
+      return;
+    }
+    const goal = data.goal || {};
+    $("goalHandlingTitle").textContent = "处理 Goal " + (goal.goal_id || "");
+    body.appendChild(kvGrid([
+      ["Project", (data.project_name || "—") + " · " + (data.project_id || "—")],
+      ["Goal ID", goal.goal_id || "—"],
+      ["Status", goal.status || "—"],
+      ["停止原因", data.stop_reason || "（Ledger 未记录）"],
+      ["最后一步", (data.last_action || "—") +
+        (data.last_next_state ? " → " + data.last_next_state : "")],
+      ["决策 / 任务计数", num(goal.decision_count) + " / " + num(goal.task_count)],
+      ["预算（恢复不会扩大）", (goal.max_decisions_total === null ||
+        goal.max_decisions_total === undefined
+        ? "尚未盖章" : goal.max_decisions_total + " decisions") + " · " +
+        (goal.max_tasks_total === null || goal.max_tasks_total === undefined
+          ? "—" : goal.max_tasks_total + " tasks")],
+      ["Goal 正文", goal.summary || "（空目标）"],
+    ]));
+
+    const section = el("div", { class: "modal-section" }, [
+      el("h3", { text: "关联 WorkItem 与 Verifier 结果（" +
+        num(data.linked_task_count) + "）" }),
+    ]);
+    const tasks = data.tasks || [];
+    if (!tasks.length) {
+      section.appendChild(el("p", { class: "placeholder",
+        text: "这个 Goal 还没有 LD 转发的 WorkItem；停止可能发生在派工之前。" }));
+    }
+    tasks.forEach(function (task) {
+      section.appendChild(goalHandlingTaskCard(task));
+    });
+    if (data.truncated) {
+      section.appendChild(el("p", { class: "muted small",
+        text: "只列出前 " + tasks.length + " 个 WorkItem（共 "
+          + num(data.linked_task_count) + " 个）。" }));
+    }
+    body.appendChild(section);
+
+    const resumable = goal.status === "needs_human";
+    $("goalHandlingStage").hidden = !resumable;
+    $("goalHandlingStage").dataset.goalId = goal.goal_id || "";
+    if (!resumable) {
+      handlingStatus("该 Goal 当前状态为 " + (goal.status || "unknown")
+        + "，没有可恢复的暂停状态。");
+    }
+  }
+
+  function openGoalHandling(projectId, goalId) {
+    const modal = $("goalHandling");
+    // The chat drawer is a fixed overlay; leaving it open would cover the very
+    // button that was just clicked and the table behind the dialog.  The token
+    // and conversation stay in memory, so closing it costs nothing.
+    $("chatPanel").hidden = true;
+    modal.hidden = false;
+    state.handling = null;
+    $("goalHandlingConfirm").hidden = true;
+    $("goalHandlingConfirmText").textContent = "";
+    handlingStatus("正在读取 Goal…");
+    clear($("goalHandlingBody")).appendChild(
+      el("p", { class: "placeholder", text: "正在读取 Goal…" }));
+    getJson("/api/projects/" + encodeURIComponent(projectId) +
+      "/goals/" + encodeURIComponent(goalId) + "/handling")
+      .then(function (payload) {
+        state.handling = payload;
+        renderGoalHandling();
+        handlingStatus("");
+      })
+      .catch(function (error) {
+        handlingStatus("读取失败：" + (error.message || String(error)));
+      });
+  }
+
+  // ------------------------------------------------------------------ //
+  // publication target: the project a Goal will be created in.  The chat
+  // project selector and the project being viewed are two different things,
+  // so the mismatch is shown explicitly and every publication is confirmed
+  // against a target the operator has seen.
+  // ------------------------------------------------------------------ //
+  function chatProjectRow(projectId) {
+    const projects = (state.overview && state.overview.projects) || [];
+    return projects.find(function (project) {
+      return project.project_id === projectId;
+    }) || null;
+  }
+
+  function publishTargetKnown() {
+    return Boolean(state.chat.projectId && chatProjectRow(state.chat.projectId));
+  }
+
+  function resetPublishConfirm() {
+    state.publish.confirmToken = null;
+    state.publish.projectId = null;
+    const box = $("publishConfirm");
+    if (box) {
+      box.hidden = true;
+      clear(box);
+    }
+  }
+
+  function renderPublishNotice() {
+    const notice = $("publishProjectNotice");
+    if (!notice) return;
+    // The target moved (selector, restored session or a loaded conversation):
+    // the previous confirmation described a different project and is dropped.
+    if (state.publish.projectId && state.publish.projectId !== state.chat.projectId) {
+      resetPublishConfirm();
+      publishStatus("");
+    }
+    clear(notice);
+    if (!state.chat.projectId) {
+      notice.hidden = false;
+      notice.appendChild(el("span", { text: "尚未选择发布目标 Project。" }));
+      return;
+    }
+    const row = chatProjectRow(state.chat.projectId);
+    const viewed = state.selectedProjectId;
+    const mismatch = viewed && viewed !== state.chat.projectId;
+    notice.hidden = !mismatch;
+    if (!mismatch) return;
+    const viewedRow = chatProjectRow(viewed);
+    notice.appendChild(el("strong", {
+      text: "发布目标与当前查看的 Project 不一致：",
+    }));
+    notice.appendChild(el("span", {
+      text: "当前查看 " + (viewedRow ? viewedRow.name + " · " : "") + viewed +
+        "；发布目标是 " + (row ? row.name + " · " : "") + state.chat.projectId +
+        "。确认发布对象无误，或先在 LD Chat 中切换 Project。",
+    }));
+  }
+
+  function renderPublishTargetSummary(container, projectId) {
+    const row = chatProjectRow(projectId);
+    container.appendChild(el("div", {}, [
+      el("span", { class: "muted", text: "将发布到 Project：" }),
+      el("strong", { text: row ? row.name : "(未知 Project)" }),
+    ]));
+    container.appendChild(el("div", { class: "publish-target",
+      text: projectId }));
+    const root = state.publish.roots && state.publish.roots[projectId];
+    container.appendChild(el("div", { class: "publish-target",
+      text: root ? "执行仓库路径：" + root : "执行仓库路径：未知（未读取到）" }));
+  }
+
+  function loadPublishTargets() {
+    if (!state.chat.token || state.publish.roots) return Promise.resolve();
+    return chatJson("/api/chat/projects").then(function (payload) {
+      const roots = {};
+      (payload.projects || []).forEach(function (project) {
+        roots[project.project_id] = project.root;
+      });
+      state.publish.roots = roots;
+      renderPublishNotice();
+    }).catch(function () { /* the notice simply stays without a root */ });
+  }
+
   function goalsPanel(detail) {
     const goals = detail.goals || [];
     const panel = el("section", { class: "panel" }, [
@@ -630,6 +870,7 @@
       el("th", { text: "Tasks" }),
       el("th", { text: "Current Task" }),
       el("th", { text: "停止/等待原因" }),
+      el("th", { text: "处理" }),
       el("th", { text: "最后更新" }),
     ])]));
     const body = el("tbody");
@@ -696,6 +937,36 @@
             (goal.last_next_state ? " → " + goal.last_next_state : "") }));
       }
 
+      // The handling cell: a stopped goal needs an obvious, clickable way in.
+      // It opens a read-only view first; nothing is resumed from here.
+      const handlingCell = el("td", { class: "cell-action" });
+      if (goal.status === "needs_human") {
+        handlingCell.appendChild(el("button", {
+          class: "btn btn-small btn-primary goal-handle-btn",
+          attrs: { type: "button",
+                   "aria-label": "处理 Goal " + goal.goal_id,
+                   title: "查看停止原因、Verifier 结果与证据" },
+          dataset: { goalId: goal.goal_id },
+          text: "处理",
+          onClick: function () {
+            openGoalHandling(detail.project.project_id, goal.goal_id);
+          },
+        }));
+      } else if (goal.status === "failed") {
+        handlingCell.appendChild(el("button", {
+          class: "btn btn-small ghost goal-handle-btn",
+          attrs: { type: "button",
+                   "aria-label": "查看 Goal " + goal.goal_id },
+          dataset: { goalId: goal.goal_id },
+          text: "查看",
+          onClick: function () {
+            openGoalHandling(detail.project.project_id, goal.goal_id);
+          },
+        }));
+      } else {
+        handlingCell.appendChild(el("span", { class: "muted", text: "—" }));
+      }
+
       body.appendChild(el("tr", {}, [
         el("td", {}, [
           el("div", { class: "clamp-3", text: goal.summary || "(空目标)" }),
@@ -711,6 +982,7 @@
         taskCell,
         currentCell,
         reasonCell,
+        handlingCell,
         el("td", { class: "cell-time", text: fmtTime(goal.updated_at) }),
       ]));
     });
@@ -1160,6 +1432,7 @@
       select.value = preferred;
     }
     if (state.chat.projectId) select.value = state.chat.projectId;
+    renderPublishNotice();
   }
 
   function renderConversationChoices() {
@@ -1275,6 +1548,11 @@
     }
   }
 
+  //: A publication is confirmed in two steps: "发布给 LD" shows the exact
+  //: target (project name, id, repository root) and only the explicit confirm
+  //: sends the request.  Switching project invalidates the pending confirmation,
+  //: so a confirmation can never be applied to a project the operator did not
+  //: read.
   function publishObjective() {
     if (state.chat.publishing) return;
     if (!state.chat.projectId) {
@@ -1287,17 +1565,61 @@
       chatError(new Error("请填写目标正文。"));
       return;
     }
+    const target = state.chat.projectId;
+    const token = target + "\u0000" + objective;
+    if (state.publish.confirmToken === token) {
+      sendPublish(target, objective);
+      return;
+    }
+    state.publish.confirmToken = token;
+    state.publish.projectId = target;
+    const box = clear($("publishConfirm"));
+    box.hidden = false;
+    renderPublishTargetSummary(box, target);
+    box.appendChild(el("div", { class: "muted small",
+      text: "发布只会创建/复用一个 Goal；不会提交 WorkItem、不会授予预算，"
+        + "也不会修改任何已有 Goal 状态。" }));
+    box.appendChild(el("div", { class: "actions" }, [
+      el("button", {
+        class: "btn btn-ghost btn-small",
+        attrs: { type: "button" },
+        text: "取消",
+        onClick: function () {
+          resetPublishConfirm();
+          publishStatus("");
+        },
+      }),
+      el("button", {
+        class: "btn btn-primary btn-small",
+        attrs: { type: "button", id: "publishConfirmBtn" },
+        text: "确认发布到此 Project",
+        onClick: function () { sendPublish(target, objective); },
+      }),
+    ]));
+    publishStatus("已选择发布目标，等待确认。");
+  }
+
+  function sendPublish(projectId, objective) {
+    if (state.publish.projectId !== projectId ||
+        state.publish.confirmToken !== projectId + "\u0000" + objective) {
+      // The target changed between rendering the confirmation and clicking it.
+      resetPublishConfirm();
+      publishStatus("");
+      chatError(new Error("发布目标已变化，请重新确认。"));
+      return;
+    }
+    resetPublishConfirm();
     state.chat.publishing = true;
     chatError(null);
     publishStatus("正在提交 Goal…");
     renderChatConnection();
     chatJson("/api/chat/publish", {
       method: "POST",
-      body: { project_id: state.chat.projectId, objective: objective },
+      body: { project_id: projectId, objective: objective },
     }).then(function (result) {
       publishStatus("");
       renderPublishResult(result);
-      input.value = "";
+      $("publishObjective").value = "";
       // Goal truth belongs to the read-only projection path.
       refresh(true);
     }).catch(function (error) {
@@ -1306,6 +1628,110 @@
     }).then(function () {
       state.chat.publishing = false;
       renderChatConnection();
+    });
+  }
+
+  // ------------------------------------------------------------------ //
+  // stage a resume of one named goal, then confirm it in the chat panel
+  // ------------------------------------------------------------------ //
+  function stageGoalResume() {
+    const data = state.handling;
+    if (!data) return;
+    const goalId = (data.goal && data.goal.goal_id) || "";
+    const projectId = data.project_id;
+    if (!goalId || !projectId) return;
+    $("goalHandlingStage").disabled = true;
+    handlingStatus("正在暂存恢复请求…");
+    chatJson("/api/chat/goal-resume", {
+      method: "POST",
+      body: { project_id: projectId, goal_id: goalId },
+    }).then(function (turn) {
+      handlingStatus("");
+      $("goalHandlingStage").disabled = false;
+      const confirmBox = $("goalHandlingConfirm");
+      confirmBox.hidden = false;
+      $("goalHandlingConfirmText").textContent =
+        "将恢复 Goal " + goalId + "（Project " + projectId + "）。"
+        + "只有单击下方「确认恢复」才会真正恢复；取消不会改变任何状态，"
+        + "预算也不会被扩大。";
+      $("goalHandlingConfirmBtn").dataset.conversationId = turn.conversation_id;
+      $("goalHandlingConfirmBtn").dataset.goalId = goalId;
+      // Show the same staging in the chat panel, so the operator can also finish
+      // there with the ordinary confirm button.
+      state.chat.conversationId = turn.conversation_id;
+      state.chat.projectId = projectId;
+      chatSaveSession();
+      syncChatProjects();
+      loadChatConversation(turn.conversation_id).catch(function () {
+        /* the panel is best-effort; the modal stays authoritative */
+      });
+      // Deliberately not reopening the chat drawer here: it would cover the
+      // modal's own confirmation buttons.  The staged action is already visible
+      // in the chat panel whenever the operator opens it.
+    }).catch(function (error) {
+      $("goalHandlingStage").disabled = false;
+      handlingStatus("");
+      chatError(error);
+      const message = (error && error.message) || String(error);
+      $("goalHandlingConfirm").hidden = true;
+      handlingStatus("暂存失败：" + message);
+    });
+  }
+
+  function confirmGoalResume() {
+    const button = $("goalHandlingConfirmBtn");
+    const conversationId = button.dataset.conversationId;
+    const goalId = button.dataset.goalId;
+    if (!conversationId) return;
+    button.disabled = true;
+    handlingStatus("正在确认恢复…");
+    chatJson("/api/chat/messages", {
+      method: "POST",
+      body: { conversation_id: conversationId,
+              project_id: state.handling
+                ? state.handling.project_id : state.chat.projectId,
+              message: "confirm" },
+    }).then(function (turn) {
+      button.disabled = false;
+      $("goalHandlingConfirm").hidden = true;
+      const resumed = Boolean(turn.facts && turn.facts.resumed);
+      handlingStatus(resumed
+        ? ("Goal " + goalId + " 已恢复；预算未变，Runner 联网状态仍为 unknown。")
+        : ("恢复未生效：" + (turn.answer || "LDChat 未应用该确认。")));
+      if (state.chat.conversationId === conversationId) {
+        loadChatConversation(conversationId).catch(function () { /* rendered */ });
+      }
+      refresh(true);
+    }).catch(function (error) {
+      button.disabled = false;
+      handlingStatus("确认失败：" + ((error && error.message) || String(error)));
+    });
+  }
+
+  function cancelGoalResume() {
+    const button = $("goalHandlingConfirmBtn");
+    const conversationId = button.dataset.conversationId;
+    button.dataset.conversationId = "";
+    $("goalHandlingConfirm").hidden = true;
+    if (!conversationId) {
+      handlingStatus("已取消，未恢复任何 Goal。");
+      return;
+    }
+    // The staged action is dropped by sending a superseding turn, which is the
+    // existing LDChat behaviour: any non-confirmation message clears it.
+    chatJson("/api/chat/messages", {
+      method: "POST",
+      body: { conversation_id: conversationId,
+              project_id: state.handling
+                ? state.handling.project_id : state.chat.projectId,
+              message: "cancel" },
+    }).then(function (turn) {
+      handlingStatus("已取消：" + (turn.answer || "未恢复任何 Goal。"));
+      if (state.chat.conversationId === conversationId) {
+        loadChatConversation(conversationId).catch(function () { /* rendered */ });
+      }
+    }).catch(function () {
+      handlingStatus("已取消本地确认；若暂存仍在，可在 LD Chat 中回复 cancel。");
     });
   }
 
@@ -1325,6 +1751,7 @@
     renderConversationChoices();
     renderChatMessages();
     renderChatRuntime();
+    renderPublishNotice();
   }
 
   function newChatConversation() {
@@ -1456,6 +1883,7 @@
       state.chat.restored = true;
       restoreChatState();
     }
+    if (state.chat.token) loadPublishTargets();
   }
 
   function restoreChatState() {
@@ -1469,6 +1897,7 @@
     $("chatToken").value = state.chat.token;
     syncChatProjects();
     if (state.chat.token) {
+      loadPublishTargets();
       loadChatConversations(state.chat.conversationId).catch(function () { /* rendered */ });
     }
   }
@@ -1557,6 +1986,7 @@
         state.chat.restored = true;
         restoreChatState();
       }
+      renderPublishNotice();
     }
   }
 
@@ -1598,6 +2028,9 @@
     state.goalFilter = "all";
     state.taskFilter = "all";
     writeHash(state.selectedProjectId);
+    // Viewing another project never moves the LD Chat target, but it must make
+    // the difference visible instead of leaving it implicit.
+    renderPublishNotice();
     if (projectId) setViewState(loadingNode("正在加载项目详情…"));
     refresh(true);
   }
@@ -1668,8 +2101,24 @@
     });
     $("chatProject").addEventListener("change", function (event) {
       state.chat.projectId = event.target.value || null;
+      // A confirmation rendered for the previous project must never be reusable.
+      resetPublishConfirm();
+      renderPublishNotice();
+      publishStatus("");
       newChatConversation();
       loadChatConversations(null).catch(function () { /* rendered */ });
+      loadPublishTargets();
+    });
+
+    $("goalHandlingClose").addEventListener("click", closeGoalHandling);
+    $("goalHandlingStage").addEventListener("click", stageGoalResume);
+    $("goalHandlingConfirmBtn").addEventListener("click", confirmGoalResume);
+    $("goalHandlingCancelBtn").addEventListener("click", cancelGoalResume);
+    $("goalHandling").addEventListener("click", function (event) {
+      if (event.target === $("goalHandling")) closeGoalHandling();
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !$("goalHandling").hidden) closeGoalHandling();
     });
     $("chatConversation").addEventListener("change", function (event) {
       loadChatConversation(event.target.value || null).catch(function () { /* rendered */ });

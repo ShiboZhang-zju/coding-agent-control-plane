@@ -94,9 +94,11 @@
       <strong>发布任务给 LD</strong>
       <span class="muted small">只创建 Goal；由 LD 转发给 Worker</span>
     </div>
+    <div id="publishProjectNotice" class="publish-notice" hidden></div>
     <label for="publishObjective">目标（Goal 正文）</label>
     <textarea id="publishObjective" rows="3" maxlength="2000"
               placeholder="例如：实现 greet.py 并补充测试"></textarea>
+    <div id="publishConfirm" class="publish-confirm" hidden></div>
     <div class="chat-compose-actions">
       <span id="publishStatus" class="muted small"></span>
       <button type="button" id="publishBtn" class="btn btn-primary">发布给 LD</button>
@@ -128,6 +130,31 @@
     </div>
   </div>
 </aside>
+
+<div id="goalHandling" class="modal" hidden role="dialog" aria-modal="true"
+     aria-labelledby="goalHandlingTitle">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 id="goalHandlingTitle">处理 needs_human Goal</h2>
+      <button type="button" id="goalHandlingClose" class="btn btn-ghost">关闭</button>
+    </div>
+    <div id="goalHandlingBody" class="modal-body"></div>
+    <div id="goalHandlingConfirm" class="chat-confirmation" hidden>
+      <strong>恢复需要二次确认</strong>
+      <span id="goalHandlingConfirmText"></span>
+      <div>
+        <button type="button" id="goalHandlingConfirmBtn" class="btn btn-primary">确认恢复</button>
+        <button type="button" id="goalHandlingCancelBtn" class="btn btn-ghost">取消</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span id="goalHandlingStatus" class="muted small"></span>
+      <button type="button" id="goalHandlingStage" class="btn btn-primary">
+        在 LD Chat 中恢复此 Goal
+      </button>
+    </div>
+  </div>
+</div>
 
 <footer class="footer">
   <span id="lastRefresh">尚未刷新</span>

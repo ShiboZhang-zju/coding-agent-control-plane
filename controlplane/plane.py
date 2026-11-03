@@ -52,6 +52,77 @@ DISPATCH_CLAIM_LEASE_S = 300.0
 #: and "precondition proven".  Flipping to ``ready`` is then the single gate.
 DEFERRED_QUEUE_STATUSES = frozenset({"checkpoint_unprotected"})
 
+#: How many recent events are scanned when deciding whether a
+#: ``project_context_updated`` success event has already been recorded for the
+#: *same* outcome.  Bounded on purpose: the ledger's event stream is append-only
+#: and a task can accumulate many unrelated events, so this is a "recent history"
+#: check, not an unbounded scan.
+CONTEXT_EVENT_SCAN_LIMIT = 200
+
+
+def _context_update_signature(result: dict) -> str:
+    """Deterministic fingerprint of one applied/replayed M2 update outcome.
+
+    Two observations that produced the *same* receipts (same attempt, same
+    idempotency keys, same committed statuses and entries) must map to the same
+    signature, so a periodic re-observation is not logged as a new success.
+    Anything genuinely different — another attempt, a status that moved from
+    ``busy``/``failed`` to ``applied``, a different entry — changes the digest.
+    """
+    payload = {
+        "attempt_id": result.get("attempt_id"),
+        "status": result.get("status"),
+        "evidence_ref": result.get("evidence_ref"),
+        "updates": sorted(
+            ({"idempotency_key": update.get("idempotency_key"),
+              "status": update.get("status"),
+              "entry_id": update.get("entry_id")}
+             for update in result.get("updates") or []),
+            key=lambda item: str(item.get("idempotency_key"))),
+    }
+    return "sha256:" + hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                   default=str).encode("utf-8")).hexdigest()[:32]
+
+
+def side_effect_warnings(violations: list[dict]) -> list[str]:
+    """One stable warning string per distinct side-effect violation.
+
+    The runtime re-observes a running WorkItem on every refresh, and
+    ``side_effects()`` keeps reporting the same unchanged violation.  Blindly
+    appending produced a warning list that grew without bound (the same
+    ``SIDE_EFFECT:undeclared_local_change:<repo>`` hundreds of times).
+
+    Deduplication must not merge *different* violations, though: two distinct
+    sets of undeclared changes in the same repo are two findings.  So the
+    warning carries a short fingerprint of the concrete entries, making
+    "same finding again" identical while "another undeclared file appeared"
+    different.
+    """
+    warnings: list[str] = []
+    for violation in violations or []:
+        warning = "SIDE_EFFECT:" + str(violation.get("type")) + ":" + str(
+            violation.get("repo") or violation.get("cwd"))
+        entries = sorted(str(item) for item in violation.get("entries") or [])
+        if entries:
+            digest = hashlib.sha256(
+                json.dumps(entries, ensure_ascii=False).encode("utf-8")
+            ).hexdigest()[:8]
+            warning += f"#{digest}"
+        if warning not in warnings:
+            warnings.append(warning)
+    return warnings
+
+
+def merge_warnings(existing: list[str] | None,
+                   incoming: list[str] | None) -> list[str]:
+    """Append only warnings that are not already recorded (order preserved)."""
+    merged = [str(item) for item in existing or []]
+    for warning in incoming or []:
+        if warning not in merged:
+            merged.append(str(warning))
+    return merged
+
 
 def task_digest(prompt: str, policy: DispatchPolicy,
                 assertions: list[ArtifactAssertion], cwd: str,
@@ -888,6 +959,25 @@ class ControlPlane:
         return reconcile_handoff_checkpoints(self.store, limit=limit)
 
     def _sync_project_context(self, task: dict) -> dict:
+        """Apply the M2 context update once, recording one success event.
+
+        ``ProjectContextUpdateLoop.process_task`` is idempotent by receipt, so a
+        terminal task can be (and routinely is) observed again by every refresh
+        sweep.  Those replays returned the *same* completed receipts, and the
+        previous implementation appended one ``project_context_updated`` event
+        per replay: a single WorkItem accumulated ~75 identical success events.
+
+        The event is therefore gated on a deterministic receipt signature
+        (attempt + the idempotency keys and statuses that were committed):
+
+        * first application, or a genuinely different outcome (a new attempt,
+          a status that changed from ``busy``/``failed`` to ``applied``) has a
+          new signature and is recorded;
+        * a pure replay of an already recorded signature adds nothing;
+        * a crash after the receipts committed but before this event was
+          written leaves *no* event with that signature, so the next sweep still
+          records it exactly once (recovery preserved).
+        """
         if not task.get("project_id"):
             return {"task_id": task.get("task_id"), "status": "skipped",
                     "reason": "task is not bound to a project"}
@@ -904,17 +994,36 @@ class ControlPlane:
                 "note": "task verdict kept; replay update_project_context(task_id)"})
             return {"task_id": task["task_id"], "status": "failed",
                     "error": type(exc).__name__}
+        updates = result.get("updates") or []
+        if any(update.get("status") == "busy" for update in updates):
+            # Another writer holds the claim.  Nothing was committed, so there is
+            # no outcome to record; the next sweep retries.
+            return result
+        signature = _context_update_signature(result)
+        if self._context_update_event_recorded(task["task_id"], signature):
+            return {**result, "event": "already_recorded", "signature": signature}
         self.store.append_event(task["task_id"], "project_context_updated", {
             "status": result.get("status"),
             "attempt_id": result.get("attempt_id"),
             "evidence_ref": result.get("evidence_ref"),
+            "signature": signature,
             "updates": [
                 {"status": update.get("status"),
                  "entry_id": update.get("entry_id"),
                  "idempotency_key": update.get("idempotency_key")}
-                for update in result.get("updates") or []],
+                for update in updates],
         })
-        return result
+        return {**result, "event": "recorded", "signature": signature}
+
+    def _context_update_event_recorded(self, task_id: str, signature: str) -> bool:
+        """True when this exact update outcome already has a success event."""
+        for event in self.store.events(task_id, limit=CONTEXT_EVENT_SCAN_LIMIT):
+            if event.get("type") != "project_context_updated":
+                continue
+            payload = event.get("payload") or {}
+            if payload.get("signature") == signature:
+                return True
+        return False
 
     # ------------------------------------------------------------------ #
     # refresh: two independent paths
@@ -1208,9 +1317,11 @@ class ControlPlane:
             "worker_metadata": snap.metadata,
         }
         if violations:
-            patch["warnings"] = list(rec.get("warnings") or []) + [
-                "SIDE_EFFECT:" + v["type"] + ":" + str(v.get("repo") or v.get("cwd"))
-                for v in violations]
+            # Repeated observation of the same unchanged violation must not
+            # re-append the same line (see ``side_effect_warnings``); a genuinely
+            # new violation still changes the fingerprint and is added.
+            patch["warnings"] = merge_warnings(
+                rec.get("warnings"), side_effect_warnings(violations))
         # Pin the exact code state acceptance verified (first verified
         # observation only).  A later handoff may hand over this state and
         # nothing else; any change after acceptance blocks the handoff.
