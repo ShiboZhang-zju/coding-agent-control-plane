@@ -819,12 +819,28 @@ Dashboard 不会显示完成。结果 **34/34 Pass**，`resume_count = 0`。
 这轮真实跑通顺带发现并修复了一个**验收规则缺陷**：只声明否定型断言
 （`path_absent` / `git_clean`）时，一个什么都没做的任务会被判 `verified`。
 现在 `VERIFIED` 要求至少一条断言 `owned=True`，否则降级 `inconclusive`。
-回归见 `tests/test_verifier_negative_assertions.py`。
+回归见 `tests/test_verifier_negative_assertions.py`（13 项，含一次经 `ControlPlane`
+的全链路集成用例）。
+
+**这次修复的证明范围要说清楚**：T66 的 S3 证据里 `assertion_results` 是空列表，
+它命中的是**原有**的"无断言 → `inconclusive`"分支，并没有经过新增的 `owned`
+判断。因此新规则的有效性由测试 + `scripts/t66b_supplementary_checks.py` 的变异
+验证承担（移除该判断后 13 项中有 6 项失败，源码随后恢复）。`git_branch` 和
+`git_clean` 是**状态断言**，不设 `owned`，单独依赖它们也会降级为 `inconclusive`。
+
+同样要说清楚的是，`owned=True` 只证明**被声明的**产物相对基线发生了可归因变化，
+不证明自然语言目标整体完成。T66 的 S1 只声明了两条文件断言，所以脚本现在额外
+**独立执行**预置 `test_load.py` 并记录退出码；T66b 对真实运行留下的 worktree
+补跑该测试（3/3 均为 `2 passed`）。断言是否覆盖目标仍取决于 LD，见 UI1-R09。
 
 未覆盖：浏览器 DOM 点击路径（T66 用的是浏览器同一套 HTTP API）、Runner 心跳
-（UI1-R01）、真实 session 卡在 `starting…` 的 worker 侧缺陷（UI1-R08，T66 只能
-检测并诚实失败）。未配置真实 LD 模型端点时，T66 仍记录为
-`BLOCKED_ENVIRONMENT`，不是 Pass。
+（UI1-R01）、强语义任务验收的断言充分性（UI1-R09）、真实 session 卡在
+`starting…` 的 worker 侧缺陷（UI1-R08；T66 的停滞检测只在测试脚本内，是检测
+不是修复）。未配置真实 LD 模型端点时，T66 仍记录为 `BLOCKED_ENVIRONMENT`，
+不是 Pass。
+
+**定位**：单机 Project-Centric LD System MVP 核心功能完成。不宜说成"所有任务类型
+均可可靠自主完成"——那还取决于模型决策质量、断言充分性与 Worker 稳定性。
 
 ### 6.4 传统队列流程（仍然支持，未改变）
 

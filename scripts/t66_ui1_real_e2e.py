@@ -559,6 +559,41 @@ def main() -> int:
                     break
         checks["S1.load_config_really_written"] = "def load_config" in loaded
 
+        # Independent proof that the objective's *behavioural* condition holds.
+        # The ledger only ever verifies the assertions the LD declared, and here
+        # those are two file assertions; "the file contains def load_config" is
+        # not "test_load.py passes".  Running the seeded tests ourselves keeps
+        # the acceptance claim honest about its scope instead of letting a file
+        # assertion stand in for functionality.
+        test_dir = None
+        for candidate in candidates:
+            if candidate.is_file() and (candidate.parent.parent
+                                        / "test_load.py").is_file():
+                test_dir = candidate.parent.parent
+                break
+        pytest_run = {"ran": False, "returncode": None,
+                      "stdout_tail": "", "reason": "no seeded test file found"}
+        if test_dir is not None:
+            try:
+                proc = subprocess.run(
+                    [sys.executable, "-m", "pytest", "test_load.py", "-q",
+                     "--no-header", "-p", "no:cacheprovider"],
+                    cwd=str(test_dir), capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", timeout=300)
+                pytest_run = {
+                    "ran": True,
+                    "returncode": proc.returncode,
+                    # Bounded tail: this is a fixture run, not a transcript.
+                    "stdout_tail": (proc.stdout or "").strip()[-400:],
+                }
+            except (OSError, subprocess.SubprocessError) as exc:
+                pytest_run = {"ran": False, "returncode": None,
+                              "stdout_tail": "",
+                              "reason": type(exc).__name__}
+        checks["S1.seeded_tests_were_run"] = pytest_run["ran"]
+        checks["S1.seeded_tests_actually_pass"] = pytest_run["returncode"] == 0
+        evidence["S1"]["seeded_tests"] = pytest_run
+
         # ---- S1b: dashboard shows Goal -> WorkItem -> Verdict ------------- #
         detail = project_detail(project_id)
         goal_view = next((g for g in detail.get("goals", [])

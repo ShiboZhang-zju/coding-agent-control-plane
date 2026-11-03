@@ -1,0 +1,49 @@
+{
+  "test": "T66b supplementary checks for the acceptance rule",
+  "mode": "deterministic, post-hoc: mutation of the production rule in place (restored in finally) + the seeded tests run against the worktree the real run left on disk",
+  "why": "T66's S3 produced an empty assertion list, so its inconclusive verdict is also explained by the pre-existing 'no assertions' branch; and the happy path never executed the seeded tests. Both gaps are closed here without claiming a new real E2E run.",
+  "not_covered": [
+    "re-running the real LLM/CodeBuddy chain (not attempted here)",
+    "browser DOM interaction"
+  ],
+  "checks": {
+    "mutation.guard_removal_is_detected": true,
+    "mutation.source_restored": true,
+    "seeded.tests_were_run": true,
+    "seeded.tests_pass": true
+  },
+  "mutation": {
+    "performed": true,
+    "guard_removed": true,
+    "tests_fail_without_the_guard": true,
+    "mutation_run": {
+      "returncode": 1,
+      "summary": "6 failed, 7 passed in 35.95s",
+      "stdout_tail": "negative_only_assertions_cannot_verify_a_no_op\nFAILED tests/test_verifier_negative_assertions.py::test_git_clean_alone_cannot_verify_a_no_op\nFAILED tests/test_verifier_negative_assertions.py::test_passed_but_unowned_results_are_inconclusive_not_verified\nFAILED tests/test_verifier_negative_assertions.py::test_git_branch_alone_cannot_verify_a_no_op\nFAILED tests/test_verifier_negative_assertions.py::test_state_assertions_cannot_upgrade_an_unowned_set\nFAILED tests/test_verifier_negative_assertions.py::test_control_plane_does_not_record_verified_for_a_negative_only_task\n6 failed, 7 passed in 35.95s",
+      "stderr_tail": ""
+    },
+    "source_restored": true
+  },
+  "seeded_tests": {
+    "ran": true,
+    "results": [
+      {
+        "worktree": "sandbox/t66-real-e2e-a272c2f3/happy/.codebuddy/worktrees/bg-6afff0df",
+        "returncode": 0,
+        "stdout_tail": "..                                                                       [100%]\n2 passed in 0.08s"
+      },
+      {
+        "worktree": "sandbox/t66-real-e2e-9fd15a1b/happy/.codebuddy/worktrees/bg-cfba9853",
+        "returncode": 0,
+        "stdout_tail": "..                                                                       [100%]\n2 passed in 0.07s"
+      },
+      {
+        "worktree": "sandbox/t66-real-e2e-19e55ec2/happy/.codebuddy/worktrees/bg-6b033311",
+        "returncode": 0,
+        "stdout_tail": "..                                                                       [100%]\n2 passed in 0.07s"
+      }
+    ],
+    "all_passed": true
+  },
+  "result": "Pass"
+}

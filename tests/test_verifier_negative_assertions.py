@@ -63,6 +63,78 @@ def test_git_clean_alone_cannot_verify_a_no_op(tmp_path: Path):
     assert verdict is Verdict.INCONCLUSIVE
 
 
+def test_passed_but_unowned_results_are_inconclusive_not_verified(tmp_path: Path):
+    """The exact case the T66 fix exists for, asserted on a *non-empty* result set.
+
+    The earlier real-run regression (T66 S3) produced ``assertion_results: []``,
+    which the pre-existing "no assertions" branch already turned into
+    ``inconclusive``.  So that run never exercised the new rule.  This test feeds
+    the rule the shape it actually guards: results that are present, all
+    ``passed``, and none ``owned``.
+    """
+    (tmp_path / "seed.txt").write_text("seed\n", encoding="utf-8")
+    results = [{"kind": "path_absent", "target": "report.md", "value": None,
+                "passed": True, "owned": False, "observed": "missing (expected)"}]
+    assert results, "the guard must be proven on a non-empty result set"
+    assert all(result["passed"] for result in results)
+    assert not any(result["owned"] for result in results)
+    assert verdict_for(TaskState.SUCCEEDED, True, results, []) is Verdict.INCONCLUSIVE
+
+
+def test_git_branch_alone_cannot_verify_a_no_op(tmp_path: Path):
+    """``git_branch`` is a state assertion, not production evidence.
+
+    ``HEAD`` sits on the requested branch whether or not the attempt did
+    anything, so a branch-only objective must not be accepted either.  This pins
+    the documented behaviour: ``git_branch`` never sets ``owned``.
+    """
+    import subprocess
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(tmp_path), *args], check=True,
+                       capture_output=True, text=True, timeout=60)
+
+    git("init", "-q")
+    git("config", "user.email", "verifier@example.invalid")
+    git("config", "user.name", "Verifier")
+    (tmp_path / "seed.txt").write_text("seed\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "seed")
+    branch = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "--abbrev-ref", "HEAD"],
+        check=True, capture_output=True, text=True, timeout=60).stdout.strip()
+
+    verdict, results = _verify(
+        tmp_path, [ArtifactAssertion("git_branch", branch)])
+    assert [result["passed"] for result in results] == [True]
+    assert [result["owned"] for result in results] == [None]
+    assert verdict is Verdict.INCONCLUSIVE
+
+
+def test_state_assertions_cannot_upgrade_an_unowned_set(tmp_path: Path):
+    """Mixing "still clean" into a negative-only set does not manufacture evidence."""
+    import subprocess
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(tmp_path), *args], check=True,
+                       capture_output=True, text=True, timeout=60)
+
+    git("init", "-q")
+    git("config", "user.email", "verifier@example.invalid")
+    git("config", "user.name", "Verifier")
+    (tmp_path / "seed.txt").write_text("seed\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "seed")
+
+    verdict, results = _verify(tmp_path, [
+        ArtifactAssertion("path_absent", "report.md"),
+        ArtifactAssertion("git_clean", "HEAD"),
+    ])
+    assert all(result["passed"] for result in results)
+    assert not any(result["owned"] for result in results)
+    assert verdict is Verdict.INCONCLUSIVE
+
+
 def test_positive_assertion_still_verifies(tmp_path: Path):
     (tmp_path / "seed.txt").write_text("seed\n", encoding="utf-8")
     assertions = [ArtifactAssertion("file_exists", "made.txt")]
@@ -95,6 +167,63 @@ def test_no_assertions_is_still_inconclusive(tmp_path: Path):
     (tmp_path / "seed.txt").write_text("seed\n", encoding="utf-8")
     verdict, _ = _verify(tmp_path, [])
     assert verdict is Verdict.INCONCLUSIVE
+
+
+def test_control_plane_does_not_record_verified_for_a_negative_only_task(tmp_path: Path):
+    """End-to-end through ``ControlPlane``, not a hand-built result list.
+
+    This is the integration shape the reviewer asked for: a real WorkItem whose
+    declared assertions are all negative, observed as SUCCEEDED by the adapter,
+    reconciled by the real plane.  The persisted verdict must be
+    ``inconclusive`` — never ``verified``.
+    """
+    import subprocess
+
+    from adapters.base import TaskSnapshot
+    from controlplane.plane import ControlPlane
+    from controlplane.store import TaskStore
+
+    class _StubAdapter:
+        name = "stub"
+
+        def collect_artifacts(self, task_id):
+            return []
+
+        def reconcile(self):
+            return {"source": "stub", "total": 0, "new": [], "changed": [],
+                    "lost": [], "jobs": []}
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(tmp_path), *args], check=True,
+                       capture_output=True, text=True, timeout=60)
+
+    git("init", "-q")
+    git("config", "user.email", "verifier@example.invalid")
+    git("config", "user.name", "Verifier")
+    (tmp_path / "seed.txt").write_text("seed\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "seed")
+
+    store = TaskStore(tmp_path / "ledger.db")
+    try:
+        plane = ControlPlane(_StubAdapter(), store)
+        assertions = [ArtifactAssertion("path_absent", "report.md")]
+        task = plane.enqueue(
+            "analyze only, do not write anything", str(tmp_path),
+            assertions=assertions)
+        task_id = task["task_id"]
+        # The attempt did nothing; the adapter reports success.
+        store.update(task_id, **plane._snapshot_patch(
+            task_id,
+            TaskSnapshot(task_id=task_id, worker_job_id="stub-" + task_id,
+                         state=TaskState.SUCCEEDED, cwd=str(tmp_path),
+                         detail="read-only, nothing produced")))
+        record = store.get(task_id)
+        assert [r["passed"] for r in record["assertion_results"]] == [True]
+        assert [bool(r["owned"]) for r in record["assertion_results"]] == [False]
+        assert record["verdict"] == Verdict.INCONCLUSIVE.value
+    finally:
+        store.close()
 
 
 @pytest.mark.parametrize("state", [TaskState.FAILED, TaskState.CANCELLED,

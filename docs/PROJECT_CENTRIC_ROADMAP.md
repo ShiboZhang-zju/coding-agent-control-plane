@@ -997,15 +997,40 @@ LD_MODEL_*                           真实 LLM 决策端点（凭据只进子�
 
 修复：`VERIFIED` 额外要求至少一条断言 `owned=True`。否定型断言通过时
 `owned=False`，因此"纯否定断言集"与"没有断言"同等降级为 `inconclusive`。
-确定性回归 `tests/test_verifier_negative_assertions.py`（9 项），真实回归见
-T66 S3。
+
+**证明范围的更正（复审后）**：T66 的 S3 证据里 `assertion_results: []`，它走的是
+**原有**的"无断言 → `inconclusive`"分支，并未经过新增的 `owned` 判断。所以
+那次真实运行并没有回归新规则。真正证明新规则有效的是：
+
+- `tests/test_verifier_negative_assertions.py`（13 项），其中
+  `test_passed_but_unowned_results_are_inconclusive_not_verified` 专门喂
+  `passed=true, owned=false` 的**非空**结果集；
+- `scripts/t66b_supplementary_checks.py` 的**变异验证**：把 `owned` 判断从生产代码
+  移除后，该测试文件 6 项失败（`git` 恢复原文件），说明这条规则确实被测试守住；
+- 同时修正文档与实现不一致：`git_branch` / `git_clean` 属于**状态断言**，不设
+  `owned`，单独依赖它们同样降级为 `inconclusive`（已由测试固定）。
+
+### 验收范围仍取决于 LD 声明的断言（UI1-R09）
+
+`owned=True` 只证明**被声明的**产物相对基线发生了可归因变化，不证明自然语言目标
+整体完成。T66 的 S1 只声明了两条文件断言，"文件含 `def load_config`"并不等于
+"`test_load.py` 通过"。
+
+处理：T66 脚本现在**独立执行**预置 `test_load.py` 并记录退出码；
+`scripts/t66b_supplementary_checks.py` 对真实运行留下的 worktree 补跑该测试，
+3/3 均为 `2 passed`（`evidence/project/T66b-supplementary-checks.json`）。
+
+这仍是"补断言"，不是架构保证。后续应在 LD 提交阶段评估断言是否覆盖目标，
+而不是引入新的验收状态机或第二个 Verifier。
 
 ### 仍未覆盖
 
 - 浏览器真实点击路径（T66 走的是浏览器使用的同一套 HTTP API，不是 DOM 事件）。
 - Runner 心跳/在线探测（UI1-R01，设计限制）。
-- 真实 CodeBuddy session 偶发卡在 `starting…`（UI1-R08，worker 侧缺陷，
-  T66 只能检测并诚实失败）。
+- 真实 CodeBuddy session 偶发卡在 `starting…`（UI1-R08，worker 侧缺陷）。
+  T66 的 1500s 停滞检测**只在测试脚本内**，不是生产 Runtime 的超时/取消逻辑，
+  因此这是检测手段而非修复。
+- 强语义任务验收：断言充分性没有保证（UI1-R09）。
 
 ---
 

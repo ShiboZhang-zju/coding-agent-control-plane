@@ -282,10 +282,19 @@ def verdict_for(state: TaskState, state_known: bool, results: list[dict],
     ``INCONCLUSIVE``, the same treatment as declaring no assertions, because
     neither one can distinguish "did the work" from "did nothing".
 
-    ``owned`` is set by the kinds that can prove production
-    (``file_exists``/``file_contains``/``git_commit``/``git_branch``).  Negative
-    kinds deliberately report ``owned=False`` when they pass, which is what makes
-    this check meaningful rather than a second truth of its own.
+    ``owned`` is set only by the kinds that can prove production:
+    ``file_exists`` / ``file_contains`` (the target changed relative to the
+    baseline) and ``git_commit`` (a new commit appeared).  ``path_absent``,
+    ``git_clean`` and ``git_branch`` are *state* assertions: they describe how
+    the tree looks, not that this attempt produced anything, so they never set
+    ``owned``.  An assertion set made only of those therefore degrades to
+    ``INCONCLUSIVE`` — conservatively correct, because "HEAD is on branch X" and
+    "the tree is clean" are equally true of a tree nobody touched.
+
+    Note the scope of what this proves: ``owned=True`` means *the declared
+    artifact changed relative to the baseline in a way attributable to this
+    attempt*.  It does not prove the natural-language objective is satisfied —
+    that depends on whether the declared assertions cover it.
     """
     if violations:
         # an attempt that touched another project can never be accepted,
