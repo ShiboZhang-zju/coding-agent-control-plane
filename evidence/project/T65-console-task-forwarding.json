@@ -1,0 +1,73 @@
+{
+  "test": "T65 console publication -> LD forwarding -> ledger tracking",
+  "mode": "real loopback HTTP + real LDChat/Goal/Runner/ProjectService over a real SQLite ledger; scripted LD decision model; stub Worker adapter",
+  "checks": {
+    "publish_http_200": true,
+    "publish_created_goal": true,
+    "publish_next_step_is_runner": true,
+    "publish_created_no_work_item": true,
+    "publish_second_call_reuses_goal": true,
+    "runner_forwarded_work_item": true,
+    "forwarded_by_ld": true,
+    "goal_points_at_forwarded_task": true,
+    "model_called_only_by_runner": true,
+    "no_verdict_invented": true,
+    "projection_lists_goal": true,
+    "projection_links_task": true,
+    "projection_task_carries_goal_ref": true,
+    "publish_rejects_extra_fields": true,
+    "publish_requires_bearer_auth": true,
+    "one_goal_one_task": true,
+    "budget_stamped_by_runner_not_console": true
+  },
+  "commands": {
+    "pytest": {
+      "argv": [
+        "<HOME>\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+        "-m",
+        "pytest",
+        "tests/test_ui1_web_chat.py",
+        "tests/test_ui0_dashboard.py",
+        "-q"
+      ],
+      "exit_code": 0,
+      "stdout": ".....................................s..................                 [100%]\n55 passed, 1 skipped in 70.14s (0:01:10)",
+      "stderr": ""
+    },
+    "javascript_syntax": {
+      "argv": [
+        "node",
+        "--check",
+        "dashboard/static/app.js"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  },
+  "ledger": {
+    "path_relative": ".poc-state\\t65\\t65-819883e1.db",
+    "sha256": "d3194acfb8b5c40e08579ece67f4886d4ff93adaca5c75f6ae1f00f054e30535"
+  },
+  "forwarding_chain": [
+    "console POST /api/chat/publish",
+    "LDChat.publish_goal -> one Goal row (deterministic goal_id)",
+    "LDGoalRunner.advance_due -> wakes the LD",
+    "LD decision -> LDTools.submit_project_task -> ControlPlane",
+    "WorkItem.metadata.ld_goal_ref is the only Goal/Task link",
+    "GET /api/projects/{id} projects that link back to the console"
+  ],
+  "real_llm_ld_decision": "BLOCKED_ENVIRONMENT",
+  "real_llm_environment": {
+    "base_url_configured": false,
+    "model_name_configured": false,
+    "domains_configured": false,
+    "note": "No endpoint URL, model id or key is written here. A scripted decision model proves the forwarding path, not an LLM's judgment."
+  },
+  "not_covered": [
+    "real LLM LD decision quality",
+    "real CodeBuddy Worker execution and Verifier verdict",
+    "browser visual walkthrough (separate GUI step)"
+  ],
+  "result": "Pass"
+}

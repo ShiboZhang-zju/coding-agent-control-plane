@@ -89,6 +89,21 @@
     <div id="chatConversationId" class="mono small muted">尚未创建会话</div>
   </div>
 
+  <section id="publishBox" class="chat-publish" hidden aria-label="发布任务给 LD">
+    <div class="chat-publish-head">
+      <strong>发布任务给 LD</strong>
+      <span class="muted small">只创建 Goal；由 LD 转发给 Worker</span>
+    </div>
+    <label for="publishObjective">目标（Goal 正文）</label>
+    <textarea id="publishObjective" rows="3" maxlength="2000"
+              placeholder="例如：实现 greet.py 并补充测试"></textarea>
+    <div class="chat-compose-actions">
+      <span id="publishStatus" class="muted small"></span>
+      <button type="button" id="publishBtn" class="btn btn-primary">发布给 LD</button>
+    </div>
+    <div id="publishResult" class="chat-publish-result" hidden></div>
+  </section>
+
   <div id="chatError" class="chat-error" role="alert" hidden></div>
   <div id="chatMessages" class="chat-messages" aria-live="polite">
     <p class="placeholder">输入 Token 并连接后，可以直接与现有 LD 对话。</p>

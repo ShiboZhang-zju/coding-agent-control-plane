@@ -46,6 +46,11 @@ GOAL_SUMMARY_CHARS = 220
 #: Verification buckets reported by the memory summary.
 _VERIFICATIONS = ("verified", "candidate", "unverified")
 
+#: How many linked WorkItem ids one goal row may carry.  The count is always the
+#: real count; only the id list is bounded, so a long-running goal cannot blow
+#: up the JSON document.
+LINKED_TASK_LIMIT = 50
+
 
 def _goal_summary(text: str | None) -> dict:
     clean = (text or "").strip()
@@ -111,6 +116,34 @@ def goal_view(goal: dict, *, project_id: str) -> dict:
     }
 
 
+def goal_task_links(goal: dict, tasks: list[dict]) -> dict:
+    """Which WorkItems the LD actually submitted for this goal, and their state.
+
+    Membership is the ledger's own ``metadata.ld_goal_ref`` stamp written by
+    ``LDTools.submit_project_task`` — never "any task that looks related".  If a
+    goal has no linked task, that is reported as an empty list: it means the LD
+    has not forwarded anything yet, which is different from "the task is
+    running".
+
+    This adds no progress semantics: the counts are ledger rows and the verdict
+    values are copied verbatim, so the console can show the forwarding chain
+    without ever claiming a goal is "50% done".
+    """
+    linked = [task for task in tasks if task.get("goal_ref")
+              and task.get("goal_ref") == goal.get("goal_ref")]
+    counts: dict[str, int] = {}
+    for task in linked:
+        key = str(task.get("verdict") or task.get("state") or "unknown")
+        counts[key] = counts.get(key, 0) + 1
+    return {
+        "linked_task_ids": [task.get("task_id") for task in linked][:LINKED_TASK_LIMIT],
+        "linked_task_count": len(linked),
+        "linked_task_counts": counts,
+        "linked_verified_count": sum(
+            1 for task in linked if task.get("verdict") == "verified"),
+    }
+
+
 def goal_status_counts(goals: list[dict]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for goal in goals:
@@ -141,6 +174,10 @@ def task_view(task: dict, *, project_id: str, row: dict | None = None) -> dict:
     raw = row or {}
     if raw.get("task_id") != task.get("task_id"):
         raw = {}
+    # The LD stamps ``metadata.ld_goal_ref`` on every WorkItem it submits.  Only
+    # that stamp links a task to a goal: nothing here searches titles or prompt
+    # text for a resemblance.
+    metadata = raw.get("metadata") or {}
     return {
         "task_id": task.get("task_id"),
         "project_id": project_id,
@@ -152,6 +189,10 @@ def task_view(task: dict, *, project_id: str, row: dict | None = None) -> dict:
         "workspace_id": task.get("workspace_id"),
         "context_version": task.get("context_version"),
         "has_effective_prompt": bool(task.get("has_effective_prompt")),
+        # Goal membership as the ledger states it (None = not an LD submission).
+        "goal_ref": metadata.get("ld_goal_ref"),
+        "goal_id": metadata.get("ld_goal_id"),
+        "submitted_by": metadata.get("submitted_by"),
         "attention_flags": _task_attention_flags(raw) if raw else [],
         "warnings": [str(w) for w in (raw.get("warnings") or [])][:20],
         "created_at": task.get("created_at"),
@@ -469,16 +510,20 @@ def project_detail(session: LedgerSession, project_id: str) -> dict:
     if not project:
         raise ProjectNotFound(f"no project {project_id}")
     progress = session.service.get_project_progress(project_id)
-    goals = [goal_view(goal, project_id=project_id)
-             for goal in session.goal_rows_for(project_id)]
-    # ``get_project_tasks()`` (the shared CLI projection) plus the raw ledger
-    # record for the same work item, so the dashboard can show the current
-    # Attempt without widening that shared projection.
     raw_by_id = {task["task_id"]: task
                  for task in session.store.work_items_for_project(project_id)}
     tasks = [task_view(task, project_id=project_id,
                        row=raw_by_id.get(task["task_id"]))
              for task in session.service.get_project_tasks(project_id)]
+    goal_rows = session.goal_rows_for(project_id)
+    # ``linked_tasks`` is the console's forwarding trail: Goal -> the WorkItems
+    # the LD itself submitted for it.  It is attached here (not recomputed in the
+    # browser) so exactly one place reads ``metadata.ld_goal_ref``.
+    goals = []
+    for goal in goal_rows:
+        view = goal_view(goal, project_id=project_id)
+        view.update(goal_task_links(goal, tasks))
+        goals.append(view)
     sessions = [session_view(ref) for ref in
                 session.service.list_project_sessions(project_id)]
     entries = session.store.context_entries(project_id)

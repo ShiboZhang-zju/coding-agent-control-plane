@@ -41,6 +41,24 @@ class ChatBridgeError(RuntimeError):
     """A stable, path-free failure the HTTP layer may classify."""
 
 
+#: What the console tells the operator about "who acts next".  Kept as a single
+#: mapping so the wording and the state names cannot drift apart.
+_NEXT_STEP_NOTES = {
+    "waiting_for_ld_runner": (
+        "Goal 已写入 Ledger。派工由 LD 在既有 LDGoalRunner 唤醒后执行，"
+        "Dashboard 不会直接提交 WorkItem；Runner 存活状态无法从 Ledger 判断。"),
+    "goal_is_terminal": (
+        "该 Goal 已处于终态（completed/failed/needs_human），不会自动恢复；"
+        "需要人工 resume 或重新提出一个新目标。"),
+}
+
+
+def _next_step_note(next_step: str | None) -> str:
+    return _NEXT_STEP_NOTES.get(
+        next_step or "",
+        "Goal 已写入 Ledger；后续推进由既有 Runner/LD 负责。")
+
+
 class ConversationProjectMismatch(ChatBridgeError):
     """An existing conversation cannot silently move to another project."""
 
@@ -175,6 +193,35 @@ class ChatBridge:
             result = chat.handle(
                 message, conversation_id=conversation_id, project_id=project_id)
         return self._turn_view(result)
+
+    def publish_task(self, *, project_id: str, objective: str) -> dict[str, Any]:
+        """Console publication: create/reuse the Goal, then stop.
+
+        The whole point of going through :class:`LDChat` instead of calling
+        ``ProjectService.submit_project_task`` here is that the Dashboard must
+        not become a second dispatch path.  The LD — woken by the existing
+        ``LDGoalRunner`` — is still the only component allowed to turn a goal
+        into a WorkItem, so approval gates, idempotency signatures, the frozen
+        Effective Prompt and the concurrency limits all keep applying exactly
+        once, in the place they already live.
+        """
+        self._validate_project_id(project_id)
+        if not isinstance(objective, str) or not objective.strip():
+            raise ValueError("objective must be a non-empty string")
+        if len(objective) > MAX_MESSAGE_CHARS:
+            raise ValueError(
+                f"objective exceeds the {MAX_MESSAGE_CHARS} character limit")
+        with self._chat_session() as (chat, chats, store):
+            if store.get_project(project_id) is None:
+                raise KeyError(f"no project {project_id}")
+            published = chat.publish_goal(project_id=project_id,
+                                          objective=objective)
+        return {
+            **published,
+            "conversation_id": None,
+            "runner_liveness": "unknown",
+            "next_step_note": _next_step_note(published.get("next_step")),
+        }
 
     @contextlib.contextmanager
     def _chat_session(self) -> Iterator[tuple[LDChat, LDChatStore, TaskStore]]:

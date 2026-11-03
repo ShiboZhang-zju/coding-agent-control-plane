@@ -237,6 +237,23 @@
 - **CLI 不猜会话。** 一次性命令必须显式 `--conversation` / `--new`，或单操作员
   显式 `--continue-latest`；交互式会话自带粘性。
 
+#### 5.5.2 控制台发布边界（UI-1b）
+
+- **表单发布是 `submit_goal` 的另一种入口，不是第三种写意图。**
+  `LDChat.publish_goal` 与 `_submit_goal` 共用 `goal_identity`，只写一条 Goal 行；
+  不得为它新增意图枚举、命令或派工能力。
+- **控制台不得提交 WorkItem。** 发布路径不调用 `submit_project_task` 或任何
+  `LDTools` 写方法；WorkItem 只能由 LD 在被 `LDGoalRunner` 唤醒后提交。
+- **发布请求字段即边界。** 只接受 `project_id` 与 `objective`；出现 `intent` /
+  `goal_id` / `max_decisions` / `max_tasks` / `assertions` / `workspace_id` 等字段
+  一律拒绝（`invalid_fields`），不得忽略后继续。
+- **发布不碰预算、不复活终态。** 生命周期预算仍由 Runner 首次推进盖章或人工
+  `set_lifetime_budget` 调整；`completed` / `failed` / `needs_human` 只如实回报。
+- **Goal 与任务的关系只认 `metadata.ld_goal_ref`。** 投影与 UI 不得按标题、
+  Prompt 相似度或时间邻近推断归属；无链接就显示"尚未转发"。
+- **发布成功不等于执行成功。** 任何界面/文案不得由发布结果推导 Runner 在线、
+  Worker 已执行或验收通过；Runner liveness 保持 `unknown`。
+
 ### 5.6 关联召回边界（M4-E 引入）
 
 - **召回是只读关系投影，不是新的 Memory 真相。** `ld/recall.py` 只沿现有

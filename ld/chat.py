@@ -14,10 +14,14 @@ What this module is NOT
 -----------------------
 * Not a second agent: it holds no execution capability.  It never dispatches a
   Worker, never approves/denies, never writes project knowledge and never
-  fabricates a verdict.  The only two state changes it can cause are
+  fabricates a verdict.  The only state changes it can cause are
   ``submit_goal`` (create/reuse a bounded goal row, which the existing
   :class:`~ld.goal_runner.LDGoalRunner` then advances) and ``resume_goal``
   (the existing explicit human unwedge of a ``needs_human`` goal).
+* Not a second execution path for console submissions either:
+  :meth:`LDChat.publish_goal` is the *same* ``submit_goal`` write, reached from
+  a structured form instead of a sentence.  It creates or reuses one Goal row
+  and nothing else — the LD still has to submit the WorkItem itself.
 * Not a second source of truth: it does not store progress.  Re-opening a
   conversation re-reads the Ledger, because an old chat summary is not current
   state.  ``CURRENT.md``-style narration can therefore always be regenerated.
@@ -1069,6 +1073,83 @@ class LDChat:
             "status": status, "reused": bool(existing),
             "max_decisions": goal.get("max_decisions_total"),
             "max_tasks": goal.get("max_tasks_total")}, [goal_id], None
+
+    # ------------------------------------------------------------------ #
+    # structured publication (console → LD goal)
+    # ------------------------------------------------------------------ #
+    def publish_goal(self, *, project_id: str, objective: str) -> dict[str, Any]:
+        """Create or reuse the Goal for one explicitly submitted objective.
+
+        This is **not** a new write intent and not a second execution path: it
+        is ``submit_goal`` with the intent supplied by a structured form
+        instead of a natural-language sentence, so no classifier runs and no
+        model is called.  It therefore writes exactly one thing — a Goal row in
+        ``LDGoalStore`` — through the same deterministic ``goal_identity`` as
+        :meth:`_submit_goal`, which is what makes a console publication and a
+        chat sentence with the same objective converge on one goal.
+
+        What it deliberately does not do:
+
+        * it never submits a WorkItem.  Only the LD, woken by the existing
+          :class:`~ld.goal_runner.LDGoalRunner`, may call ``submit_task``;
+        * it never seeds, resets or enlarges a budget.  A goal's lifetime budget
+          is stamped by the runner's first advancement, and only an explicit
+          human ``set_lifetime_budget`` can change it;
+        * it never revives a terminal goal.  Asking again for a
+          ``completed``/``failed``/``needs_human`` objective reports that status
+          instead of pretending the work will continue.
+
+        The returned ``next_step`` is a statement about *who acts next*, never a
+        claim about progress or success.
+        """
+        owned_project = self._require_project(project_id)
+        if not isinstance(objective, str):
+            raise ChatValidationError("objective must be a string")
+        goal_text = objective.strip()
+        if not goal_text:
+            raise ChatValidationError("objective must be a non-empty string")
+        if len(goal_text) > MAX_GOAL_CHARS:
+            # The objective *is* the goal identity, so shortening it would create
+            # a different goal than the one the owner submitted.
+            raise ChatValidationError(
+                f"objective is {len(goal_text)} characters; the limit is "
+                f"{MAX_GOAL_CHARS}. Shorten it — a truncated objective would be a "
+                "different goal than the one you submitted.")
+
+        goal_id, goal_ref = goal_identity(goal_text, owned_project)
+        existing = self._goals.get(goal_id) or {}
+        goal = existing or self._goals.get_or_create(
+            goal_id, owned_project, goal_text, goal_ref)
+        status = goal.get("status")
+        if status in ("completed", "failed", "needs_human"):
+            next_step = "goal_is_terminal"
+        else:
+            next_step = "waiting_for_ld_runner"
+        return {
+            "project_id": owned_project,
+            "goal_id": goal_id,
+            "goal_ref": goal_ref,
+            "objective": goal_text,
+            "goal_chars": len(goal_text),
+            "status": status,
+            "reused": bool(existing),
+            "created": not existing,
+            "next_step": next_step,
+            "max_decisions_total": goal.get("max_decisions_total"),
+            "max_tasks_total": goal.get("max_tasks_total"),
+            "decision_count": int(goal.get("decision_count") or 0),
+            "task_count": int(goal.get("task_count") or 0),
+            "current_task_id": goal.get("current_task_id"),
+            # Explicit, machine-readable statement of the remaining chain.  The
+            # console renders it verbatim instead of inferring progress.
+            "forwarding_chain": [
+                "console -> LDChat.submit_goal (this call)",
+                "LDGoalRunner wakes the LD when the observed state changes",
+                "LD -> LDTools.submit_project_task -> ControlPlane",
+                "Runtime dispatches the WorkItem to the Worker",
+                "Ledger verdict is the only acceptance truth",
+            ],
+        }
 
     def _resume_goal(self, intent, conversation, message):
         goal = self._goals.get(intent.goal_id) or {}

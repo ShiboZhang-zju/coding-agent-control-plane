@@ -768,6 +768,34 @@ python scripts/serve_ctl.py stop --port 8787
 不会把 LD 回答当作进度真相。确认/取消按钮发送精确的 `confirm` / `cancel` 到原
 `conversation_id`，不会直接改 Goal。
 
+**控制台发布任务（UI-1b）**
+
+同一面板里的「发布任务给 LD」表单把一句话变成 Goal，然后**由 LD 转发**，页面不派工：
+
+```
+POST /api/chat/publish   {"project_id": "...", "objective": "实现 greet.py 并补充测试"}
+  -> LDChat.publish_goal           只写一条 Goal（确定性 goal_id，同目标复用）
+  -> LDGoalRunner.advance_due      既有调度器唤醒 LD
+  -> LD -> LDTools.submit_project_task -> ControlPlane   真实派工路径（签名/审批/冻结 Prompt 不变）
+  -> GET /api/projects/{id}        用 WorkItem.metadata.ld_goal_ref 反查 Goal 的跟进任务
+```
+
+- 两个字段、两个字段都不够：请求里出现 `intent` / `goal_id` / `max_decisions` /
+  `assertions` 之类的字段一律 `400 invalid_fields`。浏览器只能表达"要做什么"，
+  不能表达"怎么派"或"给多少预算"。
+- 发布**不会**产生 WorkItem：`LDChat.publish_goal` 与聊天里的 `submit_goal` 是同一次写，
+  只是意图来自表单而不是句子。派工仍然只有 LD 一条路径。
+- 发布**不会**盖章或扩大预算；`max_decisions_total` 仍由 Runner 首次推进时盖章。
+- 已处于 `completed` / `failed` / `needs_human` 的目标只会被如实回报为终态
+  （`next_step=goal_is_terminal`），不会被"重新发布"悄悄复活。
+- Goal 列表的 Tasks 列显示 LD 真正转发的 WorkItem（按 `ld_goal_ref` 关联），
+  并明确区分"尚无 LD 转发的 WorkItem"与"有任务正在执行"。
+- 页面始终显示 Runner liveness `unknown`：Goal 写入 Ledger 只证明目标被接受，
+  不证明 Runner 在线、不证明 Worker 已执行、不证明验收通过。
+- 证据：`scripts/t65_console_task_forwarding.py` → `evidence/project/T65-console-task-forwarding.json`。
+  该脚本用脚本化决策模型验证"转发链路"，真实 LLM 决策另记为
+  `BLOCKED_ENVIRONMENT`（未配置 `LD_MODEL_*` 时）。
+
 仍需 CLI 的操作：Project/Workspace 注册，审批 approve/deny，Context/Markdown
 Memory 编辑与验证，生命周期预算调整，Runtime/Worker 启停，以及任何运维诊断。
 UI-1 不含远程终端、文件编辑器、自动审批或 M5 跨机器协同。

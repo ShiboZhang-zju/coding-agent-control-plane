@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from controlplane.plane import ControlPlane  # noqa: E402
+from controlplane.project_service import ProjectService  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 from dashboard.api import make_server  # noqa: E402
 from dashboard.chat import ChatBridge, MAX_MESSAGE_CHARS  # noqa: E402
@@ -42,6 +43,61 @@ def _git_repo(path: Path) -> Path:
     subprocess.run(["git", "init", "-q", str(path)], check=True,
                    capture_output=True)
     return path
+
+
+class _SubmitOnceModel:
+    """Scripted LD decision model: submit exactly one task, then stop deciding.
+
+    This is the same seam ``scripts/t50_conversational_ld.py`` uses.  It is not a
+    second implementation of the LD: the coordinator still performs the
+    submission, the goal transitions and the reconciliation.
+    """
+
+    def __init__(self, task: str):
+        self._task = task
+        self.calls = 0
+
+    def decide(self, decision_input):
+        self.calls += 1
+        project = decision_input.get("requested_project_id")
+        state = decision_input.get("goal_state") or {}
+        if not state.get("all_goal_tasks"):
+            return {"action": "submit_task", "project_id": project,
+                    "reason": "forward the published objective",
+                    "evidence_refs": [],
+                    "parameters": {"task": self._task,
+                                   "idempotency_key": "ui1-publish-demo",
+                                   "assertions": []}}
+        return {"action": "wait", "project_id": project,
+                "reason": "wait for the forwarded task",
+                "evidence_refs": [],
+                "parameters": {"task_id": (state.get("current_task") or {})
+                               .get("task_id")}}
+
+
+def _runner_over(ledger: Path):
+    """Build the real LDGoalRunner over an existing ledger (no HTTP involved).
+
+    Publication itself never calls a model, so this helper exists only to prove
+    that the *existing* runner is what forwards the goal to a Worker.
+    """
+    from ld.coordinator import LDCoordinator
+    from ld.goal_runner import LDGoalRunner
+    from ld.tools import LDTools
+
+    store = TaskStore(ledger)
+    plane = ControlPlane(_Adapter(), store, require_registered_projects=True)
+    service = ProjectService(plane)
+    goals = LDGoalStore(ledger)
+    coordinator = LDCoordinator(
+        LDTools(service, goal_store=goals),
+        _SubmitOnceModel("实现 greet.py 并补充测试"),
+        model_authorized_security_domains=("local", "shareable"))
+    runner = LDGoalRunner(
+        coordinator, goals, max_decisions=2, max_tasks=1,
+        base_backoff_s=0.1, max_backoff_s=0.2,
+        lifetime_max_decisions=4, lifetime_max_tasks=2)
+    return runner, store, goals
 
 
 class Harness:
@@ -399,3 +455,197 @@ def test_chat_get_requires_auth_and_returns_whitelisted_shape(harness: Harness):
         "seq", "role", "content", "intent", "goal_ids", "created_at"}
         for message in detail["messages"])
     assert "facts" not in json.dumps(detail, ensure_ascii=False)
+
+
+# --------------------------------------------------------------------------- #
+# console publication (UI-1b): publish an objective, let the LD forward it
+# --------------------------------------------------------------------------- #
+def _publish(harness: "Harness", objective: str, project_id: str | None = None,
+             **kwargs):
+    return harness.request(
+        "/api/chat/publish", method="POST",
+        payload={"project_id": project_id or harness.alpha["id"],
+                 "objective": objective}, **kwargs)
+
+
+def test_publish_creates_one_goal_and_no_work_item(harness: Harness):
+    objective = "实现 greet.py 并补充测试"
+    status, _, result = _publish(harness, objective)
+    assert status == 200
+    assert result["created"] is True and result["reused"] is False
+    assert result["next_step"] == "waiting_for_ld_runner"
+    assert result["runner_liveness"] == "unknown"
+    goal_id, goal_ref = goal_identity(objective, harness.alpha["id"])
+    assert result["goal_id"] == goal_id and result["goal_ref"] == goal_ref
+
+    # Publication is a Goal write and nothing else: no WorkItem exists yet.
+    store = TaskStore(harness.ledger, read_only=True)
+    try:
+        assert store.work_items_for_project(harness.alpha["id"]) == []
+    finally:
+        store.close()
+    rows = _goal_rows(harness.ledger, harness.alpha["id"])
+    assert [row["goal_id"] for row in rows] == [goal_id]
+    # A new goal has no stamped lifetime budget: publication must not mint one.
+    assert rows[0]["max_decisions_total"] is None
+    assert rows[0]["max_tasks_total"] is None
+    assert rows[0]["status"] == "active"
+
+
+def test_publish_is_idempotent_and_converges_with_chat(harness: Harness):
+    objective = "实现 greet.py 并补充测试"
+    _, _, first = _publish(harness, objective)
+    status, _, second = _publish(harness, objective)
+    assert status == 200
+    assert second["goal_id"] == first["goal_id"]
+    assert second["created"] is False and second["reused"] is True
+    assert len(_goal_rows(harness.ledger, harness.alpha["id"])) == 1
+
+    # The console and a chat sentence with the same objective describe the same
+    # goal (same deterministic identity), so there is one goal, not two.
+    _, _, turn = harness.message(
+        harness.alpha["id"], f"继续推进 ui1-alpha 项目：{objective}")
+    assert turn["intent"]["intent"] == "submit_goal"
+    assert turn["goal_ids"] == [first["goal_id"]]
+    assert len(_goal_rows(harness.ledger, harness.alpha["id"])) == 1
+
+
+def test_publish_refuses_terminal_goal_without_reviving_it(harness: Harness):
+    # The paused beta goal keeps its needs_human status; publishing the same
+    # objective reports that instead of implying the work will continue.
+    status, _, result = _publish(
+        harness, "repair the stopped beta goal", harness.beta["id"])
+    assert status == 200
+    assert result["goal_id"] == harness.paused_goal_id
+    assert result["status"] == "needs_human"
+    assert result["next_step"] == "goal_is_terminal"
+    goal = _goal_rows(harness.ledger, harness.beta["id"])[0]
+    assert goal["status"] == "needs_human"
+    assert goal["max_decisions_total"] == 7 and goal["max_tasks_total"] == 2
+
+
+def test_publish_rejects_budget_and_intent_fields(harness: Harness):
+    objective = "实现 greet.py 并补充测试"
+    for extra in ({"max_decisions": 99}, {"intent": "submit_goal"},
+                  {"assertions": [{"kind": "file_exists", "target": "x"}]}):
+        payload = {"project_id": harness.alpha["id"], "objective": objective}
+        payload.update(extra)
+        status, _, body = harness.request(
+            "/api/chat/publish", method="POST", payload=payload)
+        assert status == 400 and body["error"]["code"] == "invalid_fields", extra
+    assert _goal_rows(harness.ledger, harness.alpha["id"]) == []
+
+    # Budgets cannot be enlarged through publication either: the paused goal
+    # keeps the budget it was stamped with.
+    _publish(harness, "repair the stopped beta goal", harness.beta["id"])
+    goal = _goal_rows(harness.ledger, harness.beta["id"])[0]
+    assert goal["max_decisions_total"] == 7 and goal["max_tasks_total"] == 2
+
+
+def test_publish_requires_auth_origin_and_registered_project(harness: Harness):
+    objective = "实现 greet.py 并补充测试"
+    status, _, body = _publish(harness, objective, token=None)
+    assert status == 401 and body["error"]["code"] == "unauthorized"
+    status, _, body = _publish(harness, objective, origin="https://evil.example")
+    assert status == 403 and body["error"]["code"] == "bad_origin"
+    status, _, body = _publish(harness, objective, project_id="../../etc/passwd")
+    assert status == 400 and body["error"]["code"] == "publish_request_rejected"
+    status, _, body = _publish(harness, objective, project_id="prj-does-not-exist")
+    assert status == 400 and body["error"]["code"] == "invalid_reference"
+    status, _, body = _publish(harness, "   ")
+    assert status == 400 and body["error"]["code"] == "invalid_objective"
+    status, _, body = _publish(harness, "x" * 2100)
+    assert status == 400 and body["error"]["code"] == "publish_request_rejected"
+    assert _goal_rows(harness.ledger, harness.alpha["id"]) == []
+
+
+def test_publish_disabled_without_enable_chat(harness: Harness):
+    server = make_server(harness.ledger, host="127.0.0.1", port=0)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/chat/publish",
+            data=json.dumps({"project_id": harness.alpha["id"],
+                             "objective": "x"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            urllib.request.urlopen(request, timeout=10)
+        assert excinfo.value.code == 405
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+    assert _goal_rows(harness.ledger, harness.alpha["id"]) == []
+
+
+def test_published_goal_is_forwarded_by_the_ld_and_tracked(harness: Harness):
+    """The whole point: the console publishes, the *LD* forwards, the UI tracks.
+
+    A scripted decision model stands in for the LD model (the repository's
+    existing T50 pattern); the WorkItem still goes through the real
+    ``LDTools -> ProjectService -> ControlPlane`` path, so the ``ld_goal_ref``
+    stamp and the Goal/Task linkage are the production ones.  No verdict is
+    invented: the task stays whatever the stub Worker/Verifier says.
+    """
+    objective = "实现 greet.py 并补充测试"
+    _, _, published = _publish(harness, objective)
+    goal_id = published["goal_id"]
+    goal_ref = published["goal_ref"]
+
+    runner, store, goals = _runner_over(harness.ledger)
+    try:
+        # Nothing is forwarded until the LD is actually woken.
+        assert store.work_items_for_project(harness.alpha["id"]) == []
+        runner.advance_due()
+        tasks = store.work_items_for_project(harness.alpha["id"])
+        assert len(tasks) == 1
+        metadata = tasks[0].get("metadata") or {}
+        assert metadata.get("ld_goal_ref") == goal_ref
+        assert metadata.get("submitted_by") == "ld"
+        assert tasks[0]["project_id"] == harness.alpha["id"]
+        # The Goal records the task the LD is following up.
+        assert (goals.get(goal_id) or {}).get("current_task_id") == tasks[0]["task_id"]
+
+        # The dashboard projection links them by that stamp alone.
+        _, _, detail = harness.request(
+            "/api/projects/" + harness.alpha["id"], token=None, origin=None)
+        goal = next(item for item in detail["goals"] if item["goal_id"] == goal_id)
+        assert goal["linked_task_count"] == 1
+        assert goal["linked_task_ids"] == [tasks[0]["task_id"]]
+        task = next(item for item in detail["tasks"]
+                    if item["task_id"] == tasks[0]["task_id"])
+        # ``ld_goal_ref`` is the stamp every LD submission carries; ``ld_goal_id``
+        # is only added by the goal step executor.  The projection must report
+        # whatever the ledger actually wrote, not invent the missing one.
+        assert task["goal_ref"] == goal_ref
+        assert task["goal_id"] in (None, goal_id)
+        # Verdict truth still belongs to the Ledger; publication claimed none.
+        assert task["verdict"] in (None, "pending")
+    finally:
+        runner.close()
+        goals.close()
+        store.close()
+
+
+def test_goal_links_are_not_inferred_from_titles(harness: Harness):
+    """An unrelated task must not be counted as this goal's work."""
+    _, _, published = _publish(harness, "实现 greet.py 并补充测试")
+    store = TaskStore(harness.ledger)
+    try:
+        plane = ControlPlane(_Adapter(), store, require_registered_projects=True)
+        plane.enqueue("实现 greet.py 并补充测试", store.get_project(
+            harness.alpha["id"])["root"], assertions=[],
+            project_id=harness.alpha["id"], workspace_id=None)
+    finally:
+        store.close()
+    _, _, detail = harness.request(
+        "/api/projects/" + harness.alpha["id"], token=None, origin=None)
+    goal = next(item for item in detail["goals"]
+                if item["goal_id"] == published["goal_id"])
+    # The task exists, mentions the same words, and is still not this goal's.
+    assert detail["tasks"]
+    assert goal["linked_task_count"] == 0
+    assert goal["linked_task_ids"] == []
+    assert detail["tasks"][0]["goal_ref"] is None

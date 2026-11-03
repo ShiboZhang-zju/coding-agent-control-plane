@@ -921,6 +921,48 @@ M5。任务事实继续来自 Ledger；自动推进继续只由既有 `LDGoalRun
 
 ---
 
+## UI-1b — 控制台发布任务并由 LD 转发
+
+**定位**：UI-1 只让 Owner 用自然语言对话；Owner 还需要"填一个目标、按发布、然后看
+LD 把它转成任务"。UI-1b 补的正是这条链，且**没有新增派工路径**：
+
+```
+console POST /api/chat/publish
+  -> LDChat.publish_goal          与 submit_goal 同一写入，只是意图来自表单
+  -> LDGoalRunner                 既有调度器，决定"何时"唤醒 LD
+  -> LD (coordinator)             既有唯一决策者，决定"派什么"
+  -> LDTools -> ProjectService -> ControlPlane
+  -> Ledger verdict               唯一验收真相
+```
+
+### 硬约束
+
+1. 发布只能写 Goal。`publish_goal` 不调用 `submit_project_task`，因此 WorkItem
+   只可能由 LD 产生。控制台不是第二条派工路径。
+2. 请求只有 `project_id` + `objective`。`intent` / `goal_id` / `max_decisions` /
+   `assertions` 等字段出现即 `invalid_fields`（400）；`ChatPolicyError` 一律 fail-closed。
+3. 不盖章、不扩容预算。`max_decisions_total` / `max_tasks_total` 仍由 Runner 首次
+   推进盖章，或由人工 `set_lifetime_budget` 调整。
+4. 同目标收敛。表单发布与聊天 `submit_goal` 走同一个 `goal_identity`，因此同一目标
+   只有一个 Goal 行。
+5. 终态不复活。`completed` / `failed` / `needs_human` 只被如实回报
+   （`next_step=goal_is_terminal`），不会被重新发布改写状态。
+6. 跟进只认 Ledger 的 `metadata.ld_goal_ref`。Goal 列表里的"转发任务"来自该
+   字段，绝不按标题/提示词相似度推断；链接为空表示"LD 还没转发"。
+7. Runner liveness 仍恒为 `unknown`。发布成功 ≠ Runner 在线 ≠ Worker 执行 ≠ 验收通过。
+
+### 验收（T65）
+
+确定性部分（真实 loopback HTTP + 真实 Ledger/Goal/Runner/ProjectService + 脚本化
+决策模型 + stub Worker）：发布创建单一 Goal 且零 WorkItem、二次发布幂等、Runner 转发
+出 WorkItem 且带 `submitted_by=ld` / `ld_goal_ref`、Goal 指向该任务、投影反查一致、
+越权字段与缺 Token 被拒、预算由 Runner 而非控制台盖章 —— 全部 Pass。
+
+真实 LLM 决策与真实 CodeBuddy Worker 执行未执行（无 `LD_MODEL_*` 端点），
+证据内记为 `BLOCKED_ENVIRONMENT`，不得用脚本化模型替代。
+
+---
+
 ## M5 — Distributed Workspace
 
 ### 目标

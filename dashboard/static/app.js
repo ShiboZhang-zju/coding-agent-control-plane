@@ -34,6 +34,7 @@
       messages: [],
       pendingAction: null,
       sending: false,
+      publishing: false,
       connected: false,
       lastIntentSource: null,
       restored: false,
@@ -582,6 +583,14 @@
       return { label: "Goal 正在推进", tone: "info",
                note: "状态来自 Goal/Ledger；Runner 存活仍为 unknown。" };
     }
+    if (goal.linked_task_count) {
+      // A WorkItem exists but is not in flight and has no verified verdict: the
+      // LD forwarded it and the outcome is whatever the ledger says, nothing
+      // more.
+      return { label: "LD 已转发 WorkItem", tone: "info",
+               note: goal.linked_task_count + " 个 WorkItem 与这个 Goal 关联；"
+                 + "verdict 以 Ledger 为准。" };
+    }
     const chat = (state.health && state.health.chat) || {};
     if (chat.intent_model_configured === false) {
       return { label: "Goal 已创建 · 模型未配置", tone: "warn",
@@ -639,6 +648,29 @@
       if (goal.max_tasks_total !== null && goal.max_tasks_total !== undefined) {
         taskCell.appendChild(
           el("div", { class: "cell-sub", text: "上限 " + goal.max_tasks_total }));
+      }
+      // Forwarding trail: the ledger records which WorkItems the LD submitted
+      // for this goal (metadata.ld_goal_ref). Zero linked tasks means "not
+      // forwarded yet", which is not the same as "nothing happened".
+      if (goal.linked_task_count) {
+        const linkBox = el("div", { class: "pill-row" });
+        Object.keys(goal.linked_task_counts || {}).sort().forEach(function (key) {
+          linkBox.appendChild(pill(null, key + " × " + goal.linked_task_counts[key]));
+        });
+        taskCell.appendChild(linkBox);
+        (goal.linked_task_ids || []).slice(0, 3).forEach(function (taskId) {
+          taskCell.appendChild(el("div", { class: "cell-sub" }, [
+            el("button", {
+              class: "link-btn mono small",
+              attrs: { type: "button" },
+              text: taskId,
+              onClick: function () { focusTask(taskId); },
+            }),
+          ]));
+        });
+      } else {
+        taskCell.appendChild(el("div", { class: "cell-sub muted",
+          text: "尚无 LD 转发的 WorkItem" }));
       }
       const currentCell = el("td", { class: "cell-id" });
       if (goal.current_task_id) {
@@ -1195,9 +1227,93 @@
     }
   }
 
+  // ------------------------------------------------------------------ //
+  // Console publication: create a Goal through LDChat and then let the
+  // existing LDGoalRunner/LD forward it. The browser never submits a
+  // WorkItem, an intent, an assertion or a budget.
+  // ------------------------------------------------------------------ //
+  function publishStatus(text) {
+    $("publishStatus").textContent = text || "";
+  }
+
+  function renderPublishResult(result) {
+    const box = clear($("publishResult"));
+    if (!result) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    const rows = [
+      ["goal_id", result.goal_id],
+      ["goal_ref", result.goal_ref],
+      ["status", result.status],
+      ["是否新建", result.created ? "新建" : "复用既有 Goal"],
+      ["预算", (result.max_decisions_total === null ||
+        result.max_decisions_total === undefined)
+        ? "尚未盖章（由 Runner 首次推进时盖章）"
+        : result.max_decisions_total + " decisions / " +
+          (result.max_tasks_total === null || result.max_tasks_total === undefined
+            ? "—" : result.max_tasks_total) + " tasks"],
+    ];
+    rows.forEach(function (pair) {
+      box.appendChild(el("div", { class: "kv-line" }, [
+        el("span", { class: "muted", text: pair[0] + "：" }),
+        el("span", { text: pair[1] === null || pair[1] === undefined
+          ? "—" : String(pair[1]) }),
+      ]));
+    });
+    if (result.next_step_note) {
+      box.appendChild(el("p", { class: "text-warn", text: result.next_step_note }));
+    }
+    const chain = result.forwarding_chain || [];
+    if (chain.length) {
+      box.appendChild(el("p", { class: "muted small",
+        text: "后续链路（不由本页面执行）：" }));
+      const list = el("ol", { class: "chat-publish-chain" });
+      chain.forEach(function (step) { list.appendChild(el("li", { text: step })); });
+      box.appendChild(list);
+    }
+  }
+
+  function publishObjective() {
+    if (state.chat.publishing) return;
+    if (!state.chat.projectId) {
+      chatError(new Error("请先选择 Project。"));
+      return;
+    }
+    const input = $("publishObjective");
+    const objective = input.value.trim();
+    if (!objective) {
+      chatError(new Error("请填写目标正文。"));
+      return;
+    }
+    state.chat.publishing = true;
+    chatError(null);
+    publishStatus("正在提交 Goal…");
+    renderChatConnection();
+    chatJson("/api/chat/publish", {
+      method: "POST",
+      body: { project_id: state.chat.projectId, objective: objective },
+    }).then(function (result) {
+      publishStatus("");
+      renderPublishResult(result);
+      input.value = "";
+      // Goal truth belongs to the read-only projection path.
+      refresh(true);
+    }).catch(function (error) {
+      publishStatus("");
+      chatError(error);
+    }).then(function () {
+      state.chat.publishing = false;
+      renderChatConnection();
+    });
+  }
+
   function renderChatConnection() {
     $("chatAuthBox").hidden = state.chat.connected;
     $("chatControls").hidden = !state.chat.connected;
+    $("publishBox").hidden = !state.chat.connected;
+    $("publishBtn").disabled = state.chat.publishing || !state.chat.projectId;
     $("chatComposer").hidden = !state.chat.connected;
     $("chatConversationId").textContent = state.chat.conversationId
       ? "conversation_id: " + state.chat.conversationId
@@ -1540,6 +1656,13 @@
       $("chatPanel").hidden = true;
     });
     $("chatConnect").addEventListener("click", connectChat);
+    $("publishBtn").addEventListener("click", publishObjective);
+    $("publishObjective").addEventListener("keydown", function (event) {
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        publishObjective();
+      }
+    });
     $("chatToken").addEventListener("keydown", function (event) {
       if (event.key === "Enter") connectChat();
     });

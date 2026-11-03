@@ -5,9 +5,11 @@ Design constraints (tested by ``tests/test_ui0_dashboard.py`` and
 
 * **Read-only by default.** Without ``--enable-chat`` every write method is
   rejected and all dashboard projections use ``mode=ro`` plus
-  ``PRAGMA query_only=ON``.  UI-1 adds exactly one authenticated POST route;
-  that route delegates to the existing ``LDChat`` service graph through
-  request-scoped writable connections.
+  ``PRAGMA query_only=ON``.  UI-1 adds exactly two authenticated POST routes
+  (``/api/chat/messages`` and ``/api/chat/publish``); both delegate to the
+  existing ``LDChat`` service graph through request-scoped writable
+  connections.  Neither one can submit a WorkItem, approve work or change a
+  budget.
 * **No cross-origin use.** No ``Access-Control-Allow-Origin`` is ever emitted.
   A browser on another origin therefore cannot read responses, and the
   ``Host`` header is validated against an allow-list so a DNS-rebinding page
@@ -248,6 +250,43 @@ class DashboardApp:
                            "The chat service cannot access the ledger right now.") from None
         return {**result, "capabilities": self.chat.capabilities}
 
+    def handle_publish_request(self, payload: Any) -> dict[str, Any]:
+        """Validate the console publication schema and call ``LDChat``.
+
+        Two fields only, and neither names an intent, a Goal id, a budget, an
+        assertion or a command: the browser cannot choose *how* the work is
+        dispatched, only *what* it wants done.  Framing the goal and forwarding
+        it to a Worker remain the LD's job.
+        """
+        self._require_chat()
+        if not isinstance(payload, dict):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_body",
+                           "The request body must be one JSON object.")
+        required = {"project_id", "objective"}
+        if set(payload) != required:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_fields",
+                           "The publish request fields are invalid.")
+        project_id = payload.get("project_id")
+        objective = payload.get("objective")
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_project",
+                           "project_id must name a registered project.")
+        if not isinstance(objective, str) or not objective.strip():
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_objective",
+                           "objective must be a non-empty string.")
+        try:
+            return self.chat.publish_task(project_id=project_id,
+                                          objective=objective)
+        except KeyError:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_reference",
+                           "The project does not exist.") from None
+        except (ChatPolicyError, ChatValidationError, ValueError):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "publish_request_rejected",
+                           "LDChat rejected this request under its safety policy.") from None
+        except (ChatBridgeError, sqlite3.Error):
+            raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "chat_unavailable",
+                           "The chat service cannot access the ledger right now.") from None
+
     def _require_chat(self) -> None:
         if self.chat is None:
             raise ApiError(HTTPStatus.NOT_FOUND, "chat_disabled",
@@ -303,6 +342,12 @@ class DashboardApp:
             body["chat"] = {
                 "enabled": True,
                 "authentication": "bearer_token",
+                # The console can publish an objective, but "published" only
+                # means "a Goal row exists".  Forwarding to a Worker, and every
+                # verdict, still comes from the LD/Runner/Verifier, so this flag
+                # must never be read as "work will start".
+                "task_publish_enabled": True,
+                "task_publish_creates": "goal_only_no_work_item",
                 **self.chat.capabilities,
             }
         try:
@@ -384,44 +429,32 @@ class DashboardHandler(BaseHTTPRequestHandler):
                                       "The dashboard failed to handle this request."),
                              head_only=(method == "HEAD"))
 
+    #: The only two write routes UI-1 has, and the validator each one uses.  A
+    #: path absent from this table can never be written to, whatever the caller
+    #: sends, so adding a route is a deliberate edit here rather than a routing
+    #: side effect.
+    _WRITE_ROUTES = {
+        "/api/chat/messages": "handle_chat_message",
+        "/api/chat/publish": "handle_publish_request",
+    }
+
     def _dispatch_write(self) -> None:
         try:
             self._check_host()
             path = unquote(urlparse(self.path).path or "/")
-            if self.app.chat is None or path != "/api/chat/messages":
+            handler_name = self._WRITE_ROUTES.get(path)
+            if self.app.chat is None or handler_name is None:
                 raise ApiError(
                     HTTPStatus.METHOD_NOT_ALLOWED, "method_not_allowed",
                     "This server accepts no write at that path.")
             self._authorize_chat()
             self._check_same_origin()
-            content_type = (self.headers.get("Content-Type") or "").split(";", 1)[0]
-            if content_type.strip().lower() != "application/json":
-                raise ApiError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
-                               "invalid_content_type",
-                               "Chat requests must use application/json.")
-            raw_length = self.headers.get("Content-Length")
-            if raw_length is None:
-                raise ApiError(HTTPStatus.LENGTH_REQUIRED, "length_required",
-                               "Chat requests require Content-Length.")
-            try:
-                length = int(raw_length)
-            except ValueError:
-                raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_length",
-                               "Content-Length is invalid.") from None
-            if length < 1:
-                raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_body",
-                               "The request body is empty.")
-            if length > _MAX_CHAT_BODY:
-                raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
-                               "body_too_large", "The chat request is too large.")
-            raw = self.rfile.read(length)
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_json",
-                               "The request body is not valid UTF-8 JSON.") from None
-            result = self.app.handle_chat_message(payload)
-            self._audit_chat(result, payload.get("project_id"))
+            payload = self._read_json_body()
+            result = getattr(self.app, handler_name)(payload)
+            if handler_name == "handle_chat_message":
+                self._audit_chat(result, payload.get("project_id"))
+            else:
+                self._audit_publish(result, payload.get("project_id"))
             self._send_json(HTTPStatus.OK, result, head_only=False)
         except ApiError as exc:
             self._send_error(exc)
@@ -430,6 +463,35 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_error(ApiError(
                 HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error",
                 "The dashboard failed to handle this request."))
+
+    def _read_json_body(self) -> Any:
+        """One bounded JSON document, or a stable error.  Shared by both routes."""
+        content_type = (self.headers.get("Content-Type") or "").split(";", 1)[0]
+        if content_type.strip().lower() != "application/json":
+            raise ApiError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                           "invalid_content_type",
+                           "Chat requests must use application/json.")
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
+            raise ApiError(HTTPStatus.LENGTH_REQUIRED, "length_required",
+                           "Chat requests require Content-Length.")
+        try:
+            length = int(raw_length)
+        except ValueError:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_length",
+                           "Content-Length is invalid.") from None
+        if length < 1:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_body",
+                           "The request body is empty.")
+        if length > _MAX_CHAT_BODY:
+            raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                           "body_too_large", "The chat request is too large.")
+        raw = self.rfile.read(length)
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_json",
+                           "The request body is not valid UTF-8 JSON.") from None
 
     def _authorize_chat(self) -> None:
         token = getattr(self.server, "chat_token", None)
@@ -462,6 +524,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "intent_source": result.get("intent_source"),
             "goal_count": len(result.get("goal_ids") or []),
             "requires_confirmation": bool(result.get("requires_confirmation")),
+        }
+        sys.stderr.write("[dashboard.audit] " + json.dumps(
+            event, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+    @staticmethod
+    def _audit_publish(result: dict[str, Any], project_id: str | None) -> None:
+        """Publication audit line: routing facts only, never the objective text.
+
+        The goal objective is the owner's own sentence and lives in the ledger;
+        copying it into a log would create a second copy outside the ledger's
+        access rules for no diagnostic benefit.
+        """
+        event = {
+            "event": "task_published",
+            "project_id": project_id,
+            "goal_id": result.get("goal_id"),
+            "goal_created": bool(result.get("created")),
+            "goal_reused": bool(result.get("reused")),
+            "goal_status": result.get("status"),
+            "next_step": result.get("next_step"),
+            "goal_chars": result.get("goal_chars"),
         }
         sys.stderr.write("[dashboard.audit] " + json.dumps(
             event, ensure_ascii=False, separators=(",", ":")) + "\n")
