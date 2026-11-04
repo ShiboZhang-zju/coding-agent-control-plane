@@ -1316,12 +1316,18 @@ class ControlPlane:
             "assertion_results": results,
             "worker_metadata": snap.metadata,
         }
+        # Adapter-side warnings are facts about the attempt (e.g. the Worker was
+        # refused a tool because no approval prompt can be answered). They must
+        # reach the Ledger, otherwise the only visible outcome is "succeeded"
+        # plus missing artifacts, which hides the actual cause from the operator.
+        incoming_warnings = [str(w) for w in (snap.warnings or [])]
         if violations:
             # Repeated observation of the same unchanged violation must not
             # re-append the same line (see ``side_effect_warnings``); a genuinely
             # new violation still changes the fingerprint and is added.
-            patch["warnings"] = merge_warnings(
-                rec.get("warnings"), side_effect_warnings(violations))
+            incoming_warnings += side_effect_warnings(violations)
+        if incoming_warnings:
+            patch["warnings"] = merge_warnings(rec.get("warnings"), incoming_warnings)
         # Pin the exact code state acceptance verified (first verified
         # observation only).  A later handoff may hand over this state and
         # nothing else; any change after acceptance blocks the handoff.

@@ -60,6 +60,38 @@ RENDER_ORDER = ("background", "constraints", "unverified_constraints",
 
 _WORD_RE = re.compile(r"[A-Za-z0-9_\-]{3,}|[\u4e00-\u9fff]{2,}")
 
+#: Execution contract appended to every effective prompt.  Two failures made it
+#: necessary:
+#:
+#: * tasks whose text asked the agent to "create a new independent git worktree"
+#:   while the Worker *already* runs the job inside an isolated worktree — the
+#:   agent then either nested a second worktree or refused to act at all;
+#: * unattended sessions have no approval prompt, so a tool that needs one is
+#:   denied.  Saying "a refused tool is a hard stop, report it" keeps a half
+#:   executed task from being reported as complete.
+#:
+#: It is plain text like the rest of the prompt, so it stays byte-identical for
+#: the same context version (auditability) and knows nothing about a vendor.
+WORKSPACE_CONTRACT = (
+    "- Workspace isolation is provided by the control plane / Worker: your working "
+    "directory is already the isolated checkout for this task. Do NOT create an "
+    "additional git worktree, clone the repository again, or switch the main "
+    "checkout's branch; work in place inside the current working directory.",
+    "- Commit your own work inside that working directory. Never push, and never "
+    "modify a checkout outside it.",
+    "- Your session is unattended: no approval prompt can be answered. If a tool "
+    "call is refused for permissions, stop and report the refusal verbatim "
+    "instead of working around it — a partially executed task must not be "
+    "reported as finished.",
+    # Measured: `git add -A && git commit -m x` is refused while the same two
+    # commands run as separate calls are allowed, because the permission rule is
+    # matched against a single command. Chaining therefore looks like a
+    # permission failure to the agent and to the operator.
+    "- Run one simple command per shell call. Do not chain commands with `&&`, "
+    "`;` or `|`; issue separate calls instead — a chained command cannot be "
+    "matched by the permission rules and will be refused.",
+)
+
 
 class ContextBuildBlocked(RuntimeError):
     """The task cannot be dispatched: required project knowledge is missing."""
@@ -334,6 +366,7 @@ class ContextBuilder:
         out.append("- Entries marked [CANDIDATE] or [UNVERIFIED] are unconfirmed: "
                    "verify them before relying on them.")
         out.append("- Do not invent project facts that are not stated above.")
+        out.extend(WORKSPACE_CONTRACT)
         return "\n".join(out).rstrip() + "\n"
 
 

@@ -79,6 +79,11 @@ def _task_attention_flags(task: dict) -> list[str]:
         flags.append("suspected_lost")
     if _has_warning(task, "SESSION_BINDING_CONFLICT:"):
         flags.append("session_binding_conflict")
+    if _has_warning(task, "PERMISSION_DENIED:"):
+        # The Worker was refused a tool and no approval prompt could be
+        # answered. Only a human can decide (grant the permission, change the
+        # task, or drop it) — an automatic retry would be refused identically.
+        flags.append("permission_blocked")
     if (task.get("queue_status") == "needs_human"
             and not flags and state == TaskState.UNKNOWN.value):
         flags.append("unknown")

@@ -60,6 +60,32 @@ unknown                                      （拿不到可信信息）
 - 每次派发都把策略原文写进 ledger（`policy_json`），风险项进 `warnings`
   （如 `UNISOLATED_SHELL`）。
 
+### 4.1 无人值守会话的权限（CodeBuddy 2.179.3 实测）
+
+`permission_mode` 不是"能不能用 shell"的开关。实测结论（`evidence/permissions/T68-worker-permissions.json`）：
+
+| 层 | 是否影响 HTTP 派发的 job |
+|---|---|
+| job 请求体 `permissionMode` | 只自动批准文件编辑（`acceptEdits`）；Bash/PowerShell 仍要审批 |
+| `--serve --allowedTools/--disallowedTools` | **不影响**（进程级 CLI 选项） |
+| `--serve --settings <file>` | **不影响** |
+| `$CODEBUDDY_CONFIG_DIR/settings.json` 的 `permissions.allow/deny` | **生效**，且 `deny` 压过 `allow` |
+
+因此 Worker 的最小权限必须写成 settings 里的显式 allow 清单
+（`adapters/codebuddy/permissions.py` + `scripts/serve_ctl.py --worker-profile`），
+而不是放宽 `permissionMode`。未列出的命令一律拒绝；不带任何规则时默认分类器
+是**间歇性**的（同一命令可能一次被拒一次放行），不可作为生产依据。
+
+规则按单条命令匹配：`git add -A && git commit -m x` 会被拒绝，两条分开发起才放行，
+所以 Effective Prompt 要求一次 shell 调用只跑一条命令。
+
+被拒绝时 job 仍报 `state=done`，拒绝只出现在 `detail` / `output` 里
+（该版本 transcript 端点返回 0 条更新）。适配器已把这种情况归一化为
+`failed` + `PERMISSION_DENIED:` warning；同样是假成功形状的
+`Authentication required` 归一化为 `failed` + `WORKER_NOT_AUTHENTICATED:`。
+两者都会进入 Ledger `warnings`，并让 `_task_attention_flags` 产出
+`permission_blocked`。
+
 ## 5. `dispatch_unknown`：不确定就不重试
 
 worker 可能"报错但已创建"。因此：

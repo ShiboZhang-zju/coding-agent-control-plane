@@ -36,6 +36,7 @@ from ..base import (
     Verdict,
 )
 from .client import Api, iter_sse_lines, project_root
+from .permissions import detect_auth_block, detect_permission_denial
 __import__("sys").path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))  # repo root on path
 import winproc  # noqa: E402  (hidden console children)
 
@@ -66,6 +67,22 @@ def _git(cwd: str, *args: str) -> tuple[int, str]:
         return p.returncode, (p.stdout or p.stderr).strip()
     except Exception as exc:  # noqa: BLE001
         return 1, f"{type(exc).__name__}: {exc}"
+
+
+def _job_text(job: dict) -> str:
+    """Detail + final output of a settled job, the only place a refusal shows up.
+
+    The transcript endpoint returns no updates for these jobs on this build, so
+    the terminal record is the evidence. Both fields are needed: a tool refusal
+    may appear only in ``detail`` (a prefix of the output) or only in ``output``.
+    """
+    parts = [job.get("detail") or ""]
+    out = job.get("output")
+    if isinstance(out, dict):
+        parts.append(str(out.get("result") or ""))
+    elif isinstance(out, str):
+        parts.append(out)
+    return "\n".join(part for part in parts if part)
 
 
 class CodeBuddyAdapter:
@@ -239,16 +256,44 @@ class CodeBuddyAdapter:
         req: DispatchRequest | None = meta.get("request")
         started = job.get("startedAt")
         finished = job.get("firstTerminalAt")
+
+        # Two kinds of "blocked" both surface as state=done with nothing
+        # accomplished (job 89303e1f is the first kind; an isolated --home that
+        # lost the CLI login is the second). Reporting either as a plain success
+        # ("succeeded" + missing artifacts) hides the actual cause, so both are
+        # detected and the state is downgraded; the evidence travels with the
+        # snapshot instead of staying buried in transcript prose.
+        text = _job_text(job) if state.terminal else ""
+        denial = detect_permission_denial(text)
+        auth_block = None if denial else detect_auth_block(text)
+        warnings: list[str] = []
+        if denial:
+            warnings.append(
+                "PERMISSION_DENIED: worker tool call was refused because no approval "
+                f"prompt can be answered in a non-interactive session "
+                f"(marker={denial['marker']!r}); the task could not proceed")
+        elif auth_block:
+            warnings.append(
+                "WORKER_NOT_AUTHENTICATED: the job ended because the Worker had no "
+                f"usable login (marker={auth_block['marker']!r}); nothing was executed")
+        if (denial or auth_block) and state is TaskState.SUCCEEDED:
+            # `done` here means "the process settled", not "the work happened".
+            # The task was blocked before it could produce anything, so the
+            # normalized state must say failed; the Verifier would otherwise be
+            # the only thing standing between this and a false success.
+            state = TaskState.FAILED
+
         snap = TaskSnapshot(
             task_id=task_id or (req.task_id if req else job_id),
             worker_job_id=job_id,
             state=state,
+            warnings=warnings,
             title=job.get("name") or job.get("intent") or "",
             cwd=job.get("cwd") or "",
             pid=job.get("pid"),
             session_id=job.get("sessionId"),
-            worktree=job.get("worktree") or job.get("worktreePath"),
-            branch=job.get("branch"),
+            worktree=job.get("worktreePath") or job.get("worktree"),
+            branch=job.get("worktreeBranch") or job.get("branch"),
             commit=self._worktree_head(job, state),
             started_at=(started / 1000.0) if started else None,
             finished_at=(finished / 1000.0) if finished else None,
@@ -276,7 +321,7 @@ class CodeBuddyAdapter:
         Terminal states cache the value: a worktree HEAD cannot legitimately
         move after the job settled, and the lookup is a subprocess call.
         """
-        worktree = job.get("worktree") or job.get("worktreePath")
+        worktree = job.get("worktreePath") or job.get("worktree")
         if not worktree:
             return None
         job_id = job.get("id")

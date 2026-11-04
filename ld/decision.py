@@ -245,9 +245,14 @@ def _validate_inspect(project_id: str | None, parameters: dict[str, Any]) -> dic
             "max_total_nodes", "max_depth", "max_output_bytes",
         } & set(parameters)
         if recall_only:
+            # Task tools are addressed by task_id. `object_type`/`object_id` are
+            # recall-expansion parameters; accepting them silently would let a
+            # model believe it can steer a task read by object id.
             raise DecisionPolicyError(
                 f"{tool} does not accept recall parameters: "
-                + ", ".join(sorted(recall_only)))
+                + ", ".join(sorted(recall_only))
+                + f" (use parameters.task_id; the contract is in the "
+                  f"decision_schema inspect.tool_contract.{tool})")
         if "limit" in parameters:
             raise DecisionValidationError(f"{tool} does not accept limit")
         out["task_id"] = _nonempty_string(parameters["task_id"], "parameters.task_id")
@@ -451,6 +456,72 @@ def decision_schema() -> dict[str, Any]:
                                "max_total_nodes": "integer 64..10000",
                                "max_depth": "integer 3..32",
                                "max_output_bytes": "integer 1024..1048576"},
+                # Per-tool parameter contract. Every tool is addressed by
+                # `parameters.tool`; the accepted parameters differ per tool and
+                # a parameter from another tool's set is a *policy* violation
+                # (DecisionPolicyError, never retried), not a shape error.
+                "tool_contract": {
+                    "list_projects": {
+                        "accepts": ["tool"],
+                        "forbids": ["project_id", "task_id", "object_type",
+                                    "object_id", "limit", "char_budget", "cursor",
+                                    "max_total_nodes", "max_depth",
+                                    "max_output_bytes"],
+                        "note": "requires the decision-level project_id to be null"},
+                    "get_project_brief": {
+                        "requires_project_id": True,
+                        "accepts": ["tool"],
+                        "forbids": ["task_id", "object_type", "object_id", "limit",
+                                    "char_budget", "cursor", "max_total_nodes",
+                                    "max_depth", "max_output_bytes"]},
+                    "get_project_progress": {
+                        "requires_project_id": True,
+                        "accepts": ["tool"],
+                        "forbids": ["task_id", "object_type", "object_id", "limit",
+                                    "char_budget", "cursor", "max_total_nodes",
+                                    "max_depth", "max_output_bytes"]},
+                    "get_project_tasks": {
+                        "requires_project_id": True,
+                        "accepts": ["tool", "limit"],
+                        "forbids": ["task_id", "object_type", "object_id",
+                                    "char_budget", "cursor", "max_total_nodes",
+                                    "max_depth", "max_output_bytes"]},
+                    "get_task_status": {
+                        "requires_project_id": True,
+                        "accepts": ["tool", "task_id"],
+                        "forbids": ["object_type", "object_id", "limit",
+                                    "char_budget", "cursor", "max_total_nodes",
+                                    "max_depth", "max_output_bytes"],
+                        "note": (
+                            "task_id addresses the WorkItem directly. Do NOT pass "
+                            "object_type/object_id: those belong to the recall "
+                            "tools and are rejected as a policy violation.")},
+                    "get_task_provenance": {
+                        "requires_project_id": True,
+                        "accepts": ["tool", "task_id"],
+                        "forbids": ["object_type", "object_id", "limit",
+                                    "char_budget", "cursor", "max_total_nodes",
+                                    "max_depth", "max_output_bytes"],
+                        "note": (
+                            "task_id addresses the WorkItem directly. Do NOT pass "
+                            "object_type/object_id: those belong to the recall "
+                            "tools and are rejected as a policy violation.")},
+                    "get_recall_summary": {
+                        "requires_project_id": True,
+                        "accepts": ["tool", "object_type", "object_id", "limit",
+                                    "char_budget", "cursor", "max_total_nodes",
+                                    "max_depth", "max_output_bytes"],
+                        "forbids": ["task_id"],
+                        "note": ("object_type defaults to 'project'; object_id is "
+                                 "required whenever object_type is not 'project'")},
+                    "get_recall_detail": {
+                        "requires_project_id": True,
+                        "accepts": ["tool", "object_type", "object_id", "limit",
+                                    "char_budget", "cursor", "max_total_nodes",
+                                    "max_depth", "max_output_bytes"],
+                        "forbids": ["task_id"],
+                        "note": "object_id is always required"},
+                },
             },
             "submit_task": {
                 "requires_project_id": True,

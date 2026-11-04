@@ -9,6 +9,30 @@ completed，零人工介入）**；故障恢复与副作用拒绝路径另由 T3
 **"任务执行与交接成功"与"Goal 自动闭环完成"是两个不同的验收结论**，本文档分开
 记录。决策模型端点与模型 id 属于环境配置，不出现在任何代码默认值、日志或证据中。
 
+## ACP P0：非交互 Worker 权限阻断（2026-11-04，CodeBuddy 2.179.3）
+
+故障现场：Goal `goal-b6ca68a03f0d` → WorkItem `cp-934341b3f942` → CodeBuddy job
+`89303e1f`。job 终态 `state=done`，交付文件为空，`verdict=rejected`。job 自述
+"Bash 与 PowerShell 的调用被以 permission prompts are not available in
+non-interactive mode 拒绝，且拒绝是间歇性的"。
+
+| # | 现象 / 根因（实测） | 处理 | 状态 |
+|---|---|---|---|
+| P0-PERM-01 | **权限生效层不是派发参数。** 在 2.179.3 上依次实测：`POST /api/v1/jobs` 的 `permissionMode=acceptEdits` 只自动批准文件编辑，Bash/PowerShell 仍走审批路径；`codebuddy --serve --allowedTools/--disallowedTools` 对 HTTP 派发的 job **完全不生效**；`serve --settings <file>` 同样不生效；只有 serve 进程自身 `$CODEBUDDY_CONFIG_DIR/settings.json` 里的 `permissions.allow/deny` 生效，且 `deny` 压过 `allow`。`tests/test_worker_permissions.py` 与 `scripts/t68_worker_permissions.py` 固化该结论。 | `adapters/codebuddy/permissions.py` 提供最小权限 allow/deny 清单；`scripts/serve_ctl.py --worker-profile` 在启动前把它合并进 serve 的 settings（保留 gateway 凭据，不允许把已 deny 的命令重新 allow）。不使用 `bypassPermissions` / `-y`。 | 已修复；T68 Pass |
+| P0-PERM-02 | **默认分类器是间歇性的。** 无任何规则时，连续三次同形只读 `git` 命令会出现"拒绝、放行、放行"。多步任务因此可能半执行，这比稳定拒绝更危险。 | 用显式 allow 清单取代"靠分类器放行"，让结果确定；未列出的命令一律拒绝。 | 已修复；T68 Pass |
+| P0-PERM-03 | **拒绝被报成成功。** 工具被拒后 job 仍 `state=done`，`detail`/`output` 里有拒绝散文，transcript 端点返回 0 条更新。控制平面只能看到"succeeded + 缺文件"。 | 适配器识别拒绝文本 → 归一化为 `TaskState.FAILED` + `PERMISSION_DENIED:` warning；`ControlPlane._snapshot_patch` 现把 adapter warnings 合并进 Ledger（同结果去重）；`_task_attention_flags` 增加 `permission_blocked`。 | 已修复；T68 S2 Pass（两个被拒任务 state=failed、verdict=rejected、warning 机读） |
+| P0-PERM-04 | **`serve_ctl --home` 会静默废掉登录。** 它重写 USERPROFILE/HOME，而 CLI 凭据存在 HOME 下，job 以 `Authentication required` 结束却仍是 `state=done`。这与 P0-PERM-03 是同一"假成功"形状（本次首轮 T68 复现）。 | 新增 `--config-dir`：只隔离 job store + settings，保留真实 HOME 登录；适配器新增 `WORKER_NOT_AUTHENTICATED:` 识别并把状态降为 failed；T68 在跑任何权限结论前先用 `-p` 探针证明 CLI 登录可用。 | 已修复；T68 `cli_login_works` Pass |
+| P0-PERM-05 | **复合命令被规则拒绝。** `git add -A && git commit -m x` 被拒，而两条命令分开发起均放行（规则按单条命令匹配）。 | 执行契约显式要求"一次 shell 调用只跑一条命令，不要用 `&&`/`;`/`|` 串联"；T68 S1/S4 用分开的命令。 | 已缓解（契约）；属 vendor 行为 |
+| P0-CONTRACT-01 | **任务文本要求 agent 自建 worktree**，而 Worker 本身已提供隔离检出。job 89303e1f 的 prompt 即含"创建新的独立 Git worktree（不得复用现有 worktree）"，导致 agent 反复纠结于建/不建。 | `controlplane/context_builder.WORKSPACE_CONTRACT` 追加到每个 Effective Prompt：隔离由控制平面/Worker 负责，禁止再建 worktree/重新 clone/切换主检出分支。 | 已修复；T68 S4 Pass |
+| P0-CONTRACT-02 | **worktree 字段读错键。** worktree 隔离的 job 在 job 记录里用 `worktreePath`/`worktreeBranch`，适配器此前只读 `worktree`/`branch`，`isolation=worktree` 的任务因此永远看不到 worktree。 | 适配器优先读 `worktreePath`/`worktreeBranch`；T68 S4 据此断言 worker 建了 1 个 worktree、agent 在其中工作、主检出未变。 | 已修复；T68 S4 Pass |
+| P0-LD-01 | **`get_task_provenance` 收到 `object_type` 触发 `DecisionPolicyError`。** 真实模型把 recall 参数用到任务工具上，Policy 正确 fail-closed，Goal 停在 needs_human。 | 不放宽校验：`decision_schema()['actions']['inspect']['tool_contract']` 逐工具写明 accepts/forbids/note；拒绝信息补上"用 parameters.task_id + 指向 tool_contract"。回归 `tests/test_ld_tool_contract.py`。 | 已修复（文档+回归）；Policy 未放宽 |
+
+剩余限制（不构成 Pass 的部分）：`permissions.additionalDirectories` 未用于把
+worktree 目录加入可写域（当前 worktree 内写入实测可用）；拒绝检测基于
+`detail`/`output` 文本，若某版本只在 transcript 里留证则会漏检（该版本
+transcript 返回 0 条更新）；未接入 Web UI 审批投递（adapter 仍
+`UnsupportedOperation`）。
+
 ## UI-1 Web LD Interaction（2026-11-03）
 
 | # | 已知限制 / 风险 | 影响 / 当前处理 | 状态 |
