@@ -116,6 +116,24 @@ allow/deny 决定的是"无人值守时 Agent 可以请求哪些工具调用"，
 
 `bypassPermissions` / `-y` 在任何情况下都不是替代品。
 
+#### 4.1.1b 执行契约必须与最终 DispatchPolicy 一致
+
+Effective Prompt 里"你的工作目录已经隔离"这句只在 `isolation="worktree"` 时成立。
+`isolation="none"` 的任务跑在**真实检出**里，对它说"你在一个可抛弃的 worktree 里"
+会让 Agent 放心修改真的仓库。所以：
+
+| 最终 policy 的 isolation | Prompt 里的声明 |
+|---|---|
+| `worktree` | 当前目录已是隔离检出，不要另建 worktree |
+| `none` / 空 / 未知值 | **未隔离**，这就是项目检出本身，不会被回滚 |
+
+"最终"指 `ControlPlane.enqueue` 真正会用的那个：显式参数 → 项目注册的 policy →
+控制平面默认。`ProjectService._effective_policy()` 用同一套优先级解析后再构建
+Prompt，因此项目默认 policy 覆盖调用方参数时，Prompt 也跟着改口；预览
+（`build_task_context`）与提交（`submit_project_task`）对同一 policy 产出同样字节。
+两段共用的其余契约（拒绝即停、一次一条命令、不要 push）与 isolation 无关，两种
+模式下都在。Prompt 仍然在提交时冻结，digest 与幂等键不变。
+
 #### 4.1.2 配置目录的写入边界
 
 `--worker-profile` 只允许写入**经过校验的隔离目录**，写入前必须：
@@ -123,6 +141,12 @@ allow/deny 决定的是"无人值守时 Agent 可以请求哪些工具调用"，
 - 绝对路径、经 `os.path.realpath` 解析（挡住 `..` 与 NTFS junction）；
 - 不等于、不在其内、也不是 `~/.codebuddy`（或本进程 `$CODEBUDDY_CONFIG_DIR`）的
   父目录，否则拒绝启动（`WorkerConfigError`）；
+- **先校验、后创建**：`serve_ctl start` 先跑 `_plan_config_dir()`（含 profile 名校验），
+  只有全部通过才 `mkdir` 并写 settings。非法路径不会留下空目录；
+- profile 名必须命中 `permissions.known_profiles()`（或显式 `none`）。写错名字直接
+  拒绝——静默退回默认分类器等于没有策略；
+- 任何配置问题统一输出 `{"result":"refused","reason":...}` 并以非零码退出，不启动
+  服务、不部分生效；
 - 目标 settings 文件存在但**解析失败时 fail-closed**：不重写、不清空，直接报错
   退出。重写会同时丢掉 `gateway` 凭据并把"未知策略"换成"我想要的新策略"；
 - 写入用同目录临时文件 + `os.replace` 原子替换，`fsync` 后改名，失败清理临时文件；

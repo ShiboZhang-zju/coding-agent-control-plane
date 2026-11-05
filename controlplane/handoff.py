@@ -307,7 +307,8 @@ class HandoffPlanner:
                 require_verified_constraints: bool = False,
                 extra_references: Iterable[str] = (),
                 require_checkpoint: bool = True,
-                checkpoint_mode: str = "integrated") -> PreparedHandoff:
+                checkpoint_mode: str = "integrated",
+                isolation: str | None = None) -> PreparedHandoff:
         source = self.store.get(source_work_item_id)
         if not source:
             raise KeyError(f"no work item {source_work_item_id}")
@@ -424,7 +425,8 @@ class HandoffPlanner:
                 built = self.builder.build(
                     project_id, task, tags=tags, prerequisites=prerequisites,
                     require_verified_constraints=require_verified_constraints,
-                    workspace_id=target["id"], extra_references=[
+                    workspace_id=target["id"], isolation=isolation,
+                    extra_references=[
                         f"handoff source work item: {source_work_item_id}",
                         f"handoff source attempt: {attempt_id or 'missing'}",
                         f"handoff checkpoint: {checkpoint_ref or 'none'}",

@@ -1,0 +1,82 @@
+{
+  "test": "T69 worker profile start-sequence smoke",
+  "codebuddy_version": "2.180.0",
+  "isolation": {
+    "config_dir_isolated": true,
+    "home_kept": true,
+    "manager_touched": false,
+    "ledger": "not used"
+  },
+  "checks": {
+    "illegal_dir_refused": true,
+    "illegal_dir_not_created": true,
+    "unknown_profile_refused": true,
+    "unknown_profile_wrote_nothing": true,
+    "profile_started": true,
+    "profile_applied": true,
+    "settings_match_profile": true,
+    "operator_settings_untouched": true,
+    "real_job_read_git_head": true,
+    "no_permission_denial": true
+  },
+  "operator_dir": "<HOME>\\.codebuddy",
+  "refusals": {
+    "illegal": {
+      "code": 1,
+      "payload": {
+        "result": "refused",
+        "reason": "invalid worker configuration: worker config dir <HOME>\\.codebuddy\\t69-illegal-54b5b984 is inside the operator's CodeBuddy directory <HOME>\\.codebuddy; refusing",
+        "home": null,
+        "config_dir": "<HOME>\\.codebuddy\\t69-illegal-54b5b984",
+        "worker_profile": "acp-worker-minimal"
+      },
+      "created": false
+    },
+    "unknown_profile": {
+      "code": 1,
+      "payload": {
+        "result": "refused",
+        "reason": "invalid worker configuration: unknown worker profile 'acp-worker-minmal'; known profiles: ['acp-worker-minimal'] (or 'none' to disable)",
+        "home": null,
+        "config_dir": "<REPO>\\.poc-state\\t69-54b5b984\\unknown-profile",
+        "worker_profile": "acp-worker-minmal"
+      },
+      "created": false,
+      "settings_created": false
+    }
+  },
+  "start": {
+    "code": 0,
+    "payload": {
+      "result": "started",
+      "port": 65157,
+      "pid": 50440,
+      "launcher_pid": 50440,
+      "bind": "127.0.0.1:65157",
+      "auth": "password",
+      "worker_profile": {
+        "applied": true,
+        "profile": "acp-worker-minimal",
+        "config_dir": "<REPO>\\.poc-state\\t69-54b5b984\\codebuddy-config",
+        "settings_path": "<REPO>\\.poc-state\\t69-54b5b984\\codebuddy-config\\settings.json",
+        "allow_count": 35,
+        "deny_count": 34,
+        "dropped_allow_rules": []
+      }
+    }
+  },
+  "effective_permissions": {
+    "allow_equals_profile": true,
+    "deny_is_superset": true,
+    "allow_count": 35
+  },
+  "job": {
+    "job_id": "5ce433d9",
+    "state": "done",
+    "git_head": "5e91c0a1e8204ceb368e9f569419d4b0e4a1e202",
+    "output_excerpt": "5e91c0a1e8204ceb368e9f569419d4b0e4a1e202",
+    "head_in_output": true
+  },
+  "result": "Pass",
+  "failed_checks": []
+}

@@ -145,6 +145,37 @@ DENY_RULES: tuple[str, ...] = (
 
 PROFILE_NAME = "acp-worker-minimal"
 
+#: ``--worker-profile`` values that mean "do not write a profile".  Anything
+#: else must name a profile this module actually ships: a typo used to start the
+#: Worker with the default (intermittent) classifier while the operator believed
+#: the least-privilege list was applied.
+DISABLED_PROFILES: frozenset[str] = frozenset({"none"})
+
+
+def known_profiles() -> tuple[str, ...]:
+    """Every profile name ``--worker-profile`` accepts (besides the disabled one)."""
+    return (PROFILE_NAME,)
+
+
+def resolve_profile(name: str | None) -> str | None:
+    """Normalize and validate a ``--worker-profile`` value.
+
+    Returns ``None`` when profiling is disabled, the canonical name otherwise,
+    and raises :class:`WorkerConfigError` for anything unknown.  Refusing an
+    unknown name is the point: silently falling back to "no rules" would start a
+    Worker whose permission behaviour is the intermittent default.
+    """
+    text = (name or "").strip()
+    if not text:
+        raise WorkerConfigError("worker profile name is empty")
+    if text.lower() in DISABLED_PROFILES:
+        return None
+    if text not in known_profiles():
+        raise WorkerConfigError(
+            f"unknown worker profile {text!r}; known profiles: "
+            f"{sorted(known_profiles())} (or 'none' to disable)")
+    return text
+
 
 def profile() -> dict:
     """The profile as plain data (safe to record in evidence)."""

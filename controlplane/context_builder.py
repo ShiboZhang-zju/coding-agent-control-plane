@@ -72,11 +72,26 @@ _WORD_RE = re.compile(r"[A-Za-z0-9_\-]{3,}|[\u4e00-\u9fff]{2,}")
 #:
 #: It is plain text like the rest of the prompt, so it stays byte-identical for
 #: the same context version (auditability) and knows nothing about a vendor.
-WORKSPACE_CONTRACT = (
+#:
+#: The *first* paragraph must match the DispatchPolicy that will actually be
+#: used: claiming "your directory is already isolated" when the task runs with
+#: ``isolation="none"`` is simply false, and an agent that believes it is in a
+#: disposable worktree will happily modify the real checkout.  Only
+#: ``isolation="worktree"`` may assert isolation; every other value (including
+#: unknown ones) must state the opposite.
+_ISOLATED_DIRECTORY = (
     "- Workspace isolation is provided by the control plane / Worker: your working "
     "directory is already the isolated checkout for this task. Do NOT create an "
     "additional git worktree, clone the repository again, or switch the main "
-    "checkout's branch; work in place inside the current working directory.",
+    "checkout's branch; work in place inside the current working directory.",)
+_UNISOLATED_DIRECTORY = (
+    "- Do NOT assume isolation: this task was dispatched with isolation=none, so "
+    "your working directory is the project checkout itself, not a disposable "
+    "worktree. Nothing outside your declared artifacts will be rolled back. Do "
+    "not create a git worktree or clone the repository; work in place inside the "
+    "current working directory and touch nothing else.",)
+
+_WORKSPACE_CONTRACT_REST = (
     "- Commit your own work inside that working directory. Never push, and never "
     "modify a checkout outside it.",
     "- Your session is unattended: no approval prompt can be answered. If a tool "
@@ -91,6 +106,24 @@ WORKSPACE_CONTRACT = (
     "`;` or `|`; issue separate calls instead — a chained command cannot be "
     "matched by the permission rules and will be refused.",
 )
+
+
+def workspace_contract(isolation: str | None) -> tuple[str, ...]:
+    """The contract lines for a dispatch with this ``isolation`` value.
+
+    Only an explicit ``worktree`` policy may tell the agent its directory is
+    already isolated. A missing/unknown value is treated as *not* isolated: the
+    cost of a wrong "you are sandboxed" claim (silent edits to the real
+    checkout) is much higher than the cost of a wrong "you are not".
+    """
+    head = (_ISOLATED_DIRECTORY if (isolation or "").strip().lower() == "worktree"
+            else _UNISOLATED_DIRECTORY)
+    return head + _WORKSPACE_CONTRACT_REST
+
+
+#: Backwards-compatible name for the isolated form. Callers that have a policy
+#: must use :func:`workspace_contract` instead of hard-coding this.
+WORKSPACE_CONTRACT = workspace_contract("worktree")
 
 
 class ContextBuildBlocked(RuntimeError):
@@ -205,11 +238,17 @@ class ContextBuilder:
               require_verified_constraints: bool = False,
               workspace_id: str | None = None,
               extra_references: Iterable[str] = (),
-              budget_chars: int | None = None) -> BuiltContext:
+              budget_chars: int | None = None,
+              isolation: str | None = None) -> BuiltContext:
         """Build the effective prompt, or report why it cannot be built.
 
         ``prerequisites`` are tags that must exist as *verified* entries. A
         missing one is a gap, not something to paper over.
+
+        ``isolation`` is the dispatch policy's isolation mode (``"worktree"`` /
+        ``"none"``).  It only decides which execution contract is rendered; it
+        does not change selection, so a preview and a submission with the same
+        policy produce the same bytes.
         """
         project = self.store.get_project(project_id)
         if not project:
@@ -280,7 +319,8 @@ class ContextBuilder:
                 if entry["id"] not in used_refs:
                     used_refs.append(entry["id"])
 
-        prompt = self._render(task, sections, extra_references, gaps, warnings)
+        prompt = self._render(task, sections, extra_references, gaps, warnings,
+                              isolation=isolation)
         built = BuiltContext(
             project_id=project_id,
             original_task=task,
@@ -313,7 +353,7 @@ class ContextBuilder:
     # ------------------------------------------------------------------ #
     def _render(self, task: str, sections: dict[str, list[dict]],
                 extra_references: Iterable[str], gaps: list[str],
-                warnings: list[str]) -> str:
+                warnings: list[str], *, isolation: str | None = None) -> str:
         """Fixed layout. Section headers are ASCII so the prompt is stable."""
         out: list[str] = []
         out.append("# TASK")
@@ -366,7 +406,7 @@ class ContextBuilder:
         out.append("- Entries marked [CANDIDATE] or [UNVERIFIED] are unconfirmed: "
                    "verify them before relying on them.")
         out.append("- Do not invent project facts that are not stated above.")
-        out.extend(WORKSPACE_CONTRACT)
+        out.extend(workspace_contract(isolation))
         return "\n".join(out).rstrip() + "\n"
 
 

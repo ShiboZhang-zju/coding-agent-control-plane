@@ -37,6 +37,12 @@ _HUMAN_ATTENTION_FLAGS = {
     "dispatch_unknown",
     "suspected_lost",
     "session_binding_conflict",
+    # A tool call was refused because no approval prompt can be answered in an
+    # unattended session (job 89303e1f). Re-submitting the same task is refused
+    # identically, so only a human can resolve it: grant the capability, change
+    # the task, or abandon it. The verdict stays `rejected` either way — handing
+    # the task over does not make it accepted.
+    "permission_blocked",
     # The Worker had no usable login and executed nothing. Only a human can
     # repair that, so LD must hand the task over instead of retrying.
     "worker_not_authenticated",

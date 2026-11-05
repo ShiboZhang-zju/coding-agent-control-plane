@@ -56,6 +56,18 @@ _ACTIVE_STATES = (TaskState.QUEUED.value, TaskState.STARTING.value,
                   TaskState.RUNNING.value, TaskState.WAITING_FOR_APPROVAL.value)
 _NEEDS_HUMAN_STATES = (TaskState.DISPATCH_UNKNOWN.value, TaskState.UNKNOWN.value)
 
+#: Attention flags that make a *settled* task a project-level blocker.
+#:
+#: A refused task ends ``failed``, not ``dispatch_unknown``, so selecting
+#: blockers by state alone left it out of ``blocked_tasks`` — and therefore out
+#: of the LD blocker list — even though the Ledger said exactly why it stopped.
+#: Only flags whose remedy requires a human belong here; a merely rejected task
+#: (bad artifact) is still reported through counts and recent_tasks.
+_HUMAN_BLOCKER_FLAGS = frozenset({
+    "permission_blocked",
+    "worker_not_authenticated",
+})
+
 #: Queue status of a handoff whose Git checkpoint is not (yet) kept alive by a
 #: private ref.  It is deliberately NOT ``ready``: the dispatcher only ever
 #: claims ``ready`` work, so an unprotected checkpoint can never reach a Worker.
@@ -251,7 +263,10 @@ class ProjectService:
                     if t.get("state") in _NEEDS_HUMAN_STATES
                     or t.get("queue_status") == "needs_approval"
                     or (t.get("metadata") or {}).get("suspected_lost")
-                    or _has_warning(t, "SESSION_BINDING_CONFLICT:")]
+                    or _has_warning(t, "SESSION_BINDING_CONFLICT:")
+                    # A settled task blocked on a human-only remedy.  Its state
+                    # is `failed`, so the state test above never selected it.
+                    or _HUMAN_BLOCKER_FLAGS.intersection(_task_attention_flags(t))]
         return {
             "project_id": project_id,
             "name": project["name"],
@@ -403,9 +418,35 @@ class ProjectService:
     # ------------------------------------------------------------------ #
     # task submission
     # ------------------------------------------------------------------ #
-    def build_task_context(self, project_id: str, task: str, **kwargs) -> BuiltContext:
-        """Build (but do not submit) the effective prompt. Useful for previews."""
-        return self.builder.build(project_id, task, **kwargs)
+    def _effective_policy(self, policy: DispatchPolicy | None,
+                          project_id: str | None) -> DispatchPolicy:
+        """The policy ``ControlPlane.enqueue`` would actually use.
+
+        Same precedence, resolved through the same helper, so a preview and a
+        submission cannot disagree about whether the task is isolated: explicit
+        argument, then the project's registered policy, then the control plane
+        default.  Duplicating the order here (rather than assuming
+        ``isolation="worktree"``) is what makes the prompt honest.
+        """
+        if isinstance(policy, dict):
+            policy = DispatchPolicy(**policy)
+        if policy is not None:
+            return policy
+        project = self.store.get_project(project_id) if project_id else None
+        return ControlPlane._project_policy(project) or self.plane.policy
+
+    def build_task_context(self, project_id: str, task: str, *,
+                           isolation: str | None = None,
+                           **kwargs) -> BuiltContext:
+        """Build (but do not submit) the effective prompt. Useful for previews.
+
+        ``isolation`` defaults to the policy the project would really dispatch
+        with, so a preview shows the same contract a submission freezes.
+        """
+        if isolation is None:
+            isolation = self._effective_policy(None, project_id).isolation
+        kwargs.pop("isolation", None)
+        return self.builder.build(project_id, task, isolation=isolation, **kwargs)
 
     def submit_project_task(self, project_id: str, task: str, *,
                             assertions: Iterable[ArtifactAssertion | dict] = (),
@@ -441,16 +482,6 @@ class ProjectService:
                 out["deduplicated"] = True
                 return out
 
-        built = self.builder.build(
-            project_id, task, tags=tags, prerequisites=prerequisites,
-            require_verified_constraints=require_verified_constraints,
-            workspace_id=workspace_id, extra_references=extra_references)
-        if built.blocked and not allow_blocked:
-            raise ContextBuildBlocked(built.gaps, built)
-
-        assertion_objs = [
-            a if isinstance(a, ArtifactAssertion) else ArtifactAssertion(**a)
-            for a in assertions]
         if isinstance(policy, dict):
             policy = DispatchPolicy(**policy)
         # T34-F02: a shell Worker executes the *frozen prompt itself*.  Context
@@ -464,11 +495,29 @@ class ProjectService:
                 "and fail; use ControlPlane.enqueue with a raw command for shell "
                 "jobs without project context injection")
 
+        # The contract in the prompt must describe the policy that will really be
+        # used, and that is not necessarily the caller's argument: ``enqueue``
+        # falls back to the project's own policy, then the control plane default.
+        # Resolving it here (before the prompt is built) is what keeps an
+        # isolation=none project task from claiming it runs in a worktree.
+        effective_policy = self._effective_policy(policy, project_id)
+        built = self.builder.build(
+            project_id, task, tags=tags, prerequisites=prerequisites,
+            require_verified_constraints=require_verified_constraints,
+            workspace_id=workspace_id, extra_references=extra_references,
+            isolation=effective_policy.isolation)
+        if built.blocked and not allow_blocked:
+            raise ContextBuildBlocked(built.gaps, built)
+
+        assertion_objs = [
+            a if isinstance(a, ArtifactAssertion) else ArtifactAssertion(**a)
+            for a in assertions]
+
         scope = {"workspace_id": built.workspace_id,
                  "context_version": built.context_version}
         record = self.plane.enqueue(
             built.effective_prompt, built.workspace_root or "",
-            assertions=assertion_objs, policy=policy,
+            assertions=assertion_objs, policy=effective_policy,
             title=title or task[:60], idempotency_key=idempotency_key,
             timeout_s=timeout_s,
             metadata={**(metadata or {}),
@@ -551,6 +600,11 @@ class ProjectService:
                 "and fail")
         if policy is not None:
             policy.validate()
+        # Resolve the policy *before* building the prompt: the execution contract
+        # in the frozen prompt must describe how the handoff will really run, not
+        # a hard-coded "you are already isolated".
+        source = self.store.get(source_work_item_id) or {}
+        effective_policy = self._effective_policy(policy, source.get("project_id"))
         prepared = self.handoffs.prepare(
             source_work_item_id, task,
             target_workspace_id=target_workspace_id,
@@ -558,7 +612,8 @@ class ProjectService:
             require_verified_constraints=require_verified_constraints,
             extra_references=extra_references,
             require_checkpoint=require_checkpoint,
-            checkpoint_mode=checkpoint_mode)
+            checkpoint_mode=checkpoint_mode,
+            isolation=effective_policy.isolation)
         prepared_dict = prepared.to_dict()
         if not prepared.ready:
             raise HandoffNotReady(prepared.blockers, prepared_dict)
@@ -571,10 +626,6 @@ class ProjectService:
         assertion_objs = [
             item if isinstance(item, ArtifactAssertion) else ArtifactAssertion(**item)
             for item in assertions]
-        project = self.store.get_project(prepared.project_id) or {}
-        effective_policy = (policy
-                            or (DispatchPolicy(**project["policy"])
-                                if project.get("policy") else self.plane.policy))
         effective_policy.validate()
         submission_signature = handoff_signature({
             "prepared_handoff_signature": prepared.handoff_signature,
