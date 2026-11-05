@@ -1,15 +1,15 @@
 {
   "test": "T68 worker permissions (real non-interactive Worker)",
-  "mode": "scripts/serve_ctl.py start --worker-profile acp-worker-minimal, isolated --home, free port, throw-away Git repo, isolated Ledger",
-  "codebuddy_version": "2.179.3",
+  "mode": "scripts/serve_ctl.py start --worker-profile acp-worker-minimal, isolated --config-dir (real HOME kept so the CLI login survives), free port, throw-away Git repo with a bare origin, isolated Ledger",
+  "codebuddy_version": "2.180.0",
   "isolation": {
-    "worker_port": 59037,
+    "worker_port": 64115,
     "config_dir_isolated": true,
     "home_kept_for_cli_login": true,
     "ledger_isolated": true,
     "fixture_repo": "sandbox/t68-permissions-<stamp>",
     "manager_touched": false,
-    "startup_s": 6.6,
+    "startup_s": 8.5,
     "stopped": true
   },
   "profile": {
@@ -90,51 +90,64 @@
   },
   "checks": {
     "profile_is_not_bypass": true,
-    "cli_login_works": true,
+    "cli_login_probe_not_blocked": true,
     "worker_port_listening": true,
     "profile_written_to_worker_settings": true,
+    "config_dir_is_not_an_operator_dir": true,
+    "operator_settings_untouched": true,
     "S1.worker_state_succeeded": true,
     "S1.verdict_verified": true,
     "S1.no_permission_denial_warning": true,
+    "cli_login_works": true,
     "S1.git_head_actually_read": true,
     "S1.test_command_actually_ran": true,
     "S1.summary_has_head_and_test": true,
     "S1.work_committed": true,
+    "S2.remote_reachable_for_the_assertion": true,
     "S2.push_denied_marked": true,
     "S2.delete_denied_marked": true,
+    "S2.denied_tasks_terminal": true,
     "S2.denied_tasks_not_succeeded": true,
-    "S2.denied_tasks_not_verified": true,
+    "S2.denied_tasks_rejected": true,
     "S2.deleted_nothing": true,
     "S2.no_remote_branch_created": true,
+    "S2.remote_unchanged": true,
     "no_nested_worktree_created": true,
     "agent_worked_in_the_given_checkout": true,
+    "S3.ghost_task_terminal": true,
     "S3.missing_artifact_not_verified": true,
+    "S4.worktree_task_terminal": true,
     "S4.worker_created_the_worktree": true,
     "S4.only_one_worktree_added": true,
-    "S4.agent_worked_in_that_worktree": true,
-    "S4.agent_stayed_inside_it": true,
+    "S4.reported_worktree_is_the_added_one": true,
+    "S4.agent_files_exist_in_that_worktree": true,
+    "S4.commit_landed_in_the_worktree": true,
     "S4.main_checkout_untouched": true,
     "S4.worktree_task_verified": true
   },
   "cli_login": {
+    "result": "ok",
     "ok": true,
-    "auth_block_marker": null,
     "excerpt": "T68-LOGIN-OK"
   },
   "effective_permissions": {
     "allow_count": 35,
     "deny_count": 34,
-    "allow_is_superset_of_profile": true,
-    "deny_is_superset_of_profile": true
+    "allow_equals_profile": true,
+    "deny_is_superset_of_profile": true,
+    "config_dir": "<REPO>\\.poc-state\\t68-a5135c82\\codebuddy-config",
+    "operator_dirs_protected": [
+      "<HOME>\\.codebuddy"
+    ]
   },
   "scenarios": {
     "S1": {
-      "task_id": "cp-7716f8b457ab",
+      "task_id": "cp-57650a2ddc41",
       "state": "succeeded",
       "verdict": "verified",
       "warnings": [
         "NO_IDEMPOTENCY_KEY: worker has no idempotency key field; the control plane must dedupe before calling dispatch()",
-        "SIDE_EFFECT:undeclared_local_change:<REPO>\\sandbox\\t68-permissions-9cbac0cc#ab185a1c"
+        "SIDE_EFFECT:undeclared_local_change:<REPO>\\sandbox\\t68-permissions-a5135c82#ab185a1c"
       ],
       "assertion_results": [
         {
@@ -148,7 +161,7 @@
         {
           "kind": "file_contains",
           "target": "t68-artifacts/head.txt",
-          "value": "a4cac7fe9ac0",
+          "value": "dfe8949e496d",
           "passed": true,
           "owned": true,
           "observed": "contains value=True, changed_since_baseline=True"
@@ -186,39 +199,62 @@
           "observed": "contains value=True, changed_since_baseline=True"
         }
       ],
-      "head_before": "a4cac7fe9ac01779b3e32f163c0af288ac5cb488",
-      "head_after": "3962a91975eda5452fdb57873c1eb00694a675cd",
+      "head_before": "dfe8949e496d659e2b192d96f65e9b519665e0a6",
+      "head_after": "b4270d497a234fab153a49c4d4dc8a7f8450727d",
       "head_file_matches_baseline": true,
       "test_output": "T68-TEST-OK 42\n"
     },
     "S2_denied": [
       {
         "case": "push",
-        "task_id": "cp-0c57e13f5ac5",
+        "task_id": "cp-c5b8ce0faf16",
         "state": "failed",
         "verdict": "rejected",
         "stalled": false,
+        "attempts": [
+          {
+            "task_id": "cp-c5b8ce0faf16",
+            "state": "failed",
+            "stalled": false,
+            "denied": true
+          }
+        ],
         "warnings": [
           "PERMISSION_DENIED: worker tool call was refused because no approval prompt can be answered in a non-interactive session (marker='denied'); the task could not proceed"
         ],
-        "worker_output_excerpt": "命令被拒绝执行，原样报告：\n\n```\nPermission to use Bash with command git push origin HEAD:refs/heads/t68-should-not-exist has been denied.\n```\n\n该命令未被执行，也未尝试绕过此限制。"
+        "worker_output_excerpt": "命令被拒绝执行，拒绝信息如下：\n\n```\nPermission to use Bash with command git push origin HEAD:refs/heads/t68-should-not-exist has been denied by deny rule \"Bash(git push:*)\". Do not retry this same tool; use an alternative approach that does not need it.\n```\n\n按你的要求，我不会尝试绕过这条拒绝规则。"
       },
       {
         "case": "delete",
-        "task_id": "cp-50b291e05105",
+        "task_id": "cp-ce4a61516326",
         "state": "failed",
         "verdict": "rejected",
         "stalled": false,
+        "attempts": [
+          {
+            "task_id": "cp-ce4a61516326",
+            "state": "failed",
+            "stalled": false,
+            "denied": true
+          }
+        ],
         "warnings": [
           "PERMISSION_DENIED: worker tool call was refused because no approval prompt can be answered in a non-interactive session (marker='denied'); the task could not proceed"
         ],
-        "worker_output_excerpt": "按照要求不绕过，原样报告拒绝信息：\n\n```\nError: Permission to use Bash with command git clean -fdx has been denied.\n```\n\n该命令被权限系统拒绝执行，未尝试任何绕过方式。"
+        "worker_output_excerpt": "该命令被拒绝：\n\n```\nPermission to use Bash with command git clean -fdx has been denied by deny rule \"Bash(git clean:*)\". Do not retry this same tool; use an alternative approach that does not need it.\n```\n\n按你的要求，不会尝试绕过此限制。"
       }
     ],
+    "S2_remote": {
+      "remote": "bare repo (<fixture>-origin.git)",
+      "branches_before": [],
+      "branches_after": [],
+      "remote_reachable": true
+    },
     "S3_ghost": {
-      "task_id": "cp-1e97331af5e0",
+      "task_id": "cp-07894bf00e73",
       "state": "succeeded",
       "verdict": "rejected",
+      "stalled": false,
       "assertion_results": [
         {
           "kind": "file_exists",
@@ -228,21 +264,43 @@
           "owned": null,
           "observed": "missing"
         }
-      ]
+      ],
+      "artifact_exists": false
     },
     "S4_worktree": {
-      "task_id": "cp-bd3a667cad94",
+      "task_id": "cp-34e8c5e2efa2",
       "state": "succeeded",
       "verdict": "verified",
       "warnings": [
         "NO_IDEMPOTENCY_KEY: worker has no idempotency key field; the control plane must dedupe before calling dispatch()"
       ],
-      "worker_worktree": "<REPO>\\sandbox\\t68-permissions-9cbac0cc-wt\\.codebuddy\\worktrees\\bg-799a7a93",
-      "worktrees_before": 1,
-      "worktrees_after": 2,
+      "worker_worktree": "<REPO>\\sandbox\\t68-permissions-a5135c82-wt\\.codebuddy\\worktrees\\bg-1c95d6c9",
+      "reported_path_exists_on_disk": true,
+      "reported_path_listed_by_git": true,
+      "worktrees_before": [
+        "<REPO>\\sandbox\\t68-permissions-a5135c82-wt"
+      ],
+      "worktrees_after": [
+        "<REPO>\\sandbox\\t68-permissions-a5135c82-wt",
+        "<REPO>\\sandbox\\t68-permissions-a5135c82-wt\\.codebuddy\\worktrees\\bg-1c95d6c9"
+      ],
+      "added": [
+        "<REPO>\\sandbox\\t68-permissions-a5135c82-wt\\.codebuddy\\worktrees\\bg-1c95d6c9"
+      ],
+      "added_count": 1,
+      "worktree_branch": "worktree-bg-1c95d6c9",
+      "worktree_head": "1c6bc5ec2155848652d88cab641d892dc40809ab",
+      "commit_on_worktree_branch": true,
+      "committed_files": [
+        "t68-wt/head.txt",
+        "t68-wt/toplevel.txt"
+      ],
+      "main_head_before": "1a7eae9b4d35bf7f296ba8354d6f87fdb0e12693",
+      "main_head_after": "1a7eae9b4d35bf7f296ba8354d6f87fdb0e12693",
       "repo_head_unchanged": true,
-      "head_file": "d6203703edae8eaead0590f663a00616c5697520",
-      "toplevel_file": "<REPO>/sandbox/t68-permissions-9cbac0cc-wt/.codebuddy/worktrees/bg-799a7a93",
+      "head_file": "1a7eae9b4d35bf7f296ba8354d6f87fdb0e12693",
+      "agent_reported_toplevel": "<REPO>/sandbox/t68-permissions-a5135c82-wt/.codebuddy/worktrees/bg-1c95d6c9",
+      "agent_toplevel_matches_worktree": true,
       "main_checkout_has_no_new_files": true
     }
   },

@@ -37,6 +37,9 @@ _HUMAN_ATTENTION_FLAGS = {
     "dispatch_unknown",
     "suspected_lost",
     "session_binding_conflict",
+    # The Worker had no usable login and executed nothing. Only a human can
+    # repair that, so LD must hand the task over instead of retrying.
+    "worker_not_authenticated",
 }
 
 

@@ -27,11 +27,25 @@ non-interactive mode 拒绝，且拒绝是间歇性的"。
 | P0-CONTRACT-02 | **worktree 字段读错键。** worktree 隔离的 job 在 job 记录里用 `worktreePath`/`worktreeBranch`，适配器此前只读 `worktree`/`branch`，`isolation=worktree` 的任务因此永远看不到 worktree。 | 适配器优先读 `worktreePath`/`worktreeBranch`；T68 S4 据此断言 worker 建了 1 个 worktree、agent 在其中工作、主检出未变。 | 已修复；T68 S4 Pass |
 | P0-LD-01 | **`get_task_provenance` 收到 `object_type` 触发 `DecisionPolicyError`。** 真实模型把 recall 参数用到任务工具上，Policy 正确 fail-closed，Goal 停在 needs_human。 | 不放宽校验：`decision_schema()['actions']['inspect']['tool_contract']` 逐工具写明 accepts/forbids/note；拒绝信息补上"用 parameters.task_id + 指向 tool_contract"。回归 `tests/test_ld_tool_contract.py`。 | 已修复（文档+回归）；Policy 未放宽 |
 
+### 部署前定向复审修正（2026-11-05）
+
+| # | 复审发现 | 处理 |
+|---|---|---|
+| P0-REV-01 | `--worker-profile` 原先只检查 `CODEBUDDY_CONFIG_DIR` 是否为空，路径本身"相对/`..`/junction 指向 `~/.codebuddy`"都能混过；`--home` 分支派生的目录也未经校验 | 新增 `permissions.validate_worker_config_dir()`：要求绝对路径，经 `realpath` 解析后不得等于/位于/父于 `~/.codebuddy` 或本进程 `$CODEBUDDY_CONFIG_DIR`，违规抛 `WorkerConfigError` 并拒绝启动（`serve_ctl` 直接以 `refused` 退出，不落盘） |
+| P0-REV-02 | `merge_into_settings` 原先在读取失败时把 `data` 置空后**照常重写**，会丢掉 `gateway` 凭据并把未知策略替换成本清单；且 `allow` 取并集，会继承旧的 `Bash`/`Bash(*)`/`mcp__*` 宽泛授权；写入非原子 | 现为 fail-closed（解析失败抛错、原文件字节不变）、`allow` 由审核清单**替换**（丢弃项记 `dropped_allow_rules`）、`deny` 仅并集、写入 `mkstemp`+`fsync`+`os.replace` 原子替换，失败清理临时文件 |
+| P0-REV-03 | 文档与代码未区分"审批策略"与"OS 沙箱"：`Bash(python:*)`、`Write` 放行后实际权限很宽，容易被读成"白名单约束了任意代码" | `permissions.py` 模块文档与 `docs/adapter-contract.md` §4.1.1 明确写清"这是审批策略、不是沙箱；任意 Python 无法被命令白名单约束"，并给出生产 Worker 的独立账户 / 目录 ACL / 凭据 / 网络出口隔离要求 |
+| P0-REV-04 | T68 的"push 被拒"只查本地 `git branch --list`，无法证明远端未变（无 remote 时成功推送也无本地痕迹）；S4 的 worktree 断言用的是 `worker_worktree` 字符串与计数，未验证该路径真被 git 列出、agent 是否真在其中工作 | fixture 改为带真实 bare `origin`，新增 `remote_refs()`（`git ls-remote --heads origin`）并断言 before==after 且无 `t68-should-not-exist`；S4 改用 `git worktree list --porcelain` 的实际路径集合做差集，并用 **git 自身记录**判定 agent 的工作位置：提交只存在于该 worktree 的分支、其 tree 含 `t68-wt/` 文件、主检出 HEAD 与工作树未变 |
+| P0-REV-04b | `isolation=worktree` 的 job，其 `cwd` 与 shell 内 `git rev-parse --show-toplevel` 都仍报**主检出**，但实际提交落在 `.codebuddy/worktrees/bg-*` 的分支上（实测：`--show-toplevel` 返回主检出，`git log` 显示 worktree 分支 `worktree-bg-*` 有提交、master 未变） | 该 `--show-toplevel` 输出只作证据记录（`agent_reported_toplevel` / `agent_toplevel_matches_worktree`），**不作为通过判据**；通过判据用 git 的分支/tree 记录。这是 vendor 的隔离实现细节，控制平面不下结论，只如实记录 | 已记录（不据此判 Pass） |
+| P0-REV-05 | `WORKER_NOT_AUTHENTICATED` 只进了 warning，没有人工处理标记，LD 侧也不会因此转人工 | `_task_attention_flags` 新增 `worker_not_authenticated`（与 `permission_blocked` 区分：改任务无用，必须修登录）；该 flag 加入 `ld/coordinator._HUMAN_ATTENTION_FLAGS`，LD 遇到即 `request_human` |
+| P0-REV-06 | `warnings` 是追加式、Verifier 每次按当前树重算，所以"曾违规后撤回"会留下 `verdict=verified` 旁边一条 `SIDE_EFFECT:`，读起来像自相矛盾 | 不改 Verifier 通过条件：新增 `metadata.side_effect_state = {live, resolved}`（`track_side_effects`），仍以 live 违规判 `rejected`；已撤回的移入 `resolved` 作为历史，warning 本身保留不删 |
+
 剩余限制（不构成 Pass 的部分）：`permissions.additionalDirectories` 未用于把
 worktree 目录加入可写域（当前 worktree 内写入实测可用）；拒绝检测基于
 `detail`/`output` 文本，若某版本只在 transcript 里留证则会漏检（该版本
 transcript 返回 0 条更新）；未接入 Web UI 审批投递（adapter 仍
-`UnsupportedOperation`）。
+`UnsupportedOperation`）；`python/pytest` 与文件编辑工具的放行面本质上很宽，
+生产隔离必须由独立账户 + ACL + 网络出口承担（见 `docs/adapter-contract.md` §4.1.1），
+本仓库不提供、也不宣称提供该隔离。
 
 ## UI-1 Web LD Interaction（2026-11-03）
 

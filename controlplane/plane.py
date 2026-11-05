@@ -124,6 +124,32 @@ def merge_warnings(existing: list[str] | None,
     return merged
 
 
+def track_side_effects(previous: dict | None, live: list[str]) -> dict:
+    """Split side-effect findings into "still true" and "was true earlier".
+
+    Why this exists: ``warnings`` is append-only, while the Verifier re-derives
+    its verdict from the *current* tree on every observation.  A violation that
+    was observed once and then reverted therefore leaves a permanent
+    ``SIDE_EFFECT:`` line in the Ledger next to ``verdict=verified`` — which
+    reads like "verified although it touched another project", the opposite of
+    what happened.  Keeping the two states apart in metadata lets a reader tell
+    an already-reverted finding from one that still holds, **without** relaxing
+    the Verifier: with ``live`` non-empty the verdict is still ``rejected``.
+
+    ``resolved`` is monotonic: once a finding stops reproducing it stays
+    recorded as history, even if the same entries show up again later (in which
+    case ``live`` is non-empty and the verdict is rejected again).
+    """
+    prev = previous or {}
+    resolved = [str(item) for item in prev.get("resolved") or []]
+    live_now = list(dict.fromkeys(str(item) for item in live))
+    for fingerprint in prev.get("live") or []:
+        fingerprint = str(fingerprint)
+        if fingerprint not in live_now and fingerprint not in resolved:
+            resolved.append(fingerprint)
+    return {"live": live_now, "resolved": resolved}
+
+
 def task_digest(prompt: str, policy: DispatchPolicy,
                 assertions: list[ArtifactAssertion], cwd: str,
                 extra_scope: dict | None = None) -> str:
@@ -1321,17 +1347,24 @@ class ControlPlane:
         # reach the Ledger, otherwise the only visible outcome is "succeeded"
         # plus missing artifacts, which hides the actual cause from the operator.
         incoming_warnings = [str(w) for w in (snap.warnings or [])]
-        if violations:
-            # Repeated observation of the same unchanged violation must not
-            # re-append the same line (see ``side_effect_warnings``); a genuinely
-            # new violation still changes the fingerprint and is added.
-            incoming_warnings += side_effect_warnings(violations)
+        # Repeated observation of the same unchanged violation must not re-append
+        # the same line (see ``side_effect_warnings``); a genuinely new violation
+        # still changes the fingerprint and is added. ``warnings`` stays
+        # append-only, so the current-vs-resolved split is recorded separately.
+        live_side_effects = side_effect_warnings(violations)
+        if live_side_effects:
+            incoming_warnings += live_side_effects
         if incoming_warnings:
             patch["warnings"] = merge_warnings(rec.get("warnings"), incoming_warnings)
+        metadata = rec.get("metadata") or {}
+        if (live_side_effects or (metadata.get("side_effect_state") or {}).get("live")):
+            metadata = {**metadata,
+                        "side_effect_state": track_side_effects(
+                            metadata.get("side_effect_state"), live_side_effects)}
+            patch["metadata"] = metadata
         # Pin the exact code state acceptance verified (first verified
         # observation only).  A later handoff may hand over this state and
         # nothing else; any change after acceptance blocks the handoff.
-        metadata = rec.get("metadata") or {}
         if (verdict is Verdict.VERIFIED and in_worktree
                 and not metadata.get("acceptance_snapshot")):
             fingerprint = worktree_fingerprint(wt)

@@ -72,13 +72,17 @@ def who_listens(port: int):
     return None
 
 
-def _apply_worker_profile(profile: str, env: dict) -> dict:
+def _apply_worker_profile(profile: str, config_dir: str | Path) -> dict:
     """Write the least-privilege permission profile into the server's settings.
 
     ``profile`` is the name from ``adapters/codebuddy/permissions.py`` (or
     ``"none"``). The file is the one the *server process* will read, i.e.
     ``$CODEBUDDY_CONFIG_DIR/settings.json``; that is the only permission layer
     that reaches HTTP-dispatched jobs on this build.
+
+    ``config_dir`` is validated, not trusted: the profile must never land in the
+    operator's real ``~/.codebuddy``, where every interactive session would
+    inherit it.
 
     Returns a small dict for the caller's JSON output. It never contains a
     credential: the gateway block is preserved in place by the merge helper.
@@ -89,19 +93,20 @@ def _apply_worker_profile(profile: str, env: dict) -> dict:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from adapters.codebuddy import permissions as cb_permissions
 
-    config_dir = env.get("CODEBUDDY_CONFIG_DIR")
-    if not config_dir:
-        # Without an isolated config dir the server would read the operator's
-        # real ~/.codebuddy/settings.json. Writing there would silently grant
-        # permissions to every interactive session on the machine, so refuse.
-        raise SystemExit(
-            "refusing --worker-profile without --home/CODEBUDDY_CONFIG_DIR: the "
-            "profile would be written to the real user settings file")
     if profile == "none":
         return {"applied": False, "profile": "none"}
-    target = cb_permissions.settings_path(config_dir)
-    summary = cb_permissions.merge_into_settings(target)
-    return {"applied": True, "profile": profile, **summary}
+
+    try:
+        resolved = cb_permissions.validate_worker_config_dir(config_dir)
+        summary = cb_permissions.merge_into_settings(
+            cb_permissions.settings_path(resolved))
+    except cb_permissions.WorkerConfigError as exc:
+        # Fail closed and say why. Continuing would either write the policy to
+        # the wrong file or leave the Worker running with the default
+        # (intermittent) classifier while the operator believes it is profiled.
+        raise SystemExit(f"refusing --worker-profile: {exc}") from exc
+    return {"applied": True, "profile": profile,
+            "config_dir": str(resolved), **summary}
 
 
 def cmd_start(port: int, password: str, home: str | None = None,
@@ -114,6 +119,7 @@ def cmd_start(port: int, password: str, home: str | None = None,
         return 0
 
     env = dict(os.environ)
+    effective_config_dir: Path | None = None
     if home:
         # Isolated job store: keeps the PoC away from the user's live ~/.codebuddy,
         # so a running CodeBuddy session cannot contend on the same job-store locks.
@@ -125,12 +131,14 @@ def cmd_start(port: int, password: str, home: str | None = None,
         Path(home).mkdir(parents=True, exist_ok=True)
         env["USERPROFILE"] = str(Path(home).resolve())
         env["HOME"] = str(Path(home).resolve())
-        env["CODEBUDDY_CONFIG_DIR"] = str((Path(home) / ".codebuddy").resolve())
+        effective_config_dir = (Path(home) / ".codebuddy").resolve()
+        env["CODEBUDDY_CONFIG_DIR"] = str(effective_config_dir)
     if config_dir:
         # Isolate job store / settings WITHOUT touching HOME, so the existing
         # CLI login stays valid.  This is the mode unattended workers should use.
         Path(config_dir).mkdir(parents=True, exist_ok=True)
-        env["CODEBUDDY_CONFIG_DIR"] = str(Path(config_dir).resolve())
+        effective_config_dir = Path(config_dir).absolute()
+        env["CODEBUDDY_CONFIG_DIR"] = str(effective_config_dir)
     env["CODEBUDDY_HTTP_PASSWORD"] = password
     # Strip the CodeBuddy-desktop injected NODE_OPTIONS / safe-delete shim so the
     # CLI server runs the way it does standalone. The desktop shim routes every
@@ -152,7 +160,18 @@ def cmd_start(port: int, password: str, home: str | None = None,
         # `--allowedTools` / `--disallowedTools` / `--settings` are per-process
         # options that do NOT reach HTTP-dispatched jobs, while permissions in
         # that settings file do (and `deny` outranks `allow`).
-        profile_info = _apply_worker_profile(worker_profile, env)
+        if effective_config_dir is None:
+            # Without an isolated config dir the server reads the operator's real
+            # ~/.codebuddy/settings.json, where a profile would silently grant
+            # allow-listed commands to every interactive session on the machine.
+            print(json.dumps({
+                "result": "refused",
+                "reason": "worker-profile requires an isolated --config-dir (or "
+                          "--home); refusing to write into the operator's real "
+                          "CodeBuddy settings"}))
+            return 1
+        profile_info = _apply_worker_profile(worker_profile,
+                                             effective_config_dir)
     if no_user_settings:
         # Skip user-level settings, which is where the heavy `longmemory` hooks live.
         # Their 5s UserPromptSubmit timeout is what kills parallel agent sessions
@@ -226,7 +245,8 @@ def main() -> int:
     ap.add_argument("--worker-profile", default=os.environ.get("POC_WORKER_PROFILE"),
                     help="least-privilege permission profile for unattended jobs "
                          "(name from adapters/codebuddy/permissions.py, e.g. "
-                         "'acp-worker-minimal'; requires an isolated --home)")
+                         "'acp-worker-minimal'; requires an isolated --config-dir "
+                         "and refuses to write into the operator's own settings)")
     a = ap.parse_args()
     if a.action == "start":
         return cmd_start(a.port, a.password, a.home, a.no_user_settings,

@@ -83,8 +83,52 @@ unknown                                      （拿不到可信信息）
 （该版本 transcript 端点返回 0 条更新）。适配器已把这种情况归一化为
 `failed` + `PERMISSION_DENIED:` warning；同样是假成功形状的
 `Authentication required` 归一化为 `failed` + `WORKER_NOT_AUTHENTICATED:`。
-两者都会进入 Ledger `warnings`，并让 `_task_attention_flags` 产出
-`permission_blocked`。
+两者都会进入 Ledger `warnings`，但**人工处理标记不同**：
+
+| warning | `attention_flags` | 人工要做什么 |
+|---|---|---|
+| `PERMISSION_DENIED:` | `permission_blocked` | 决定是否授予该能力、改任务，还是放弃 |
+| `WORKER_NOT_AUTHENTICATED:` | `worker_not_authenticated` | 修复 Worker 登录/凭据；改任务无意义 |
+
+#### 4.1.1 这是审批策略，不是安全沙箱
+
+allow/deny 决定的是"无人值守时 Agent 可以请求哪些工具调用"，**不限制获批命令
+实际能做什么**。有两点不能含糊：
+
+- `Bash(python:*)` / `PowerShell(python3:*)` 在清单里，因为无人值守任务必须能跑
+  自己的测试。一旦放行，任意 Python 程序就拥有 Worker 账户的全部权限：可以写
+  仓库以外的路径、读该账户能读的任何文件、发起网络连接。**任何命令白名单都无法
+  约束任意解释型代码**，宣称可以约束是错的。
+- `Write` / `Edit` / `NotebookEdit` 同样是宽泛的：目标路径不受检出目录限制。
+
+因此生产环境的真实边界在进程之外：
+
+1. **独立 Windows 账户**（专用低权账户，非交互登录，无本机管理员、无 `SeDebug`、
+   无 `Backup Operators`），Worker 进程只以该账户运行。
+2. **目录 ACL**：该账户仅对隔离检出目录有写权限；工具链目录只读；`~/.codebuddy`
+   与 Ledger 目录对该账户不可写（Worker 只通过 HTTP 被派发，不直接触账本）。
+3. **凭据隔离**：只提供 Worker 自己所需的模型访问凭据；不放长期高权 token，不给
+   其它 SaaS 登录态，凭据文件 ACL 限该账户。
+4. **网络出口**：出站仅允许模型端点（域名/IP + TLS），屏蔽任意入站；禁止把 8787
+   端口转发出去（本就只绑 loopback）。
+5. **可抛弃性**：检出目录与账户状态可整机销毁重建；任何跨任务状态都通过控制平面，
+   不留在 Worker 账户里。
+
+`bypassPermissions` / `-y` 在任何情况下都不是替代品。
+
+#### 4.1.2 配置目录的写入边界
+
+`--worker-profile` 只允许写入**经过校验的隔离目录**，写入前必须：
+
+- 绝对路径、经 `os.path.realpath` 解析（挡住 `..` 与 NTFS junction）；
+- 不等于、不在其内、也不是 `~/.codebuddy`（或本进程 `$CODEBUDDY_CONFIG_DIR`）的
+  父目录，否则拒绝启动（`WorkerConfigError`）；
+- 目标 settings 文件存在但**解析失败时 fail-closed**：不重写、不清空，直接报错
+  退出。重写会同时丢掉 `gateway` 凭据并把"未知策略"换成"我想要的新策略"；
+- 写入用同目录临时文件 + `os.replace` 原子替换，`fsync` 后改名，失败清理临时文件；
+- `permissions.allow` 由已审核清单**替换**而非并集继承。继承旧 allow 会把
+  `Bash` / `Bash(*)` / `mcp__*` 之类宽泛授权原样留下，等于没做最小权限；
+  被丢弃的旧规则记入 `dropped_allow_rules` 供审计。`deny` 只做并集。
 
 ## 5. `dispatch_unknown`：不确定就不重试
 

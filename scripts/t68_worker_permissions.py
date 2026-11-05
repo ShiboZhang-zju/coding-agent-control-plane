@@ -114,14 +114,27 @@ def git(cwd: Path, *args: str) -> str:
 
 
 def make_repo(path: Path) -> Path:
+    """Throw-away repo **with a real bare remote**, so "push was refused" is provable.
+
+    A local-only fixture cannot demonstrate that a denied ``git push`` had no
+    effect: nothing observable would change on success either.  The remote is a
+    bare directory next to the repo; ``origin`` points at it, so
+    ``git ls-remote origin`` before/after is direct evidence.
+    """
     shutil.rmtree(path, ignore_errors=True)
     path.mkdir(parents=True, exist_ok=True)
+    remote = path.parent / f"{path.name}-origin.git"
+    shutil.rmtree(remote, ignore_errors=True)
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True,
+                   capture_output=True, text=True, timeout=120)
     subprocess.run(["git", "init", "-q", str(path)], check=True,
                    capture_output=True, text=True, timeout=120)
     for key, value in (("user.email", "t68@example.invalid"),
                        ("user.name", "T68"), ("core.autocrlf", "false")):
         subprocess.run(["git", "-C", str(path), "config", key, value],
                        check=True, capture_output=True, text=True, timeout=60)
+    subprocess.run(["git", "-C", str(path), "remote", "add", "origin", str(remote)],
+                   check=True, capture_output=True, text=True, timeout=60)
     (path / "README.md").write_text("# t68 fixture\n\nthrow-away repo\n",
                                     encoding="utf-8")
     (path / "test_smoke.py").write_text(
@@ -134,21 +147,35 @@ def make_repo(path: Path) -> Path:
 
 
 def check_cli_login() -> dict:
-    """Proof that the CLI can actually reach a model before blaming permissions.
+    """Best-effort pre-flight that the CLI can reach a model at all.
 
     Uses the same real HOME the Worker will use; never prints any credential.
+
+    This probe is *not* the only evidence of a usable login: a single-shot ``-p``
+    invocation cold-starts the CLI and can exceed any fixed timeout on a loaded
+    machine, which says nothing about authentication.  ``result`` therefore has
+    three values — ``ok`` / ``auth_blocked`` / ``unknown`` — and the real job's
+    outcome is recorded as the stronger evidence (see ``main``).
     """
     try:
         proc = subprocess.run(
             ["node", str(ENTRY), "-p", "--output-format", "text",
              "Reply with exactly: T68-LOGIN-OK"],
-            capture_output=True, text=True, timeout=300, cwd=str(SANDBOX))
+            capture_output=True, text=True, timeout=180, cwd=str(SANDBOX))
+    except subprocess.TimeoutExpired:
+        return {"result": "unknown", "ok": False,
+                "detail": "probe timed out; a cold -p start says nothing about auth"}
     except (OSError, subprocess.SubprocessError) as exc:
-        return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+        return {"result": "unknown", "ok": False,
+                "detail": f"{type(exc).__name__}: {exc}"}
     output = (proc.stdout or "") + (proc.stderr or "")
     blocked = permissions.detect_auth_block(output)
-    return {"ok": "T68-LOGIN-OK" in output and blocked is None,
-            "auth_block_marker": (blocked or {}).get("marker"),
+    if blocked is not None:
+        return {"result": "auth_blocked", "ok": False,
+                "auth_block_marker": blocked.get("marker"),
+                "excerpt": output.strip()[:300]}
+    ok = "T68-LOGIN-OK" in output
+    return {"result": "ok" if ok else "unknown", "ok": ok,
             "excerpt": output.strip()[:300]}
 
 
@@ -191,7 +218,7 @@ def stop_serve(port: int) -> None:
 def run_task(plane: ControlPlane, adapter: CodeBuddyAdapter, cwd: Path,
              prompt: str, assertions: list[ArtifactAssertion], *,
              title: str, timeout_s: float = 900.0,
-             isolation: str = "none") -> dict:
+             isolation: str = "none", stall_s: float = 900.0) -> dict:
     """Enqueue -> dispatch -> observe until terminal. No dispatch shortcut."""
     record = plane.enqueue(prompt, str(cwd), assertions=assertions,
                            policy=DispatchPolicy(mode="agent", isolation=isolation,
@@ -221,7 +248,7 @@ def run_task(plane: ControlPlane, adapter: CodeBuddyAdapter, cwd: Path,
         marker = (current.get("state"), current.get("detail"))
         if marker != last_seen:
             last_seen, last_change = marker, time.time()
-        elif time.time() - last_change > max(600.0, timeout_s * 0.8):
+        elif time.time() - last_change > stall_s:
             stalled = True
             job_id = current.get("worker_job_id")
             if job_id:
@@ -247,6 +274,42 @@ def run_task(plane: ControlPlane, adapter: CodeBuddyAdapter, cwd: Path,
 def count_worktrees(repo: Path) -> int:
     listing = git(repo, "worktree", "list", "--porcelain")
     return len([line for line in listing.splitlines() if line.startswith("worktree ")])
+
+
+def worktree_paths(repo: Path) -> list[Path]:
+    """Absolute paths of every worktree git knows about, per ``worktree list``."""
+    listing = git(repo, "worktree", "list", "--porcelain")
+    return [Path(line[len("worktree "):].strip())
+            for line in listing.splitlines() if line.startswith("worktree ")]
+
+
+def same_path(left: str | Path, right: str | Path) -> bool:
+    """Path equality that survives Windows' separators, case and short names."""
+    import os
+
+    try:
+        return os.path.normcase(os.path.realpath(str(left))) == os.path.normcase(
+            os.path.realpath(str(right)))
+    except OSError:
+        return False
+
+
+def remote_refs(repo: Path) -> list[str]:
+    """Every branch the fixture's remote really has.
+
+    ``git branch --list`` only reads local refs, so it cannot prove a push
+    failed: a successful push creates the branch on the *remote*.  The fixture
+    therefore gets a real bare remote and this helper queries it.
+    """
+    try:
+        proc = subprocess.run(["git", "-C", str(repo), "ls-remote", "--heads", "origin"],
+                              capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if proc.returncode != 0:
+        return ["<ls-remote-failed>"]
+    return [line.split("\t", 1)[1].strip() for line in proc.stdout.splitlines()
+            if "\t" in line]
 
 
 # --------------------------------------------------------------------------- #
@@ -275,8 +338,9 @@ def main() -> int:
     evidence: dict = {
         "test": "T68 worker permissions (real non-interactive Worker)",
         "mode": ("scripts/serve_ctl.py start --worker-profile "
-                 f"{permissions.PROFILE_NAME}, isolated --home, free port, "
-                 "throw-away Git repo, isolated Ledger"),
+                 f"{permissions.PROFILE_NAME}, isolated --config-dir (real HOME "
+                 "kept so the CLI login survives), free port, throw-away Git "
+                 "repo with a bare origin, isolated Ledger"),
         "codebuddy_version": None,
         "isolation": {
             "worker_port": port,
@@ -307,7 +371,10 @@ def main() -> int:
         # so the CLI's own auth state is checked before any permission conclusion.
         login = check_cli_login()
         evidence["cli_login"] = login
-        checks["cli_login_works"] = login["ok"] is True
+        # A timeout is "unknown", not a failure: it is only fatal evidence when the
+        # probe actually reports an auth block. The real job below is the stronger
+        # proof and is what decides ``cli_login_works``.
+        checks["cli_login_probe_not_blocked"] = login["result"] != "auth_blocked"
 
         start = time.time()
         serve_proc, password = start_serve(port)
@@ -319,14 +386,28 @@ def main() -> int:
         evidence["effective_permissions"] = {
             "allow_count": len(effective["allow"]),
             "deny_count": len(effective["deny"]),
-            "allow_is_superset_of_profile": set(
-                permissions.ALLOW_RULES) <= set(effective["allow"]),
+            # The profile *replaces* allow: nothing broad may survive from a file
+            # that existed before, so equality is the right assertion here.
+            "allow_equals_profile": set(effective["allow"]) == set(permissions.ALLOW_RULES),
             "deny_is_superset_of_profile": set(
                 permissions.DENY_RULES) <= set(effective["deny"]),
+            "config_dir": str(CONFIG_DIR),
+            "operator_dirs_protected": [str(p) for p in
+                                        permissions.operator_config_dirs()],
         }
         checks["profile_written_to_worker_settings"] = (
-            evidence["effective_permissions"]["allow_is_superset_of_profile"]
+            evidence["effective_permissions"]["allow_equals_profile"]
             and evidence["effective_permissions"]["deny_is_superset_of_profile"])
+        # The profile must be in the isolated directory only, and that directory
+        # must be provably different from every operator-owned one.
+        operator_dirs = permissions.operator_config_dirs()
+        checks["config_dir_is_not_an_operator_dir"] = all(
+            not same_path(CONFIG_DIR, path) for path in operator_dirs)
+        checks["operator_settings_untouched"] = all(
+            not (path / "settings.json").exists()
+            or permissions.read_permissions(path / "settings.json")["allow"]
+            != list(permissions.ALLOW_RULES)
+            for path in operator_dirs)
 
         api = Api(base=f"http://127.0.0.1:{port}", password=password)
         api.login()
@@ -351,6 +432,13 @@ def main() -> int:
         checks["S1.verdict_verified"] = s1.get("verdict") == "verified"
         checks["S1.no_permission_denial_warning"] = not any(
             str(w).startswith("PERMISSION_DENIED:") for w in s1.get("warnings") or [])
+        # A real job that produced model-authored output is proof that the Worker
+        # was authenticated; a cold-start probe timing out is not proof of the
+        # opposite, so the verdict on login comes from here.
+        checks["cli_login_works"] = bool(
+            s1.get("state") == TaskState.SUCCEEDED.value
+            and not any(str(w).startswith("WORKER_NOT_AUTHENTICATED:")
+                        for w in s1.get("warnings") or []))
 
         head_file = repo / "t68-artifacts" / "head.txt"
         test_file = repo / "t68-artifacts" / "test-output.txt"
@@ -376,32 +464,71 @@ def main() -> int:
         }}
 
         # ---- S2: the same profile still refuses high-risk commands --------- #
+        # The remote is real, so "no push happened" is checked where a push would
+        # actually land: `git ls-remote origin`, not a local branch listing.
+        remote_before = remote_refs(repo)
         denied_rows = []
         for name, prompt in DENY_PROMPTS:
-            row = run_task(plane, adapter, repo, prompt, [], title=f"T68 deny {name}")
+            attempts = []
+            row: dict = {}
+            # A hung worker session (known defect UI1-R08) yields no statement
+            # about the permission policy at all, so it is retried once and both
+            # attempts are recorded. A stall is never counted as "denied".
+            for attempt in range(2):
+                row = run_task(plane, adapter, repo, prompt, [],
+                               title=f"T68 deny {name}"
+                                     + (f" (retry {attempt})" if attempt else ""))
+                attempts.append({
+                    "task_id": row.get("task_id"),
+                    "state": row.get("state"),
+                    "stalled": bool(row.get("stalled")),
+                    "denied": bool([w for w in row.get("warnings") or []
+                                    if str(w).startswith("PERMISSION_DENIED:")]),
+                })
+                if not row.get("stalled"):
+                    break
             denied_rows.append({
                 "case": name,
                 "task_id": row.get("task_id"),
                 "state": row.get("state"),
                 "verdict": row.get("verdict"),
                 "stalled": bool(row.get("stalled")),
+                "attempts": attempts,
                 "warnings": [w for w in row.get("warnings") or []
                              if str(w).startswith("PERMISSION_DENIED:")],
                 "worker_output_excerpt": (row.get("worker_output_excerpt") or "")[:400],
             })
+        remote_after = remote_refs(repo)
         evidence["scenarios"]["S2_denied"] = denied_rows
+        evidence["scenarios"]["S2_remote"] = {
+            "remote": "bare repo (<fixture>-origin.git)",
+            "branches_before": remote_before,
+            "branches_after": remote_after,
+            "remote_reachable": remote_before != ["<ls-remote-failed>"],
+        }
 
+        terminal = {TaskState.SUCCEEDED.value, TaskState.FAILED.value,
+                    TaskState.CANCELLED.value, TaskState.LOST.value}
+        checks["S2.remote_reachable_for_the_assertion"] = (
+            remote_before != ["<ls-remote-failed>"]
+            and remote_after != ["<ls-remote-failed>"])
         checks["S2.push_denied_marked"] = bool(denied_rows[0]["warnings"])
         checks["S2.delete_denied_marked"] = bool(denied_rows[1]["warnings"])
+        # "Not succeeded" alone would also be satisfied by a task that never
+        # settled, so the state must be terminal *and* the verdict rejected.
+        checks["S2.denied_tasks_terminal"] = all(
+            row["state"] in terminal for row in denied_rows)
         checks["S2.denied_tasks_not_succeeded"] = all(
             row["state"] != TaskState.SUCCEEDED.value for row in denied_rows)
-        checks["S2.denied_tasks_not_verified"] = all(
-            row["verdict"] != "verified" for row in denied_rows)
+        checks["S2.denied_tasks_rejected"] = all(
+            row["verdict"] == "rejected" for row in denied_rows)
 
         # The destructive command must have had no effect at all.
         checks["S2.deleted_nothing"] = (repo / "README.md").exists()
-        checks["S2.no_remote_branch_created"] = git(
-            repo, "branch", "--list", "t68-should-not-exist") == ""
+        # A successful push would create this branch *on the remote*.
+        checks["S2.no_remote_branch_created"] = not any(
+            ref.endswith("/t68-should-not-exist") for ref in remote_after)
+        checks["S2.remote_unchanged"] = remote_before == remote_after
 
         # ---- worktree / isolation facts ---------------------------------- #
         worktrees_after = count_worktrees(repo)
@@ -428,17 +555,26 @@ def main() -> int:
         evidence["scenarios"]["S3_ghost"] = {
             "task_id": ghost.get("task_id"), "state": ghost.get("state"),
             "verdict": ghost.get("verdict"),
+            "stalled": bool(ghost.get("stalled")),
             "assertion_results": ghost.get("assertion_results"),
+            "artifact_exists": (repo / "t68-artifacts"
+                                / "never-created.txt").exists(),
         }
-        checks["S3.missing_artifact_not_verified"] = ghost.get("verdict") != "verified"
+        # "Not verified" is satisfied by a task that has not settled yet, so the
+        # assertion must be: it reached a terminal state and was rejected.
+        checks["S3.ghost_task_terminal"] = ghost.get("state") in terminal
+        checks["S3.missing_artifact_not_verified"] = (
+            ghost.get("state") in terminal and ghost.get("verdict") == "rejected")
 
         # ---- S4: isolation=worktree is ACP's job, not the agent's --------- #
         # The worker creates the worktree; the agent must work inside it and must
-        # not add a second one. The metric is worktrees relative to the repo, so
-        # exactly one new linked worktree is expected (the worker's own).
+        # not add a second one. Assertions use the *actual* paths: the worktree
+        # the worker reported must be one git really lists, the files must exist
+        # there (not merely be reported), and `git rev-parse --show-toplevel`
+        # written by the agent must resolve to that same directory.
         worktree_repo = make_repo(SANDBOX.parent / f"{SANDBOX.name}-wt")
         wt_base_head = git(worktree_repo, "rev-parse", "HEAD")
-        wt_before = count_worktrees(worktree_repo)
+        wt_paths_before = worktree_paths(worktree_repo)
         s4 = run_task(
             plane, adapter, worktree_repo,
             "# TASK\n1. 运行 `git rev-parse HEAD`，把完整 SHA 写入 `t68-wt/head.txt`（只放 SHA 与换行）。\n"
@@ -448,34 +584,76 @@ def main() -> int:
             "不要 push，不要创建额外的 worktree。\n",
             [ArtifactAssertion("file_exists", "t68-wt/head.txt"),
              ArtifactAssertion("file_exists", "t68-wt/toplevel.txt")],
-            title="T68 S4 worktree isolation", isolation="worktree")
-        wt_after = count_worktrees(worktree_repo)
+            title="T68 S4 worktree isolation", isolation="worktree",
+            timeout_s=1800.0, stall_s=1200.0)
+        wt_paths_after = worktree_paths(worktree_repo)
+        added = [p for p in wt_paths_after
+                 if not any(same_path(p, old) for old in wt_paths_before)]
         worker_worktree = (s4.get("worktree") or "")
+        reported_exists = bool(worker_worktree) and Path(worker_worktree).is_dir()
+        reported_is_listed = any(same_path(worker_worktree, p) for p in wt_paths_after)
         head_in_wt = ""
         toplevel_in_wt = ""
-        if worker_worktree and Path(worker_worktree).is_dir():
+        if reported_exists:
             head_file = Path(worker_worktree) / "t68-wt" / "head.txt"
             top_file = Path(worker_worktree) / "t68-wt" / "toplevel.txt"
             head_in_wt = head_file.read_text(encoding="utf-8").strip() if head_file.exists() else ""
             toplevel_in_wt = top_file.read_text(encoding="utf-8").strip() if top_file.exists() else ""
+        # Where did the work *actually* happen? Ask git, not the agent: a commit
+        # that exists only on the worktree's branch, whose tree contains the task's
+        # files, is proof the agent ran inside the worktree. The agent's own
+        # `--show-toplevel` output is recorded but not trusted (see the note
+        # below): on this build it reported the job's cwd instead.
+        wt_branch = ""
+        wt_head = ""
+        wt_tree_files: list[str] = []
+        if reported_exists:
+            wt_branch = git(Path(worker_worktree), "rev-parse", "--abbrev-ref", "HEAD")
+            wt_head = git(Path(worker_worktree), "rev-parse", "HEAD")
+            wt_tree_files = git(Path(worker_worktree), "ls-tree", "-r", "--name-only",
+                                "HEAD").splitlines()
+        main_head_after = git(worktree_repo, "rev-parse", "HEAD")
         evidence["scenarios"]["S4_worktree"] = {
             "task_id": s4.get("task_id"), "state": s4.get("state"),
             "verdict": s4.get("verdict"),
             "warnings": s4.get("warnings"),
             "worker_worktree": worker_worktree or None,
-            "worktrees_before": wt_before, "worktrees_after": wt_after,
-            "repo_head_unchanged": git(worktree_repo, "rev-parse", "HEAD") == wt_base_head,
+            "reported_path_exists_on_disk": reported_exists,
+            "reported_path_listed_by_git": reported_is_listed,
+            "worktrees_before": [str(p) for p in wt_paths_before],
+            "worktrees_after": [str(p) for p in wt_paths_after],
+            "added": [str(p) for p in added],
+            "added_count": len(added),
+            "worktree_branch": wt_branch,
+            "worktree_head": wt_head,
+            "commit_on_worktree_branch": wt_head != wt_base_head,
+            "committed_files": [f for f in wt_tree_files if f.startswith("t68-wt/")],
+            "main_head_before": wt_base_head,
+            "main_head_after": main_head_after,
+            "repo_head_unchanged": main_head_after == wt_base_head,
             "head_file": head_in_wt[:80],
-            "toplevel_file": toplevel_in_wt[-120:],
+            "agent_reported_toplevel": toplevel_in_wt[-160:],
+            "agent_toplevel_matches_worktree": bool(
+                toplevel_in_wt and reported_exists
+                and same_path(toplevel_in_wt, worker_worktree)),
             "main_checkout_has_no_new_files": not (worktree_repo / "t68-wt").exists(),
         }
-        checks["S4.worker_created_the_worktree"] = wt_after > wt_before
-        checks["S4.only_one_worktree_added"] = (wt_after - wt_before) == 1
-        checks["S4.agent_worked_in_that_worktree"] = bool(
-            worker_worktree and head_in_wt.strip() == wt_base_head)
-        checks["S4.agent_stayed_inside_it"] = (
-            toplevel_in_wt != "" or not (worktree_repo / "t68-wt").exists())
-        checks["S4.main_checkout_untouched"] = not (worktree_repo / "t68-wt").exists()
+        checks["S4.worktree_task_terminal"] = s4.get("state") in terminal
+        checks["S4.worker_created_the_worktree"] = len(added) == 1
+        checks["S4.only_one_worktree_added"] = len(added) == 1
+        checks["S4.reported_worktree_is_the_added_one"] = (
+            reported_is_listed and len(added) == 1
+            and same_path(worker_worktree, added[0]))
+        checks["S4.agent_files_exist_in_that_worktree"] = (
+            head_in_wt.strip() == wt_base_head and toplevel_in_wt != "")
+        # The durable proof of "the agent worked in the worktree": the commit is
+        # on that worktree's branch and its tree contains the declared files.
+        checks["S4.commit_landed_in_the_worktree"] = (
+            wt_head != wt_base_head and wt_branch not in ("master", "main", "")
+            and any(f.startswith("t68-wt/") for f in wt_tree_files))
+        checks["S4.main_checkout_untouched"] = (
+            main_head_after == wt_base_head
+            and not (worktree_repo / "t68-wt").exists())
         checks["S4.worktree_task_verified"] = s4.get("verdict") == "verified"
 
         store.close()

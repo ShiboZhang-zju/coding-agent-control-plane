@@ -116,7 +116,7 @@ def test_merge_never_widens_deny_and_drops_conflicting_allow(tmp_path: Path):
         "permissions": {"allow": ["Bash(rm:*)", "Read"], "deny": ["Bash(git push:*)"]},
     }), encoding="utf-8")
 
-    permissions.merge_into_settings(settings)
+    summary = permissions.merge_into_settings(settings)
     data = json.loads(settings.read_text(encoding="utf-8"))
     allow, deny = data["permissions"]["allow"], data["permissions"]["deny"]
 
@@ -124,6 +124,125 @@ def test_merge_never_widens_deny_and_drops_conflicting_allow(tmp_path: Path):
     assert "Bash(rm:*)" not in allow
     assert "Bash(rm:*)" in deny
     assert len(allow) == len(set(allow)) and len(deny) == len(set(deny))
+    # ... and the caller is told it happened, rather than the rule vanishing.
+    assert "Bash(rm:*)" in summary["dropped_allow_rules"]
+
+
+def test_merge_does_not_inherit_a_broad_pre_existing_allow(tmp_path: Path):
+    """The operator's file may already grant everything; the profile must not keep it.
+
+    Unioning the old ``allow`` would preserve ``Bash`` / ``Bash(*)`` and quietly
+    restore exactly the blanket grant this profile exists to remove, so the
+    reviewed list *replaces* it.
+    """
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({
+        "gateway": {"password": "keep-me"},
+        "permissions": {"allow": ["Bash", "PowerShell", "Bash(*)", "mcp__jira__*"],
+                        "deny": []},
+    }), encoding="utf-8")
+
+    summary = permissions.merge_into_settings(settings)
+    data = json.loads(settings.read_text(encoding="utf-8"))
+    allow = data["permissions"]["allow"]
+
+    assert "Bash" not in allow
+    assert "PowerShell" not in allow
+    assert "Bash(*)" not in allow
+    assert "mcp__jira__*" not in allow
+    assert set(allow) == set(permissions.ALLOW_RULES)
+    assert set(summary["dropped_allow_rules"]) >= {"Bash", "PowerShell", "Bash(*)"}
+    # Deny is still additive: a caller may only ever add restrictions.
+    assert data["permissions"]["deny"]
+    # Other keys (here: the server credential) survive the rewrite.
+    assert data["gateway"]["password"] == "keep-me"
+
+
+def test_merge_fails_closed_on_an_unreadable_settings_file(tmp_path: Path):
+    """A file we cannot parse must be left alone, not replaced by a fresh one.
+
+    Rewriting it would drop the gateway credential *and* silently swap "unknown
+    policy" for "policy is now what I wanted", which is the one direction an
+    unattended Worker must never guess in.
+    """
+    settings = tmp_path / "settings.json"
+    original = '{"gateway": {"password": "s3cret"}, "permissions": '
+    settings.write_text(original, encoding="utf-8")
+
+    with pytest.raises(permissions.WorkerConfigError):
+        permissions.merge_into_settings(settings)
+
+    assert settings.read_text(encoding="utf-8") == original
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["settings.json"]
+
+
+def test_merge_rejects_a_non_object_settings_file(tmp_path: Path):
+    settings = tmp_path / "settings.json"
+    settings.write_text("[1, 2, 3]", encoding="utf-8")
+    with pytest.raises(permissions.WorkerConfigError):
+        permissions.merge_into_settings(settings)
+    assert settings.read_text(encoding="utf-8") == "[1, 2, 3]"
+
+
+def test_merge_writes_atomically(tmp_path: Path):
+    """No temp file may survive, and the target must never be partially written."""
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"gateway": {"password": "p"}}), encoding="utf-8")
+    before = settings.read_bytes()
+
+    permissions.merge_into_settings(settings)
+
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name != "settings.json"]
+    assert leftovers == [], leftovers
+    assert settings.read_bytes() != before  # the profile really was written
+    assert json.loads(settings.read_text(encoding="utf-8"))["gateway"]["password"] == "p"
+
+
+# --------------------------------------------------------------------------- #
+# the config dir must not be the operator's own
+# --------------------------------------------------------------------------- #
+def test_worker_config_dir_must_not_be_the_operator_directory(tmp_path: Path,
+                                                              monkeypatch):
+    home = tmp_path / "home"
+    operator = home / ".codebuddy"
+    operator.mkdir(parents=True)
+    monkeypatch.setattr(permissions.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.delenv("CODEBUDDY_CONFIG_DIR", raising=False)
+
+    with pytest.raises(permissions.WorkerConfigError):
+        permissions.validate_worker_config_dir(operator)
+    # A shadow directory *inside* the operator tree is the same hazard.
+    with pytest.raises(permissions.WorkerConfigError):
+        permissions.validate_worker_config_dir(operator / "worker")
+
+
+def test_worker_config_dir_cannot_escape_via_dotdot(tmp_path: Path, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".codebuddy").mkdir(parents=True)
+    monkeypatch.setattr(permissions.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.delenv("CODEBUDDY_CONFIG_DIR", raising=False)
+
+    escape = tmp_path / "home" / "worker" / ".." / ".codebuddy"
+    with pytest.raises(permissions.WorkerConfigError):
+        permissions.validate_worker_config_dir(escape)
+
+
+def test_worker_config_dir_rejects_relative_and_empty():
+    with pytest.raises(permissions.WorkerConfigError):
+        permissions.validate_worker_config_dir("")
+    with pytest.raises(permissions.WorkerConfigError):
+        permissions.validate_worker_config_dir("relative/dir")
+
+
+def test_worker_config_dir_accepts_an_isolated_directory(tmp_path: Path,
+                                                         monkeypatch):
+    home = tmp_path / "home"
+    (home / ".codebuddy").mkdir(parents=True)
+    monkeypatch.setattr(permissions.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.delenv("CODEBUDDY_CONFIG_DIR", raising=False)
+    isolated = tmp_path / "state" / "codebuddy-config"
+    isolated.mkdir(parents=True)
+    assert permissions.validate_worker_config_dir(isolated) == isolated.resolve()
 
 
 def test_read_permissions_tolerates_a_missing_or_broken_file(tmp_path: Path):
@@ -301,6 +420,142 @@ def test_warning_is_recorded_once_per_observation(tmp_path: Path):
     warnings = [w for w in store.get(task["task_id"])["warnings"]
                 if w.startswith("PERMISSION_DENIED:")]
     assert len(warnings) == 1, f"repeated observation duplicated the warning: {warnings}"
+    store.close()
+
+
+class _UnauthenticatedAdapter(_RefusedAdapter):
+    """A Worker that settled without ever having a usable login."""
+
+    name = "stub-unauthenticated"
+
+    def get_task(self, task_id, timeout_s: float = 30.0):
+        job = dict(INCIDENT_JOB, id="j1",
+                   output={"result": "Authentication required. Please use /login "
+                                     "command to sign in to your account"},
+                   detail="result: Authentication required. Please use /login")
+        return self._to_snapshot(job, task_id=task_id)
+
+
+def test_unauthenticated_worker_gets_its_own_human_flag(tmp_path: Path):
+    """A logged-out Worker needs a human, but not the "grant a permission" remedy."""
+    store = TaskStore(str(tmp_path / "ledger.db"))
+    plane = ControlPlane(_UnauthenticatedAdapter(), store=store, policy=AGENT_WORKTREE)
+    task = plane.enqueue("do the thing", str(tmp_path), policy=AGENT_WORKTREE,
+                         assertions=[ArtifactAssertion("file_exists", "a.txt")])
+    plane.dispatch_next("o")
+    plane.refresh_known_jobs()
+
+    record = store.get(task["task_id"])
+    assert record["state"] == TaskState.FAILED.value
+    assert any(w.startswith("WORKER_NOT_AUTHENTICATED:") for w in record["warnings"])
+    flags = _task_attention_flags(record)
+    assert "worker_not_authenticated" in flags
+    # Distinct from a permission refusal: granting a tool would not help here.
+    assert "permission_blocked" not in flags
+    # And LD hands it over instead of retrying a job that cannot authenticate.
+    from ld.coordinator import _HUMAN_ATTENTION_FLAGS
+    assert "worker_not_authenticated" in _HUMAN_ATTENTION_FLAGS
+    # Verifier unchanged: nothing was produced, so nothing is accepted.
+    assert record["verdict"] == Verdict.REJECTED.value
+    store.close()
+
+
+# --------------------------------------------------------------------------- #
+# SIDE_EFFECT: a reverted finding is history, not a live contradiction
+# --------------------------------------------------------------------------- #
+def test_track_side_effects_separates_live_from_resolved():
+    from controlplane.plane import track_side_effects
+
+    first = track_side_effects(None, ["SIDE_EFFECT:undeclared_local_change:C:\\a#1111"])
+    assert first["live"] == ["SIDE_EFFECT:undeclared_local_change:C:\\a#1111"]
+    assert first["resolved"] == []
+
+    # The same finding is still there: it stays live, nothing is "resolved".
+    same = track_side_effects(first, ["SIDE_EFFECT:undeclared_local_change:C:\\a#1111"])
+    assert same["live"] == first["live"] and same["resolved"] == []
+
+    # It stopped reproducing (the agent reverted the file): move to history.
+    cleared = track_side_effects(same, [])
+    assert cleared["live"] == []
+    assert cleared["resolved"] == ["SIDE_EFFECT:undeclared_local_change:C:\\a#1111"]
+
+    # A *different* finding later is live again; the old one stays recorded.
+    again = track_side_effects(cleared, ["SIDE_EFFECT:cross_project_change:C:\\b"])
+    assert again["live"] == ["SIDE_EFFECT:cross_project_change:C:\\b"]
+    assert again["resolved"] == ["SIDE_EFFECT:undeclared_local_change:C:\\a#1111"]
+
+
+def test_a_live_side_effect_still_rejects_and_a_reverted_one_is_history(tmp_path: Path):
+    """The append-only `warnings` list can outlive the violation it describes.
+
+    ``verdict_for`` re-derives from the *current* tree, so a reverted violation
+    leaves ``verified`` next to a ``SIDE_EFFECT:`` line. That combination is not
+    a contradiction — but it is ambiguous unless the two states are recorded
+    separately. The Verifier itself must not be relaxed: while the violation is
+    live, the verdict is still ``rejected``.
+    """
+    from adapters.base import DispatchResult, TaskSnapshot
+
+    cwd = tmp_path / "proj"
+    cwd.mkdir()
+    # side_effects() compares git status, so the fixture must be a real repo.
+    _git_repo(cwd)
+
+    class _Succeeding(_RefusedAdapter):
+        name = "stub-succeeding"
+
+        def dispatch(self, request: DispatchRequest):
+            self._meta["j1"] = {"request": request, "raw": {}, "started_at": 0.0}
+            return DispatchResult(task_id=request.task_id, worker_job_id="j1",
+                                  accepted=True)
+
+        def get_task(self, task_id, timeout_s: float = 30.0):
+            return TaskSnapshot(task_id=task_id, worker_job_id="j1",
+                                state=TaskState.SUCCEEDED, cwd=str(cwd),
+                                detail="done")
+
+    from adapters.base import TaskSnapshot
+    from controlplane.verify import capture_baseline
+
+    store = TaskStore(str(tmp_path / "ledger.db"))
+    plane = ControlPlane(_Succeeding(), store=store, policy=AGENT_WORKTREE)
+    assertions = [ArtifactAssertion("file_exists", "a.txt")]
+    task = plane.enqueue("produce a.txt", str(cwd), assertions=assertions,
+                         policy=AGENT_WORKTREE)
+    task_id = task["task_id"]
+    plane.dispatch_next("o")
+    # A real dispatch captures this baseline; the adapter here is scripted, so do
+    # it explicitly -- without a baseline there are no side effects to compare.
+    store.update(task_id, baseline=capture_baseline(str(cwd), assertions))
+
+    def observe() -> dict:
+        # ``refresh_known_jobs`` stops polling a terminal task, so re-observation
+        # goes through the same path the runtime and recovery use.
+        return plane._save_snapshot(task_id, TaskSnapshot(
+            task_id=task_id, worker_job_id="j1", state=TaskState.SUCCEEDED,
+            cwd=str(cwd), detail="done"))
+
+    # An undeclared file appears: a live side effect.
+    (cwd / "stray.txt").write_text("oops\n", encoding="utf-8")
+    record = observe()
+    assert record["verdict"] == Verdict.REJECTED.value
+    state = record["metadata"]["side_effect_state"]
+    assert state["live"] and state["resolved"] == []
+    asserted = [w for w in record["warnings"] if w.startswith("SIDE_EFFECT:")]
+    assert asserted == state["live"]
+
+    # The agent removes it again and produces the declared artifact. The verdict
+    # may now pass, but the finding must remain visible as history.
+    (cwd / "stray.txt").unlink()
+    (cwd / "a.txt").write_text("produced\n", encoding="utf-8")
+    record = observe()
+    state = record["metadata"]["side_effect_state"]
+    assert state["live"] == []
+    assert state["resolved"] == asserted
+    # The append-only warning list still holds the finding, which is exactly the
+    # ambiguity this split resolves: `verified` + a historical SIDE_EFFECT line.
+    assert asserted[0] in record["warnings"]
+    assert record["verdict"] == Verdict.VERIFIED.value
     store.close()
 
 

@@ -84,6 +84,14 @@ def _task_attention_flags(task: dict) -> list[str]:
         # answered. Only a human can decide (grant the permission, change the
         # task, or drop it) — an automatic retry would be refused identically.
         flags.append("permission_blocked")
+    if _has_warning(task, "WORKER_NOT_AUTHENTICATED:"):
+        # The Worker had no usable credentials, so nothing was executed. A retry
+        # is futile and would burn budget: the human must repair the Worker's
+        # login (or point it at a different account) before this task makes any
+        # sense. It is a *distinct* flag from permission_blocked because the
+        # remedy is different — granting a tool is not the fix for a logged-out
+        # Worker, and a logged-out Worker is not fixed by editing the task.
+        flags.append("worker_not_authenticated")
     if (task.get("queue_status") == "needs_human"
             and not flags and state == TaskState.UNKNOWN.value):
         flags.append("unknown")
