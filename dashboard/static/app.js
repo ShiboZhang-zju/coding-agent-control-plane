@@ -142,10 +142,14 @@
    * 不会让人失去对机器状态的判断依据；未知状态额外加 ``pill-unknown``。
    */
   function pill(kind, value, prefix, suffix) {
-    const info = kind
-      ? I18N.translate(kind, value)
-      : { text: (value === null || value === undefined || value === "") ? "—" : String(value),
-          known: true, raw: String(value === null || value === undefined ? "" : value) };
+    // kind 可以是单个语境，也可以是语境数组（键的含义不确定时用，见
+    // linked_task_counts：同一个字典里既有 verdict 也有 state）。
+    const info = Array.isArray(kind)
+      ? I18N.translateAny(kind, value)
+      : kind
+        ? I18N.translate(kind, value)
+        : { text: (value === null || value === undefined || value === "") ? "—" : String(value),
+            known: true, raw: String(value === null || value === undefined ? "" : value) };
     const text = (prefix ? prefix + "：" + info.text : info.text) + (suffix || "");
     const cls = "mono small pill pill-" + stateTone(info.raw) +
       (info.known ? "" : " pill-unknown");
@@ -974,7 +978,9 @@
       if (goal.linked_task_count) {
         const linkBox = el("div", { class: "pill-row" });
         Object.keys(goal.linked_task_counts || {}).sort().forEach(function (key) {
-          linkBox.appendChild(pill("taskState", key, null, " × " + goal.linked_task_counts[key]));
+          // 投影的键是 `verdict or state`，两种语境都可能出现。
+          linkBox.appendChild(pill(["verdict", "taskState"], key, null,
+            " × " + goal.linked_task_counts[key]));
         });
         taskCell.appendChild(linkBox);
         (goal.linked_task_ids || []).slice(0, 3).forEach(function (taskId) {

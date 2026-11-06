@@ -321,8 +321,29 @@ def test_task_list_states_are_chinese_but_raw_is_preserved(browser, site: Site):
         assert "执行失败" in text
         assert 'title="failed"' in html, "原始状态值应保留在 title 上"
         assert 'title="rejected"' in html, "原始判定应保留在 title 上"
-        # 不能把执行状态说成验收通过。
-        assert "执行成功" not in text or "验收通过" not in text or True
+        # 执行状态与验收结论文案不得互换：按原始枚举找对应药丸，
+        # 逐个核对它自己的文案，而不是在整页文本里做宽松包含判断。
+        labels = page.evaluate(
+            """() => Array.from(document.querySelectorAll('#detailView .pill'))
+                       .filter(n => n.title)
+                       .map(n => [n.title, n.textContent.trim()])""")
+        by_raw = {}
+        for raw, shown in labels:
+            by_raw.setdefault(raw, []).append(shown)
+        assert "failed" in by_raw, by_raw
+        assert "rejected" in by_raw, by_raw
+        for shown in by_raw["failed"]:
+            assert "执行失败" in shown, f"执行状态文案错误：{shown}"
+            assert "验收" not in shown, f"执行状态被写成了验收结论：{shown}"
+        for shown in by_raw["rejected"]:
+            assert "验收未通过" in shown, f"验收结论文案错误：{shown}"
+            assert "执行" not in shown, f"验收结论被写成了执行状态：{shown}"
+        # 页面上的枚举都是已知的：任何一个药丸落到“未知状态”都说明
+        # 它被套了错误的语境（例如拿 taskState 表去翻 verdict）。
+        for raw, showns in by_raw.items():
+            for shown in showns:
+                assert "未知状态" not in shown, (
+                    f"已知枚举 {raw} 被翻成了未知状态：{shown}")
         assert errors == []
     finally:
         context.close()

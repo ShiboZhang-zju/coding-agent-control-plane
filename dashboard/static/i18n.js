@@ -172,6 +172,23 @@
     return translate(kind, value).text;
   }
 
+  /**
+   * 键的含义不确定时按多个语境依次尝试。
+   *
+   * `linked_task_counts` 就是这种情形：投影取的键是
+   * `verdict or state`，同一个字典里 `rejected` 是验收结论、
+   * `queued` 是执行状态。只按一种语境翻译会把 `rejected` 显示成
+   * “未知状态”。这里只在**已知**表里找，全都找不到才回落成
+   * “原始值（未知状态）”，不猜。
+   */
+  function translateAny(kinds, value) {
+    for (const kind of kinds) {
+      const hit = translate(kind, value);
+      if (hit.known) return hit;
+    }
+    return translate(kinds[0], value);
+  }
+
   // ---- 复合/带标签的展示 ---------------------------------------------- //
   //: 首次出现时给出中文含义；技术标识本身（Goal/WorkItem/…) 保持原样。
   const TERMS = {
@@ -219,6 +236,7 @@
     ATTENTION_FLAG: ATTENTION_FLAG,
     translate: translate,
     t: t,
+    translateAny: translateAny,
     term: term,
     count: count,
     intentSource: intentSource,
