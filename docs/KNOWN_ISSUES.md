@@ -50,6 +50,19 @@ transcript 返回 0 条更新）；未接入 Web UI 审批投递（adapter 仍
 生产隔离必须由独立账户 + ACL + 网络出口承担（见 `docs/adapter-contract.md` §4.1.1），
 本仓库不提供、也不宣称提供该隔离。
 
+## UI-3 弹窗可读性 + 全局中文化（2026-11-06）
+
+只改用户界面：不涉及 Manager 运行实例、Ledger 结构、调度策略、权限策略或 Verifier。
+
+| # | 现象 / 根因 | 处理 | 状态 |
+|---|---|---|---|
+| UI3-01 | **人工处理弹窗透明。** `dashboard/static/styles.css` 的 `.modal-card` 用了从未定义的 `var(--surface)`，该声明失效后回到初始值 `transparent`，弹窗与背后的表格同时可见——恰好发生在操作员读"停止原因"的时候。 | 改用已定义的 `--bg-raised`，并显式 `color: var(--text)`。两个 token 都按 light / dark / auto 分别定义，因此三种主题下都是不透明底色；弹窗内 `--text-faint` 抬到 `--text-dim`（白底 5.98:1、暗底 7.54:1）。实测计算样式：light `rgb(255,255,255)`、dark `rgb(27,31,38)`。 | 已修复；`test_ui3_i18n_readability` |
+| UI3-02 | **其它组件引用未定义变量。** 全量扫描 `var(--x)` 后确认只有 `--surface` 一处失效；顺手发现两处对比度不足：浅色 `--ok` 在白绿底上 4.44:1（"验收通过"药丸），深色主按钮白字在 `#6f9dff` 上仅 2.64:1。 | `--ok` → `#17703d`（4.95:1）；新增 `--on-accent`（light `#fff` 4.57:1 / dark `#12151a` 6.92:1），`.btn-primary` 用它而不是硬编码 `white`。加了一条测试：**用到就必须定义**，防同类问题复发。 | 已修复 |
+| UI3-03 | **界面中英混杂**，状态直接显示枚举值，且同一个 `active` 在目标语境是"进行中"、在项目语境是"已启用"，一张万能表会翻错。 | 新增 `dashboard/static/i18n.js`（无框架，查表 + 未知回退），按**字段语境**分表（taskState / verdict / goalStatus / projectStatus / queueStatus / attentionFlag …）。`succeeded`→"执行成功"与 `verified`→"验收通过"严格分开。原始值保留在 `title` 上；未识别状态显示"原始值（未知状态）"+ 虚线药丸，不归类。状态判断、筛选、ID 校验仍全用原始枚举。 | 已修复 |
+| UI3-04 | 弹窗里"停止原因 / 执行状态 / 验收结论"容易读混。 | 三段分区呈现，并加一行说明"执行成功不等于验收通过"；Verifier 断言原文与 warnings 原文不做翻译；恢复仍需二次确认（先暂存、再点「确认恢复」）。 | 已修复 |
+
+残留：`i18n.js` 只覆盖当前实际出现的枚举；后端若新增状态会走"未知状态"分支而不是被猜错，但需要人工补表。截图证据在 `evidence/ui/ui3/handling-{light,dark}.png`。
+
 ## UI-1 Web LD Interaction（2026-11-03）
 
 | # | 已知限制 / 风险 | 影响 / 当前处理 | 状态 |

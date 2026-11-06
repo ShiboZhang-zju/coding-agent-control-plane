@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>Agent Control Plane · Dashboard</title>
+<title>智能体控制平面（Agent Control Plane）· 控制台</title>
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -15,13 +15,13 @@
     <span class="brand-mark" aria-hidden="true"></span>
     <div class="brand-text">
       <strong>Agent Control Plane</strong>
-      <span class="brand-sub" id="modeSubtitle">只读项目管理驾驶舱 · UI-0</span>
+      <span class="brand-sub" id="modeSubtitle">只读项目驾驶舱（UI-0）</span>
     </div>
   </div>
 
   <div class="topbar-right">
-    <span class="badge badge-readonly" id="modeBadge" title="本页面不会写入 Ledger">只读</span>
-    <button type="button" id="chatToggle" class="btn btn-primary" hidden>LD Chat</button>
+    <span class="badge badge-readonly" id="modeBadge" title="本页面不会写入账本">只读</span>
+    <button type="button" id="chatToggle" class="btn btn-primary" hidden>调度对话（LD Chat）</button>
     <div class="refresh-box">
       <label class="refresh-label" for="autoRefresh">
         <input type="checkbox" id="autoRefresh" checked>
@@ -44,7 +44,7 @@
 <main id="main" class="layout">
   <aside class="sidebar" aria-label="项目导航">
     <div class="sidebar-head">
-      <h2>Projects</h2>
+      <h2>项目（Projects）</h2>
       <span class="count" id="projectCount"></span>
     </div>
     <nav id="projectNav" class="project-nav">
@@ -62,10 +62,10 @@
 <aside id="chatPanel" class="chat-panel" aria-label="LD Chat" hidden>
   <div class="chat-head">
     <div>
-      <h2>LD Chat</h2>
+      <h2>调度对话（LD Chat）</h2>
       <p id="chatRuntimeStatus" class="muted">正在读取交互能力…</p>
     </div>
-    <button type="button" id="chatClose" class="btn btn-ghost" aria-label="关闭 LD Chat">关闭</button>
+    <button type="button" id="chatClose" class="btn btn-ghost" aria-label="关闭调度对话">关闭</button>
   </div>
 
   <div class="chat-auth" id="chatAuthBox">
@@ -79,9 +79,9 @@
   </div>
 
   <div id="chatControls" class="chat-controls" hidden>
-    <label for="chatProject">Project</label>
+    <label for="chatProject">工作项目（Project）</label>
     <select id="chatProject" class="select"></select>
-    <label for="chatConversation">Conversation</label>
+    <label for="chatConversation">会话（Conversation）</label>
     <div class="chat-conversation-row">
       <select id="chatConversation" class="select"></select>
       <button type="button" id="chatNew" class="btn btn-ghost">新会话</button>
@@ -91,24 +91,24 @@
 
   <section id="publishBox" class="chat-publish" hidden aria-label="发布任务给 LD">
     <div class="chat-publish-head">
-      <strong>发布任务给 LD</strong>
-      <span class="muted small">只创建 Goal；由 LD 转发给 Worker</span>
+      <strong>发布任务给调度器（LD）</strong>
+      <span class="muted small">只创建工作目标（Goal）；由调度器转发给执行器（Worker）</span>
     </div>
     <div id="publishProjectNotice" class="publish-notice" hidden></div>
-    <label for="publishObjective">目标（Goal 正文）</label>
+    <label for="publishObjective">目标正文（Goal）</label>
     <textarea id="publishObjective" rows="3" maxlength="2000"
               placeholder="例如：实现 greet.py 并补充测试"></textarea>
     <div id="publishConfirm" class="publish-confirm" hidden></div>
     <div class="chat-compose-actions">
       <span id="publishStatus" class="muted small"></span>
-      <button type="button" id="publishBtn" class="btn btn-primary">发布给 LD</button>
+      <button type="button" id="publishBtn" class="btn btn-primary">发布给调度器</button>
     </div>
     <div id="publishResult" class="chat-publish-result" hidden></div>
   </section>
 
   <div id="chatError" class="chat-error" role="alert" hidden></div>
   <div id="chatMessages" class="chat-messages" aria-live="polite">
-    <p class="placeholder">输入 Token 并连接后，可以直接与现有 LD 对话。</p>
+    <p class="placeholder">输入令牌（Token）并连接后，可以直接与现有调度器（LD）对话。</p>
   </div>
 
   <div id="chatConfirmation" class="chat-confirmation" hidden>
@@ -121,7 +121,7 @@
   </div>
 
   <div id="chatComposer" class="chat-composer" hidden>
-    <label for="chatInput">给 LD 的消息</label>
+    <label for="chatInput">发给调度器的消息</label>
     <textarea id="chatInput" rows="4" maxlength="8000"
               placeholder="例如：继续推进 pilot 项目：实现 greet.py 并补充测试。"></textarea>
     <div class="chat-compose-actions">
@@ -135,7 +135,7 @@
      aria-labelledby="goalHandlingTitle">
   <div class="modal-card">
     <div class="modal-head">
-      <h2 id="goalHandlingTitle">处理 needs_human Goal</h2>
+      <h2 id="goalHandlingTitle">处理待人工处理的目标（Goal）</h2>
       <button type="button" id="goalHandlingClose" class="btn btn-ghost">关闭</button>
     </div>
     <div id="goalHandlingBody" class="modal-body"></div>
@@ -150,7 +150,7 @@
     <div class="modal-foot">
       <span id="goalHandlingStatus" class="muted small"></span>
       <button type="button" id="goalHandlingStage" class="btn btn-primary">
-        在 LD Chat 中恢复此 Goal
+        在调度对话中恢复此目标
       </button>
     </div>
   </div>
@@ -161,9 +161,10 @@
   <span class="sep">·</span>
   <span id="ledgerInfo">—</span>
   <span class="sep">·</span>
-  <span>数据直接来自 SQLite Ledger；无模拟数据、无模型生成的状态</span>
+  <span>数据直接来自 SQLite 账本（Ledger）；无模拟数据、无模型生成的状态</span>
 </footer>
 
+<script src="/i18n.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

@@ -232,11 +232,16 @@ def test_handling_dialog_shows_verifier_result_and_failure_evidence(
                                timeout=10_000)
         card = page.locator(f'.goal-task-card[data-task-id="{task_id}"]')
         text = card.inner_text()
-        assert "rejected" in text
+        # The visible label is Chinese now (UI-3 i18n), and the raw enum is kept
+        # on the element title so the machine value is still inspectable. Both
+        # are asserted: translating the label must not lose the original verdict.
+        assert "验收未通过" in text, text
+        assert "失败" in text or "执行失败" in text, text
+        assert 'title="rejected"' in page.content()
         assert "file_exists report.md" in text
         assert "missing" in text
         # Opening the dialog never re-dispatches: the verdict is unchanged.
-        assert "Ledger evidence 1" in text
+        assert "账本证据 1" in text
         assert errors == []
     finally:
         context.close()

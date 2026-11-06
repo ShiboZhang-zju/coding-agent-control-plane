@@ -113,6 +113,15 @@
   // ------------------------------------------------------------------ //
   // status vocabulary — text always present, colour is only a hint
   // ------------------------------------------------------------------ //
+  //: 中文展示层。映射只影响显示，所有判断仍用原始枚举（见 DANGER_STATES 等）。
+  const I18N = window.ACPI18N;
+
+  /** 按语境取中文标签；未知值显示原始值 + “未知状态”。 */
+  function label(kind, value) { return I18N.t(kind, value); }
+
+  /** 该状态是否被识别（用于给未知值加提示样式/标题）。 */
+  function isKnown(kind, value) { return I18N.translate(kind, value).known; }
+
   const DANGER_STATES = ["failed", "lost", "dispatch_unknown", "unknown", "cancelled"];
   const WARN_STATES = ["waiting_for_approval", "needs_approval", "needs_human"];
 
@@ -125,10 +134,26 @@
     return "muted";
   }
 
-  function pill(label, value) {
-    const text = value === null || value === undefined || value === "" ? "—" : String(value);
-    return el("span", { class: "mono small pill pill-" + stateTone(text),
-                        text: label ? label + ": " + text : text });
+  /**
+   * 状态药丸。
+   *
+   * ``kind`` 是 i18n 的字段语境（taskState / verdict / goalStatus …），
+   * ``prefix`` 是可选的标签前缀。原始值始终写进 ``title``，这样中文标签
+   * 不会让人失去对机器状态的判断依据；未知状态额外加 ``pill-unknown``。
+   */
+  function pill(kind, value, prefix, suffix) {
+    const info = kind
+      ? I18N.translate(kind, value)
+      : { text: (value === null || value === undefined || value === "") ? "—" : String(value),
+          known: true, raw: String(value === null || value === undefined ? "" : value) };
+    const text = (prefix ? prefix + "：" + info.text : info.text) + (suffix || "");
+    const cls = "mono small pill pill-" + stateTone(info.raw) +
+      (info.known ? "" : " pill-unknown");
+    return el("span", {
+      class: cls,
+      text: text,
+      attrs: info.raw ? { title: info.raw } : null,
+    });
   }
 
   function copyText(value) {
@@ -230,12 +255,14 @@
   // render: summary strip
   // ------------------------------------------------------------------ //
   const SUMMARY_KEYS = [
-    { key: "projects", label: "项目总数", hint: "Ledger 中注册的 Project" },
-    { key: "active_goals", label: "活跃 Goal", hint: "status = active" },
-    { key: "active_work_items", label: "活动 WorkItem", hint: "queued/starting/running/waiting_for_approval" },
-    { key: "attention_items", label: "待人工处理", hint: "Goal needs_human、审批、rejected/inconclusive、lost" },
-    { key: "rejected", label: "Rejected", hint: "验证器判定未通过" },
-    { key: "inconclusive", label: "Inconclusive", hint: "无法判定（缺断言或无产物）" },
+    { key: "projects", label: "项目总数", hint: "账本（Ledger）中注册的 工作项目（Project）" },
+    { key: "active_goals", label: "活跃 工作目标（Goal）", hint: "状态 = 进行中（active）" },
+    { key: "active_work_items", label: "进行中的 工作任务（WorkItem）",
+      hint: "排队中 / 正在启动 / 运行中 / 等待审批" },
+    { key: "attention_items", label: "待人工处理",
+      hint: "目标待处理、待审批、验收未通过 / 结果不确定、失联" },
+    { key: "rejected", label: "验收未通过（rejected）", hint: "验收器（Verifier）判定未通过" },
+    { key: "inconclusive", label: "结果不确定（inconclusive）", hint: "无法判定（缺断言或无产物）" },
   ];
 
   function summaryCard(item, value, hint, tone) {
@@ -266,11 +293,11 @@
     });
     grid.appendChild(el("div", { class: "summary-extra" }, [
       el("span", { class: "muted", text: "人工介入细分：" }),
-      pill("needs_human", totals.needs_human_work_items),
-      pill("needs_approval", totals.needs_approval_work_items),
-      pill("dispatch_unknown", totals.dispatch_unknown),
-      pill("suspected_lost", totals.suspected_lost),
-      pill("session_binding_conflict", totals.session_binding_conflict),
+      pill("attentionFlag", "needs_human", "待人工处理"),
+      pill("attentionFlag", "needs_approval", "待审批"),
+      pill("attentionFlag", "dispatch_unknown", "派发状态不明"),
+      pill("attentionFlag", "suspected_lost", "疑似失联"),
+      pill("attentionFlag", "session_binding_conflict", "会话绑定冲突"),
     ]));
   }
 
@@ -299,9 +326,9 @@
     projects.forEach(function (project) {
       const active = project.project_id === state.selectedProjectId;
       const sub = el("span", { class: "nav-sub" }, [
-        el("span", { text: project.task_count + " 任务" }),
+        el("span", { text: I18N.count(project.task_count, "个任务") }),
         el("span", { class: "sep", text: "·" }),
-        el("span", { text: project.goal_count + " Goal" }),
+        el("span", { text: I18N.count(project.goal_count, "个目标") }),
         project.attention_count > 0
           ? el("span", { class: "tag tag-bad", text: project.attention_count + " 待处理" })
           : null,
@@ -313,7 +340,7 @@
         project.has_blocker
           ? el("span", { class: "dot dot-bad", title: "有需要人工处理的事项" })
           : null,
-        el("span", { text: project.active ? "active" : "inactive" }),
+        el("span", { text: label("projectStatus", project.active ? "active" : "inactive") }),
       ]);
       nav.appendChild(el("button", {
         class: "nav-item" + (active ? " is-active" : ""),
@@ -335,11 +362,11 @@
   // ------------------------------------------------------------------ //
   function goalCell(project) {
     const goal = project.current_goal;
-    if (!goal) return el("span", { class: "muted", text: "无 Goal" });
+    if (!goal) return el("span", { class: "muted", text: "无目标" });
     return el("div", {}, [
       el("div", { class: "clamp-2", text: goal.summary || "(空目标)" }),
       el("div", { class: "cell-sub" }, [
-        pill(null, goal.status),
+        pill("goalStatus", goal.status),
         idLine(goal.goal_id, "goal_id"),
       ]),
     ]);
@@ -351,7 +378,8 @@
     if (!keys.length) return el("span", { class: "muted", text: "—" });
     const box = el("div", { class: "pill-row" });
     keys.sort().forEach(function (key) {
-      box.appendChild(pill(null, key + " × " + counts[key]));
+      // 计数本身来自 Ledger，只把状态名换成中文；未知状态仍显示原始值。
+      box.appendChild(pill("goalStatus", key, null, " × " + counts[key]));
     });
     return box;
   }
@@ -359,18 +387,24 @@
   function distributionCell(counts) {
     const c = counts || {};
     const box = el("div", { class: "dist" });
+    // 这些 key 是**验收结论与目标状态**的混合分布，逐项标明语境。
     const order = [
-      ["verified", "ok"], ["rejected", "bad"], ["inconclusive", "warn"],
-      ["active", "info"], ["needs_human", "warn"], ["needs_approval", "warn"],
-      ["pending", "muted"],
+      ["verified", "verdict", "ok"], ["rejected", "verdict", "bad"],
+      ["inconclusive", "verdict", "warn"], ["pending", "verdict", "muted"],
+      ["active", "goalStatus", "info"], ["needs_human", "goalStatus", "warn"],
+      ["needs_approval", "goalStatus", "warn"],
     ];
     let shown = 0;
-    order.forEach(function (pair) {
-      const value = c[pair[0]];
+    order.forEach(function (entry) {
+      const value = c[entry[0]];
       if (!value) return;
       shown += 1;
-      box.appendChild(el("span", { class: "dist-item tone-" + pair[1] }, [
-        el("span", { class: "dist-key", text: pair[0] }),
+      const info = I18N.translate(entry[1], entry[0]);
+      box.appendChild(el("span", {
+        class: "dist-item tone-" + entry[2],
+        attrs: { title: entry[0] },
+      }, [
+        el("span", { class: "dist-key", text: info.text }),
         el("span", { class: "dist-val", text: String(value) }),
       ]));
     });
@@ -383,7 +417,8 @@
     if (!task) return el("span", { class: "muted", text: "无任务" });
     return el("div", {}, [
       el("div", { class: "clamp-1", text: task.title || "(无标题)" }),
-      el("div", { class: "cell-sub" }, [pill(null, task.state), pill(null, task.verdict)]),
+      el("div", { class: "cell-sub" }, [pill("taskState", task.state),
+                                        pill("verdict", task.verdict)]),
       el("div", { class: "cell-sub" }, [idLine(task.task_id, "task_id")]),
     ]);
   }
@@ -391,10 +426,10 @@
   function projectTable(projects) {
     const table = el("table", { class: "table table-projects" });
     table.appendChild(el("thead", {}, [el("tr", {}, [
-      el("th", { text: "Project" }),
-      el("th", { text: "当前 Goal" }),
-      el("th", { text: "Goal 状态" }),
-      el("th", { text: "WorkItem 状态分布" }),
+      el("th", { text: "工作项目（Project）" }),
+      el("th", { text: "当前 工作目标（Goal）" }),
+      el("th", { text: "目标状态" }),
+      el("th", { text: "工作任务（WorkItem）状态分布" }),
       el("th", { text: "最近任务" }),
       el("th", { text: "需要人工处理" }),
       el("th", { text: "最近活动" }),
@@ -462,8 +497,8 @@
     const projects = state.overview.projects || [];
     if (!projects.length) {
       view.appendChild(emptyState(
-        "这个 Ledger 里还没有 Project",
-        "Dashboard 只展示 Ledger 中真实存在的项目。用 controlplane_cli.py project add 注册项目后刷新即可。"));
+        "这个账本（Ledger）里还没有工作项目",
+        "本页面只展示账本中真实存在的项目。用 controlplane_cli.py project add 注册项目后刷新即可。"));
       return;
     }
     view.appendChild(el("section", { class: "panel" }, [
@@ -494,12 +529,17 @@
     }
     const list = el("ul", { class: "attention-list" });
     items.forEach(function (item) {
-      const flags = (item.flags || []).map(function (flag) { return pill(null, flag); });
+      const flags = (item.flags || []).map(function (flag) {
+        return pill("attentionFlag", flag);
+      });
+      // 目标与任务的 status 语义不同，必须按 item.kind 选语境。
+      const statusKind = item.kind === "goal" ? "goalStatus" : "taskState";
       list.appendChild(el("li", { class: "attention-item" }, [
         el("div", { class: "attention-main" }, [
           el("div", { class: "attention-title" }, [
-            pill(item.kind === "goal" ? "Goal" : "WorkItem", item.status),
-            item.verdict ? pill(null, item.verdict) : null,
+            pill(statusKind, item.status,
+                 item.kind === "goal" ? "工作目标" : "工作任务"),
+            item.verdict ? pill("verdict", item.verdict) : null,
             el("span", { class: "attention-project",
                          text: item.project_name || item.project_id }),
           ]),
@@ -545,13 +585,22 @@
     return out.sort();
   }
 
-  function filterSelect(id, current, values, allLabel, onChange) {
+  /**
+   * 下拉筛选器。
+   *
+   * ``kind`` 给出 i18n 语境：option 的 **value 永远是原始枚举**（筛选、跳转
+   * 都依赖它），只有可见文字是中文。未知值显示“原始值（未知状态）”，
+   * 不会被悄悄归入某个已知类别。
+   */
+  function filterSelect(id, current, values, allLabel, onChange, kind) {
     const select = el("select", { class: "select",
                                   attrs: { id: id, "aria-label": allLabel } });
     values.forEach(function (value, index) {
+      const isAll = index === 0 && value === "all";
+      const text = isAll ? allLabel : (kind ? label(kind, value) : String(value));
       const option = el("option", {
-        text: (index === 0 && value === "all") ? allLabel : String(value),
-        attrs: { value: String(value) },
+        text: text,
+        attrs: { value: String(value), title: isAll ? null : String(value) },
       });
       if (String(value) === String(current)) option.selected = true;
       select.appendChild(option);
@@ -562,44 +611,47 @@
 
   function goalExecutionStage(goal, detail) {
     if (goal.status === "completed") {
-      return { label: "Goal completed", tone: "ok",
-               note: "Goal 终态；不会再被自动唤醒。" };
+      return { label: "目标已完成", tone: "ok",
+               note: "工作目标（Goal）已到终态；不会再被自动唤醒。" };
     }
     if (goal.status === "needs_human") {
-      return { label: "Goal needs_human", tone: "warn",
-               note: goal.stop_reason || "需要 Human Owner 处理。" };
+      return { label: "目标待人工处理", tone: "warn",
+               note: goal.stop_reason || "需要人工负责人（Human Owner）处理。" };
     }
     const task = (detail.tasks || []).find(function (item) {
       return item.task_id === goal.current_task_id;
     });
     if (task && ["queued", "starting", "running", "waiting_for_approval",
                  "dispatch_unknown"].indexOf(task.state) >= 0) {
-      return { label: "Worker 正在执行", tone: "info",
-               note: task.state + " / " + (task.verdict || "pending") };
+      // 这里描述的是**执行状态**，不是验收结论，所以不能写成“通过”。
+      return { label: "执行器（Worker）正在执行", tone: "info",
+               note: "执行状态：" + label("taskState", task.state) +
+                 " · 验收结论：" + label("verdict", task.verdict || "pending") };
     }
     if (task && task.verdict === "verified") {
-      return { label: "Verifier 已验收", tone: "ok",
-               note: "Ledger verdict = verified；等待 Goal 后续状态。" };
+      return { label: "验收器（Verifier）已验收通过", tone: "ok",
+               note: "账本（Ledger）判定 verdict = verified（验收通过）；"
+                 + "等待目标的后续状态。" };
     }
     if ((goal.decision_count || 0) > 0 || (goal.task_count || 0) > 0) {
-      return { label: "Goal 正在推进", tone: "info",
-               note: "状态来自 Goal/Ledger；Runner 存活仍为 unknown。" };
+      return { label: "目标正在推进", tone: "info",
+               note: "状态来自目标与账本；调度进程（Runner）是否在线仍为未知。" };
     }
     if (goal.linked_task_count) {
       // A WorkItem exists but is not in flight and has no verified verdict: the
       // LD forwarded it and the outcome is whatever the ledger says, nothing
       // more.
-      return { label: "LD 已转发 WorkItem", tone: "info",
-               note: goal.linked_task_count + " 个 WorkItem 与这个 Goal 关联；"
-                 + "verdict 以 Ledger 为准。" };
+      return { label: "调度器（LD）已转发工作任务", tone: "info",
+               note: I18N.count(goal.linked_task_count, "个工作任务") + "与这个目标关联；"
+                 + "验收结论以账本为准。" };
     }
     const chat = (state.health && state.health.chat) || {};
     if (chat.intent_model_configured === false) {
-      return { label: "Goal 已创建 · 模型未配置", tone: "warn",
-               note: "Dashboard 环境未配置模型；Runner 是否已启动为 unknown。" };
+      return { label: "目标已创建 · 模型未配置", tone: "warn",
+               note: "本 Dashboard 未配置模型；调度进程是否已启动为未知。" };
     }
-    return { label: "Goal 已创建 · 等待 Runner", tone: "muted",
-             note: "尚无推进记录；Runner 存活为 unknown。" };
+    return { label: "目标已创建 · 等待调度进程", tone: "muted",
+             note: "尚无推进记录；调度进程存活状态为未知。" };
   }
 
   // ------------------------------------------------------------------ //
@@ -635,20 +687,23 @@
           focusTask(task.task_id);
         },
       }),
-      pill("state", task.state),
-      pill("verdict", task.verdict),
-      task.queue_status ? pill("queue", task.queue_status) : null,
+      pill("taskState", task.state, "执行状态"),
+      pill("verdict", task.verdict, "验收结论"),
+      task.queue_status ? pill("queueStatus", task.queue_status, "队列") : null,
     ]));
     if (task.attention_flags && task.attention_flags.length) {
       card.appendChild(el("div", { class: "pill-row" },
-        task.attention_flags.map(function (flag) { return pill(null, flag); })));
+        task.attention_flags.map(function (flag) {
+          return pill("attentionFlag", flag);
+        })));
     }
     const failures = task.failed_assertions || [];
     if (failures.length) {
       card.appendChild(el("div", { class: "cell-sub assertion-fail",
-        text: "Verifier 未通过的项目（" + failures.length + "）：" }));
+        text: "验收器（Verifier）未通过的检查项（" + failures.length + "）：" }));
       const list = el("ul");
       failures.forEach(function (failure) {
+        // 断言原文（kind / target / value / observed）保持原样，不改写证据。
         list.appendChild(el("li", {
           class: "assertion-fail mono small",
           text: failure.kind + " " + (failure.target || "—") +
@@ -659,12 +714,14 @@
       card.appendChild(list);
     } else if (task.verdict === "rejected" || task.verdict === "inconclusive") {
       card.appendChild(el("div", { class: "cell-sub assertion-fail",
-        text: "verdict = " + task.verdict + "：Ledger 未记录可归因的产物断言，"
-          + "这不是“通过”，重新派工前需要先看失败原因。" }));
+        text: "验收结论：" + label("verdict", task.verdict) +
+          "（verdict = " + task.verdict + "）。账本未记录可归因的产物断言，"
+          + "这不是“通过”；重新派工前需要先看失败原因。" }));
     }
     const warnings = task.warnings || [];
     if (warnings.length) {
-      card.appendChild(el("div", { class: "cell-sub", text: "warnings：" }));
+      card.appendChild(el("div", { class: "cell-sub",
+        text: "警告信息（warnings，原始文本）：" }));
       const list = el("ul");
       warnings.forEach(function (warning) {
         list.appendChild(el("li", { class: "mono small", text: warning }));
@@ -672,7 +729,7 @@
       card.appendChild(list);
     }
     card.appendChild(el("div", { class: "cell-sub muted",
-      text: "Attempts " + num(task.attempt_count) + " · Ledger evidence "
+      text: "尝试次数 " + num(task.attempt_count) + " · 账本证据 "
         + num(task.evidence_count) + " 条"
         + (task.evidence_count > (task.evidence || []).length
           ? "（仅列出前 " + (task.evidence || []).length + " 条 id）" : "") }));
@@ -683,46 +740,57 @@
     const body = clear($("goalHandlingBody"));
     const data = state.handling;
     if (!data) {
-      body.appendChild(el("p", { class: "placeholder", text: "正在读取 Goal…" }));
+      body.appendChild(el("p", { class: "placeholder", text: "正在读取目标…" }));
       return;
     }
     const goal = data.goal || {};
-    $("goalHandlingTitle").textContent = "处理 Goal " + (goal.goal_id || "");
+    $("goalHandlingTitle").textContent = "处理待人工处理的目标（Goal）" +
+      (goal.goal_id ? " · " + goal.goal_id : "");
+    // 三条信息必须分开写清楚，不能混成一句“失败”：
+    //   · 停止原因 —— 谁把目标停下来的、为什么；
+    //   · 执行状态 —— Worker 有没有跑完（taskState）；
+    //   · 验收结果 —— Verifier 的结论（verdict）。
     body.appendChild(kvGrid([
-      ["Project", (data.project_name || "—") + " · " + (data.project_id || "—")],
-      ["Goal ID", goal.goal_id || "—"],
-      ["Status", goal.status || "—"],
-      ["停止原因", data.stop_reason || "（Ledger 未记录）"],
+      ["工作项目（Project）", (data.project_name || "—") + " · " + (data.project_id || "—")],
+      ["目标 ID（Goal ID）", goal.goal_id || "—"],
+      ["目标状态", label("goalStatus", goal.status) +
+        (goal.status ? "（" + goal.status + "）" : "")],
+      ["停止原因", data.stop_reason || "（账本未记录停止原因）"],
       ["最后一步", (data.last_action || "—") +
         (data.last_next_state ? " → " + data.last_next_state : "")],
       ["决策 / 任务计数", num(goal.decision_count) + " / " + num(goal.task_count)],
       ["预算（恢复不会扩大）", (goal.max_decisions_total === null ||
         goal.max_decisions_total === undefined
-        ? "尚未盖章" : goal.max_decisions_total + " decisions") + " · " +
+        ? "尚未盖章" : goal.max_decisions_total + " 次决策") + " · " +
         (goal.max_tasks_total === null || goal.max_tasks_total === undefined
-          ? "—" : goal.max_tasks_total + " tasks")],
-      ["Goal 正文", goal.summary || "（空目标）"],
+          ? "—" : goal.max_tasks_total + " 个任务")],
+      ["目标正文", goal.summary || "（空目标）"],
     ]));
 
+    body.appendChild(el("p", { class: "modal-hint",
+      text: "“执行状态”说明执行器（Worker）是否跑完；“验收结论”是验收器（Verifier）"
+        + "依据冻结断言的独立判定。二者不是一回事：执行成功不等于验收通过。" }));
+
     const section = el("div", { class: "modal-section" }, [
-      el("h3", { text: "关联 WorkItem 与 Verifier 结果（" +
-        num(data.linked_task_count) + "）" }),
+      el("h3", { text: "关联工作任务与验收结果（" +
+        num(data.linked_task_count) + " 个）" }),
     ]);
     const tasks = data.tasks || [];
     if (!tasks.length) {
       section.appendChild(el("p", { class: "placeholder",
-        text: "这个 Goal 还没有 LD 转发的 WorkItem；停止可能发生在派工之前。" }));
+        text: "这个目标还没有调度器（LD）转发的工作任务；停止可能发生在派工之前。" }));
     }
     tasks.forEach(function (task) {
       section.appendChild(goalHandlingTaskCard(task));
     });
     if (data.truncated) {
       section.appendChild(el("p", { class: "muted small",
-        text: "只列出前 " + tasks.length + " 个 WorkItem（共 "
+        text: "只列出前 " + tasks.length + " 个工作任务（共 "
           + num(data.linked_task_count) + " 个）。" }));
     }
     body.appendChild(section);
 
+    // 判断仍用原始枚举 needs_human；中文只用于显示。
     const resumable = goal.status === "needs_human";
     $("goalHandlingStage").hidden = !resumable;
     // Enabled only now: staging needs the goal/project identity from this
@@ -731,8 +799,11 @@
     $("goalHandlingStage").disabled = !resumable;
     $("goalHandlingStage").dataset.goalId = goal.goal_id || "";
     if (!resumable) {
-      handlingStatus("该 Goal 当前状态为 " + (goal.status || "unknown")
+      handlingStatus("该目标当前状态为：" + label("goalStatus", goal.status)
         + "，没有可恢复的暂停状态。");
+    } else {
+      handlingStatus("确认停止原因与验收结论后，可暂存恢复请求；"
+        + "真正恢复需要再点一次「确认恢复」。");
     }
   }
 
@@ -746,10 +817,10 @@
     state.handling = null;
     $("goalHandlingConfirm").hidden = true;
     $("goalHandlingConfirmText").textContent = "";
-    handlingStatus("正在读取 Goal…");
+    handlingStatus("正在读取目标…");
     $("goalHandlingStage").disabled = true;
     clear($("goalHandlingBody")).appendChild(
-      el("p", { class: "placeholder", text: "正在读取 Goal…" }));
+      el("p", { class: "placeholder", text: "正在读取目标…" }));
     getJson("/api/projects/" + encodeURIComponent(projectId) +
       "/goals/" + encodeURIComponent(goalId) + "/handling")
       .then(function (payload) {
@@ -849,31 +920,33 @@
     const goals = detail.goals || [];
     const panel = el("section", { class: "panel" }, [
       el("div", { class: "panel-head" }, [
-        el("h2", { text: "B. Goal 列表" }),
+        el("h2", { text: "B. 工作目标（Goal）列表" }),
+        // 选项 value 保持原始枚举（筛选逻辑依赖它），只把显示文字换成中文。
         filterSelect("goalFilter", state.goalFilter,
           ["all"].concat(uniqueValues(goals.map(function (g) { return g.status; }))),
-          "全部状态", function (value) { state.goalFilter = value; renderDetail(); }),
+          "全部状态", function (value) { state.goalFilter = value; renderDetail(); },
+          "goalStatus"),
       ]),
     ]);
     if (!goals.length) {
-      panel.appendChild(el("p", { class: "placeholder", text: "这个项目还没有 Goal。" }));
+      panel.appendChild(el("p", { class: "placeholder", text: "这个项目还没有工作目标。" }));
       return panel;
     }
     const rows = goals.filter(function (goal) {
       return state.goalFilter === "all" || goal.status === state.goalFilter;
     });
     if (!rows.length) {
-      panel.appendChild(el("p", { class: "placeholder", text: "没有符合筛选条件的 Goal。" }));
+      panel.appendChild(el("p", { class: "placeholder", text: "没有符合筛选条件的工作目标。" }));
       return panel;
     }
     const table = el("table", { class: "table" });
     table.appendChild(el("thead", {}, [el("tr", {}, [
-      el("th", { text: "Goal" }),
-      el("th", { text: "Status" }),
+      el("th", { text: "目标（Goal）" }),
+      el("th", { text: "目标状态" }),
       el("th", { text: "执行阶段" }),
-      el("th", { text: "Decisions" }),
-      el("th", { text: "Tasks" }),
-      el("th", { text: "Current Task" }),
+      el("th", { text: "决策次数" }),
+      el("th", { text: "任务数" }),
+      el("th", { text: "当前任务" }),
       el("th", { text: "停止/等待原因" }),
       el("th", { text: "处理" }),
       el("th", { text: "最后更新" }),
@@ -882,18 +955,18 @@
     rows.forEach(function (goal) {
       const stage = goalExecutionStage(goal, detail);
       const decisionCell = el("td", {}, [
-        el("div", { text: String(goal.decision_count) + " 总计" }),
-        el("div", { class: "cell-sub", text: "模型 " + goal.model_decision_count +
-          " · 人工 resume " + goal.resume_count }),
+        el("div", { text: String(goal.decision_count) + " 次总计" }),
+        el("div", { class: "cell-sub", text: "模型决策 " + goal.model_decision_count +
+          " · 人工恢复 " + goal.resume_count }),
       ]);
       if (goal.max_decisions_total !== null && goal.max_decisions_total !== undefined) {
         decisionCell.appendChild(
-          el("div", { class: "cell-sub", text: "上限 " + goal.max_decisions_total }));
+          el("div", { class: "cell-sub", text: "上限 " + goal.max_decisions_total + " 次" }));
       }
       const taskCell = el("td", {}, [el("div", { text: String(goal.task_count) })]);
       if (goal.max_tasks_total !== null && goal.max_tasks_total !== undefined) {
         taskCell.appendChild(
-          el("div", { class: "cell-sub", text: "上限 " + goal.max_tasks_total }));
+          el("div", { class: "cell-sub", text: "上限 " + goal.max_tasks_total + " 个" }));
       }
       // Forwarding trail: the ledger records which WorkItems the LD submitted
       // for this goal (metadata.ld_goal_ref). Zero linked tasks means "not
@@ -901,7 +974,7 @@
       if (goal.linked_task_count) {
         const linkBox = el("div", { class: "pill-row" });
         Object.keys(goal.linked_task_counts || {}).sort().forEach(function (key) {
-          linkBox.appendChild(pill(null, key + " × " + goal.linked_task_counts[key]));
+          linkBox.appendChild(pill("taskState", key, null, " × " + goal.linked_task_counts[key]));
         });
         taskCell.appendChild(linkBox);
         (goal.linked_task_ids || []).slice(0, 3).forEach(function (taskId) {
@@ -916,7 +989,7 @@
         });
       } else {
         taskCell.appendChild(el("div", { class: "cell-sub muted",
-          text: "尚无 LD 转发的 WorkItem" }));
+          text: "尚无调度器（LD）转发的工作任务" }));
       }
       const currentCell = el("td", { class: "cell-id" });
       if (goal.current_task_id) {
@@ -938,7 +1011,7 @@
       }
       if (goal.last_action) {
         reasonCell.appendChild(el("div", { class: "cell-sub",
-          text: "last: " + goal.last_action +
+          text: "最后决策：" + goal.last_action +
             (goal.last_next_state ? " → " + goal.last_next_state : "") }));
       }
 
@@ -949,8 +1022,8 @@
         handlingCell.appendChild(el("button", {
           class: "btn btn-small btn-primary goal-handle-btn",
           attrs: { type: "button",
-                   "aria-label": "处理 Goal " + goal.goal_id,
-                   title: "查看停止原因、Verifier 结果与证据" },
+                   "aria-label": "处理目标 " + goal.goal_id,
+                   title: "查看停止原因、验收结果与证据" },
           dataset: { goalId: goal.goal_id },
           text: "处理",
           onClick: function () {
@@ -961,7 +1034,7 @@
         handlingCell.appendChild(el("button", {
           class: "btn btn-small ghost goal-handle-btn",
           attrs: { type: "button",
-                   "aria-label": "查看 Goal " + goal.goal_id },
+                   "aria-label": "查看目标 " + goal.goal_id },
           dataset: { goalId: goal.goal_id },
           text: "查看",
           onClick: function () {
@@ -978,7 +1051,7 @@
           el("div", { class: "cell-sub" }, [idLine(goal.goal_id, "goal_id")]),
           el("div", { class: "cell-sub muted", text: "goal_ref " + (goal.goal_ref || "—") }),
         ]),
-        el("td", {}, [pill(null, goal.status)]),
+        el("td", {}, [pill("goalStatus", goal.status)]),
         el("td", { class: "goal-stage" }, [
           el("div", { class: "pill pill-" + stage.tone, text: stage.label }),
           el("div", { class: "stage-note clamp-3", text: stage.note }),
@@ -1000,7 +1073,7 @@
     const tasks = detail.tasks || [];
     const panel = el("section", { class: "panel" }, [
       el("div", { class: "panel-head" }, [
-        el("h2", { text: "C. WorkItem 列表" }),
+        el("h2", { text: "C. 工作任务（WorkItem）列表" }),
         filterSelect("taskFilter", state.taskFilter,
           ["all"].concat(uniqueValues(tasks.map(function (t) { return t.state; })),
             uniqueValues(tasks.map(function (t) { return t.verdict; }))),
@@ -1008,7 +1081,7 @@
       ]),
     ]);
     if (!tasks.length) {
-      panel.appendChild(el("p", { class: "placeholder", text: "这个项目还没有 WorkItem。" }));
+      panel.appendChild(el("p", { class: "placeholder", text: "这个项目还没有工作任务。" }));
       return panel;
     }
     const rows = tasks.filter(function (task) {
@@ -1016,18 +1089,18 @@
       return task.state === state.taskFilter || task.verdict === state.taskFilter;
     });
     if (!rows.length) {
-      panel.appendChild(el("p", { class: "placeholder", text: "没有符合筛选条件的 WorkItem。" }));
+      panel.appendChild(el("p", { class: "placeholder", text: "没有符合筛选条件的工作任务。" }));
       return panel;
     }
     const table = el("table", { class: "table" });
     table.appendChild(el("thead", {}, [el("tr", {}, [
-      el("th", { text: "Task" }),
-      el("th", { text: "State" }),
-      el("th", { text: "Verdict" }),
-      el("th", { text: "Queue" }),
-      el("th", { text: "Attempt / Session" }),
-      el("th", { text: "Workspace / Context" }),
-      el("th", { text: "Attention" }),
+      el("th", { text: "任务（Task）" }),
+      el("th", { text: "执行状态" }),
+      el("th", { text: "验收结论" }),
+      el("th", { text: "队列状态" }),
+      el("th", { text: "尝试 / 会话" }),
+      el("th", { text: "工作区 / 上下文" }),
+      el("th", { text: "需要注意" }),
       el("th", { text: "创建时间" }),
     ])]));
     const body = el("tbody");
@@ -1037,14 +1110,15 @@
         el("div", { class: "clamp-2", text: task.title || "(无标题)" }),
         el("div", { class: "cell-sub" }, [idLine(task.task_id, "task_id")]),
       ]));
-      tr.appendChild(el("td", {}, [pill(null, task.state)]));
+      tr.appendChild(el("td", {}, [pill("taskState", task.state)]));
       tr.appendChild(el("td", {}, [
-        pill(null, task.verdict),
+        pill("verdict", task.verdict),
         el("div", { class: "cell-sub muted", text: task.has_effective_prompt
-          ? "Effective Prompt 已冻结" : "无冻结 Prompt" }),
+          ? "有效提示词已冻结" : "无冻结提示词" }),
       ]));
       tr.appendChild(el("td", { class: "cell-id" }, [
-        el("span", { class: "mono small", text: task.queue_status || "—" }),
+        el("span", { class: "mono small", text: task.queue_status
+          ? label("queueStatus", task.queue_status) : "—" }),
       ]));
 
       const attemptCell = el("td", { class: "cell-id" });
@@ -1063,14 +1137,16 @@
 
       tr.appendChild(el("td", { class: "cell-id" }, [
         el("div", { class: "mono small", text: task.workspace_id || "—" }),
-        el("div", { class: "cell-sub", text: "context v" + (task.context_version === null ||
+        el("div", { class: "cell-sub", text: "上下文版本 v" + (task.context_version === null ||
           task.context_version === undefined ? "—" : task.context_version) }),
       ]));
 
       const attentionCell = el("td");
       if (task.attention_flags && task.attention_flags.length) {
         attentionCell.appendChild(el("div", { class: "pill-row" },
-          task.attention_flags.map(function (flag) { return pill(null, flag); })));
+          task.attention_flags.map(function (flag) {
+            return pill("attentionFlag", flag);
+          })));
       } else {
         attentionCell.appendChild(el("span", { class: "muted", text: "—" }));
       }
@@ -1091,21 +1167,21 @@
     const sessions = detail.sessions || [];
     const panel = el("section", { class: "panel", attrs: { id: "sessions-panel" } }, [
       el("div", { class: "panel-head" }, [
-        el("h2", { text: "D. Session / Worker" }),
+        el("h2", { text: "D. 会话 / 执行器（Session / Worker）" }),
         el("p", { class: "muted",
-                  text: "Ledger 记录的是绑定关系，不是心跳；存在 SessionReference 不代表 Worker 在线。" }),
+                  text: "账本记录的是绑定关系，不是心跳；存在会话引用（SessionReference）不代表执行器在线。" }),
       ]),
     ]);
     if (!sessions.length) {
       panel.appendChild(el("p", { class: "placeholder",
-                                 text: "这个项目还没有观测到 SessionReference。" }));
+                                 text: "这个项目还没有观测到会话引用。" }));
       return panel;
     }
     const table = el("table", { class: "table" });
     table.appendChild(el("thead", {}, [el("tr", {}, [
-      el("th", { text: "SessionReference" }),
-      el("th", { text: "WorkItem / Attempt" }),
-      el("th", { text: "Worker" }),
+      el("th", { text: "会话引用（SessionReference）" }),
+      el("th", { text: "工作任务 / 尝试" }),
+      el("th", { text: "执行器（Worker）" }),
       el("th", { text: "绑定状态" }),
       el("th", { text: "存活" }),
       el("th", { text: "观测时间" }),
@@ -1124,7 +1200,7 @@
         linkCell.appendChild(el("span", { class: "muted", text: "—" }));
       }
       linkCell.appendChild(
-        el("div", { class: "mono small muted", text: ref.attempt_id || "无 attempt" }));
+        el("div", { class: "mono small muted", text: ref.attempt_id || "无尝试记录" }));
 
       body.appendChild(el("tr", {
         attrs: { id: "session-row-" + ref.session_reference_id },
@@ -1134,17 +1210,17 @@
           el("div", { class: "cell-sub" },
             [idLine(ref.session_reference_id, "session_reference_id")]),
           el("div", { class: "mono small muted clamp-1",
-                      text: "session_id " + (ref.session_id || "—") }),
+                      text: "会话 ID " + (ref.session_id || "—") }),
         ]),
         linkCell,
         el("td", {}, [
           el("div", { text: ref.worker_instance_id || "—" }),
           el("div", { class: "cell-sub",
-                      text: (ref.adapter || "—") + " · node " + (ref.node_id || "—") }),
+                      text: (ref.adapter || "—") + " · 节点 " + (ref.node_id || "—") }),
         ]),
-        el("td", {}, [pill(null, ref.binding_status)]),
+        el("td", {}, [pill("bindingStatus", ref.binding_status)]),
         el("td", {}, [
-          el("span", { class: "muted", text: "unknown" }),
+          el("span", { class: "muted", text: "未知" }),
           el("div", { class: "cell-sub muted", text: "无心跳数据" }),
         ]),
         el("td", { class: "cell-time", text: fmtTime(ref.observed_at) }),
@@ -1167,32 +1243,32 @@
     const memory = detail.memory || {};
     const panel = el("section", { class: "panel" }, [
       el("div", { class: "panel-head" }, [
-        el("h2", { text: "E. Project Memory 摘要" }),
+        el("h2", { text: "E. 项目记忆（Project Memory）摘要" }),
         el("p", { class: "muted",
-                  text: "只显示计数与条目元数据；知识正文不在驾驶舱里展示。" }),
+                  text: "只显示计数与条目元数据；知识正文不在本页面展示。" }),
       ]),
       el("div", { class: "memory-grid" }, [
-        memoryCard("Context Version", num(memory.context_version), "派发时冻结的版本号"),
-        memoryCard("条目总数", num(memory.total), "全部 ContextEntry"),
-        memoryCard("Verified", num(memory.verified), "已由证据支撑", "ok"),
-        memoryCard("Candidate", num(memory.candidate), "待确认", "warn"),
-        memoryCard("Unverified", num(memory.unverified), "未验证", "muted"),
-        memoryCard("Needs Merge", num(memory.needs_merge), "并发冲突待人工合并", "bad"),
+        memoryCard("上下文版本", num(memory.context_version), "派发时冻结的版本号"),
+        memoryCard("条目总数", num(memory.total), "全部上下文条目"),
+        memoryCard("已验证", num(memory.verified), "已由证据支撑", "ok"),
+        memoryCard("待确认", num(memory.candidate), "待确认", "warn"),
+        memoryCard("未验证", num(memory.unverified), "未验证", "muted"),
+        memoryCard("待合并", num(memory.needs_merge), "并发冲突待人工合并", "bad"),
       ]),
     ]);
     const entries = memory.entries || [];
     if (!entries.length) {
-      panel.appendChild(el("p", { class: "placeholder", text: "这个项目还没有 ContextEntry。" }));
+      panel.appendChild(el("p", { class: "placeholder", text: "这个项目还没有上下文条目。" }));
       return panel;
     }
     const table = el("table", { class: "table table-compact" });
     table.appendChild(el("thead", {}, [el("tr", {}, [
-      el("th", { text: "Title" }),
-      el("th", { text: "Kind" }),
-      el("th", { text: "Verification" }),
-      el("th", { text: "Domain" }),
-      el("th", { text: "Version" }),
-      el("th", { text: "Updated" }),
+      el("th", { text: "标题" }),
+      el("th", { text: "类型" }),
+      el("th", { text: "验证等级" }),
+      el("th", { text: "安全域" }),
+      el("th", { text: "版本" }),
+      el("th", { text: "更新时间" }),
     ])]));
     const body = el("tbody");
     entries.forEach(function (entry) {
@@ -1200,15 +1276,15 @@
         el("div", { class: "clamp-2", text: entry.title || "(无标题)" }),
       ]);
       if (entry.needs_merge) {
-        titleCell.appendChild(el("span", { class: "tag tag-bad", text: "needs_merge" }));
+        titleCell.appendChild(el("span", { class: "tag tag-bad", text: "待合并" }));
       }
       titleCell.appendChild(
         el("div", { class: "cell-sub" }, [idLine(entry.entry_id, "entry_id")]));
       body.appendChild(el("tr", {}, [
         titleCell,
-        el("td", {}, [pill(null, entry.kind)]),
-        el("td", {}, [pill(null, entry.verification)]),
-        el("td", {}, [pill(null, entry.security_domain)]),
+        el("td", {}, [pill("entryKind", entry.kind)]),
+        el("td", {}, [pill("verification", entry.verification)]),
+        el("td", {}, [pill("securityDomain", entry.security_domain)]),
         el("td", { text: entry.version === null || entry.version === undefined
           ? "—" : String(entry.version) }),
         el("td", { class: "cell-time", text: fmtTime(entry.updated_at) }),
@@ -1234,7 +1310,7 @@
         el("div", { class: "detail-ids" }, [
           idLine(project.project_id, "project_id"),
           el("span", { class: "sep", text: "·" }),
-          pill(null, project.active ? "active" : "inactive"),
+          pill("projectStatus", project.active ? "active" : "inactive"),
         ]),
       ]),
       el("div", { class: "detail-head-right" }, [
@@ -1257,12 +1333,12 @@
     view.appendChild(el("section", { class: "panel" }, [
       el("div", { class: "panel-head" }, [el("h2", { text: "A. 项目概要" })]),
       kvGrid([
-        ["Context Version", num(project.context_version)],
-        ["默认 Adapter", project.default_adapter || "—"],
+        ["上下文版本", num(project.context_version)],
+        ["默认适配器（Adapter）", project.default_adapter || "—"],
         ["并发上限", project.concurrency_limit === null ||
           project.concurrency_limit === undefined ? "—" : String(project.concurrency_limit)],
-        ["Goal 总数", String((detail.goals || []).length)],
-        ["Goal 状态分布", goalCountText],
+        ["目标总数", String((detail.goals || []).length)],
+        ["目标状态分布", goalCountText],
         ["阻塞任务数", String((detail.blocked_tasks || []).length)],
         ["最近活动", project.last_activity_at
           ? fmtTime(project.last_activity_at) : "无可信时间戳"],
@@ -1357,13 +1433,13 @@
 
   function ledgerErrorCard(code, message) {
     const hints = {
-      ledger_missing: "Ledger 文件不存在。Dashboard 不会创建 Ledger——请检查 --ledger 参数，或先用 Runtime/CLI 生成一个。",
-      ledger_unreadable: "Ledger 无法读取：可能已损坏、被其他进程独占，或不是 SQLite 数据库。",
-      schema_incompatible: "Ledger Schema 与当前 Dashboard 不兼容：缺少必要的表。可能由不同版本写入。",
+      ledger_missing: "账本文件不存在。本页面不会创建账本——请检查 --ledger 参数，或先用运行时/命令行生成一个。",
+      ledger_unreadable: "账本无法读取：可能已损坏、被其他进程独占，或不是 SQLite 数据库。",
+      schema_incompatible: "账本结构（Schema）与当前 Dashboard 不兼容：缺少必要的表，可能由不同版本写入。",
       ledger_busy: "数据库当前被写入方锁定，稍后会自动重试。",
     };
     return el("div", { class: "empty empty-error" }, [
-      el("h3", { text: "Ledger 读取失败" }),
+      el("h3", { text: "账本读取失败" }),
       el("p", { text: message }),
       el("p", { class: "muted", text: hints[code] || "未知错误。" }),
       el("p", { class: "mono small muted", text: "error code: " + code }),
@@ -1404,13 +1480,13 @@
 
   function renderChatRuntime() {
     const chat = (state.health && state.health.chat) || {};
-    let text = "Runner: unknown（Ledger 无心跳）";
+    let text = "调度进程（Runner）：未知（账本无心跳）";
     if (chat.intent_model_configured === false) {
-      text = "Chat Intent: 本地确定性路由 · LD 模型: 本进程未配置 · Runner: unknown";
+      text = "意图识别：本地确定性路由 · 调度器（LD）模型：本进程未配置 · 调度进程：未知";
     } else if (chat.model_local_domain_authorized === false) {
-      text = "Chat Intent 模型已配置，但 local 未授权；本地消息不外发 · Runner: unknown";
+      text = "意图识别模型已配置，但本地域（local）未授权；本地消息不外发 · 调度进程：未知";
     } else if (chat.intent_model_configured === true) {
-      text = "Chat Intent 模型已配置并获 local 授权 · Runner: unknown";
+      text = "意图识别模型已配置并获本地域授权 · 调度进程：未知";
     }
     $("chatRuntimeStatus").textContent = text;
   }
@@ -1447,7 +1523,7 @@
                                       attrs: { value: "" } }));
     state.chat.conversations.forEach(function (conversation) {
       const label = conversation.conversation_id + " · " +
-        conversation.message_count + " 条 · " + fmtTime(conversation.updated_at) +
+        conversation.message_count + " 条消息 · " + fmtTime(conversation.updated_at) +
         (conversation.requires_confirmation ? " · 待确认" : "");
       const option = el("option", {
         text: label, attrs: { value: conversation.conversation_id },
@@ -1472,11 +1548,11 @@
     }, 0);
     state.chat.messages.forEach(function (message) {
       const intent = message.intent && message.intent.intent;
-      let source = message.role || "unknown";
-      if (intent) source += " / " + intent;
+      let source = message.role ? I18N.t("chatRole", message.role) : "未知来源";
+      if (intent) source += " / 意图：" + intent;
       if (message.seq === lastSeq && message.role !== "user" &&
           state.chat.lastIntentSource) {
-        source += " / " + state.chat.lastIntentSource;
+        source += " / " + I18N.intentSource(state.chat.lastIntentSource);
       }
       box.appendChild(el("article", {
         class: "chat-message chat-message-" + (message.role || "system"),
@@ -1485,7 +1561,7 @@
           el("span", { text: source }),
           el("span", { text: fmtTime(message.created_at) }),
           message.goal_ids && message.goal_ids.length
-            ? el("span", { text: "Goal: " + message.goal_ids.join(", ") }) : null,
+            ? el("span", { text: "目标：" + message.goal_ids.join(", ") }) : null,
         ]),
         el("pre", { class: "chat-message-content", text: message.content }),
       ]));
@@ -1499,9 +1575,13 @@
     const panel = $("chatConfirmation");
     panel.hidden = !pending;
     if (pending) {
+      // pending.kind 是 LDChat 自己的动作类型，不是目标状态，不能套状态表。
+      const KIND = { goal_resume: "恢复目标", resume_goal: "恢复目标",
+                     publish_goal: "发布目标", cancel: "取消操作" };
+      const kindText = KIND[pending.kind] || (pending.kind || "操作");
       $("chatPendingLabel").textContent =
-        (pending.kind || "action") + (pending.goal_id ? " · " + pending.goal_id : "") +
-        "。确认/取消都会作为同一 conversation_id 的下一条消息交给 LDChat。";
+        kindText + (pending.goal_id ? " · 目标 " + pending.goal_id : "") +
+        "。确认或取消都会作为同一会话（conversation_id）的下一条消息交给调度器（LD）。";
     }
   }
 
@@ -1522,16 +1602,16 @@
     }
     box.hidden = false;
     const rows = [
-      ["goal_id", result.goal_id],
-      ["goal_ref", result.goal_ref],
-      ["status", result.status],
-      ["是否新建", result.created ? "新建" : "复用既有 Goal"],
+      ["目标 ID", result.goal_id],
+      ["目标引用", result.goal_ref],
+      ["目标状态", result.status ? label("goalStatus", result.status) : result.status],
+      ["是否新建", result.created ? "新建" : "复用既有目标"],
       ["预算", (result.max_decisions_total === null ||
         result.max_decisions_total === undefined)
-        ? "尚未盖章（由 Runner 首次推进时盖章）"
-        : result.max_decisions_total + " decisions / " +
+        ? "尚未盖章（由调度进程首次推进时盖章）"
+        : result.max_decisions_total + " 次决策 / " +
           (result.max_tasks_total === null || result.max_tasks_total === undefined
-            ? "—" : result.max_tasks_total) + " tasks"],
+            ? "—" : result.max_tasks_total) + " 个任务"],
     ];
     rows.forEach(function (pair) {
       box.appendChild(el("div", { class: "kv-line" }, [
@@ -1582,8 +1662,8 @@
     box.hidden = false;
     renderPublishTargetSummary(box, target);
     box.appendChild(el("div", { class: "muted small",
-      text: "发布只会创建/复用一个 Goal；不会提交 WorkItem、不会授予预算，"
-        + "也不会修改任何已有 Goal 状态。" }));
+      text: "发布只会创建或复用一个工作目标；不会提交工作任务、不会授予预算，"
+        + "也不会修改任何已有目标状态。" }));
     box.appendChild(el("div", { class: "actions" }, [
       el("button", {
         class: "btn btn-ghost btn-small",
@@ -1597,7 +1677,7 @@
       el("button", {
         class: "btn btn-primary btn-small",
         attrs: { type: "button", id: "publishConfirmBtn" },
-        text: "确认发布到此 Project",
+        text: "确认发布到此项目",
         onClick: function () { sendPublish(target, objective); },
       }),
     ]));
@@ -1656,7 +1736,7 @@
       const confirmBox = $("goalHandlingConfirm");
       confirmBox.hidden = false;
       $("goalHandlingConfirmText").textContent =
-        "将恢复 Goal " + goalId + "（Project " + projectId + "）。"
+        "将恢复目标 " + goalId + "（项目 " + projectId + "）。"
         + "只有单击下方「确认恢复」才会真正恢复；取消不会改变任何状态，"
         + "预算也不会被扩大。";
       $("goalHandlingConfirmBtn").dataset.conversationId = turn.conversation_id;
@@ -1701,7 +1781,7 @@
       $("goalHandlingConfirm").hidden = true;
       const resumed = Boolean(turn.facts && turn.facts.resumed);
       handlingStatus(resumed
-        ? ("Goal " + goalId + " 已恢复；预算未变，Runner 联网状态仍为 unknown。")
+        ? ("目标 " + goalId + " 已恢复；预算未变，调度进程连接状态仍为未知。")
         : ("恢复未生效：" + (turn.answer || "LDChat 未应用该确认。")));
       if (state.chat.conversationId === conversationId) {
         loadChatConversation(conversationId).catch(function () { /* rendered */ });
@@ -1719,7 +1799,7 @@
     button.dataset.conversationId = "";
     $("goalHandlingConfirm").hidden = true;
     if (!conversationId) {
-      handlingStatus("已取消，未恢复任何 Goal。");
+      handlingStatus("已取消，未恢复任何目标。");
       return;
     }
     // The staged action is dropped by sending a superseding turn, which is the
@@ -1731,7 +1811,7 @@
                 ? state.handling.project_id : state.chat.projectId,
               message: "cancel" },
     }).then(function (turn) {
-      handlingStatus("已取消：" + (turn.answer || "未恢复任何 Goal。"));
+      handlingStatus("已取消：" + (turn.answer || "未恢复任何目标。"));
       if (state.chat.conversationId === conversationId) {
         loadChatConversation(conversationId).catch(function () { /* rendered */ });
       }
@@ -1747,12 +1827,12 @@
     $("publishBtn").disabled = state.chat.publishing || !state.chat.projectId;
     $("chatComposer").hidden = !state.chat.connected;
     $("chatConversationId").textContent = state.chat.conversationId
-      ? "conversation_id: " + state.chat.conversationId
+      ? "会话 ID：" + state.chat.conversationId
       : "尚未创建会话";
     $("chatSend").disabled = state.chat.sending;
     $("chatConfirm").disabled = state.chat.sending;
     $("chatCancel").disabled = state.chat.sending;
-    $("chatSendStatus").textContent = state.chat.sending ? "LD 正在处理…" : "";
+    $("chatSendStatus").textContent = state.chat.sending ? "调度器（LD）正在处理…" : "";
     renderConversationChoices();
     renderChatMessages();
     renderChatRuntime();
@@ -1874,14 +1954,14 @@
     state.chat.enabled = Boolean(health && health.chat_enabled);
     $("chatToggle").hidden = !state.chat.enabled;
     if (state.chat.enabled) {
-      $("modeBadge").textContent = "UI-1 交互";
+      $("modeBadge").textContent = "交互模式（UI-1）";
       $("modeBadge").className = "badge";
-      $("modeBadge").title = "Dashboard 查询仍只读；仅 LDChat 端点可写";
-      $("modeSubtitle").textContent = "项目驾驶舱 · UI-1 Web LD Interaction";
+      $("modeBadge").title = "页面查询仍为只读；仅 LD Chat 端点可写";
+      $("modeSubtitle").textContent = "项目驾驶舱 · 交互式调度（UI-1）";
     } else {
       $("modeBadge").textContent = "只读";
       $("modeBadge").className = "badge badge-readonly";
-      $("modeSubtitle").textContent = "只读项目管理驾驶舱 · UI-0";
+      $("modeSubtitle").textContent = "只读项目驾驶舱（UI-0）";
     }
     renderChatRuntime();
     if (state.chat.enabled && state.overview && !state.chat.restored) {
@@ -1914,7 +1994,7 @@
     if (state.loading) return;
     state.loading = true;
     hideBanner();
-    if (!state.overview) setViewState(loadingNode("正在读取 Ledger…"));
+    if (!state.overview) setViewState(loadingNode("正在读取账本…"));
 
     const overviewPromise = getJson("/api/overview");
     const detailPromise = state.selectedProjectId
@@ -1943,7 +2023,7 @@
     if (code === "project_not_found") {
       state.selectedProjectId = null;
       state.detail = null;
-      banner("所选 Project 已不存在", "warn", "已回到总览。");
+      banner("所选项目已不存在", "warn", "已回到总览。");
       state.loading = false;
       refresh(true);
       return;
@@ -1959,13 +2039,13 @@
       $("detailView").hidden = true;
       $("overviewView").hidden = false;
       clear($("overviewView"));
-      banner("Ledger 读取失败：" + error.message, "bad", "（" + code + "）");
+      banner("账本（Ledger）读取失败：" + error.message, "bad", "（" + code + "）");
       setViewState(ledgerErrorCard(code, error.message));
       updateFooter();
       return;
     }
     state.connection = "api-down";
-    banner("API 连接中断", "bad", error.message || "无法访问本地 Dashboard 服务。");
+    banner("接口（API）连接中断", "bad", error.message || "无法访问本地 Dashboard 服务。");
     if (!state.overview) {
       setViewState(emptyState("无法连接 Dashboard 服务",
         "请确认 dashboard_server.py 仍在运行，并检查终端日志。已保留上一次成功加载的数据。"));
@@ -2001,12 +2081,12 @@
       : "尚未刷新";
     if (state.connection === "ok" && state.overview) {
       const ledger = state.overview.ledger || {};
-      $("ledgerInfo").textContent = "Ledger 可读 · " + num(ledger.projects) + " 项目" +
-        (ledger.has_goals_table ? "" : " · 无 Goal 表");
+      $("ledgerInfo").textContent = "账本可读 · " + num(ledger.projects) + " 个项目" +
+        (ledger.has_goals_table ? "" : " · 无目标表");
     } else if (state.connection === "api-down") {
-      $("ledgerInfo").textContent = "API 不可达";
+      $("ledgerInfo").textContent = "接口不可达";
     } else if (state.connection === "ledger-error" && state.ledgerError) {
-      $("ledgerInfo").textContent = "Ledger 错误：" + state.ledgerError.code;
+      $("ledgerInfo").textContent = "账本错误：" + state.ledgerError.code;
     } else {
       $("ledgerInfo").textContent = "—";
     }
@@ -2066,7 +2146,8 @@
     const current = document.documentElement.getAttribute("data-theme") || "auto";
     const next = current === "auto" ? "dark" : current === "dark" ? "light" : "auto";
     applyTheme(next);
-    $("themeBtn").title = "主题：" + next;
+    $("themeBtn").textContent = "主题：" + I18N.theme(next);
+    $("themeBtn").title = "当前主题：" + I18N.theme(next) + "（点击切换）";
   }
 
   // ------------------------------------------------------------------ //
