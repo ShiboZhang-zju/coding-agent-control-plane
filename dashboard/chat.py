@@ -169,8 +169,27 @@ class ChatBridge:
         }
 
     def handle(self, *, message: str, conversation_id: str | None,
-               project_id: str) -> dict[str, Any]:
-        self._validate_project_id(project_id)
+               project_id: str | None) -> dict[str, Any]:
+        """One chat turn, optionally without a project (global LD).
+
+        ``project_id`` is optional now:
+
+        * ``None`` starts/continues a **global** conversation.  The LD resolves
+          the project of each turn itself (named project, known task/goal id,
+          or a demonstrative reference that is unambiguous within this
+          conversation) and asks when it cannot.  A global conversation is
+          never rebound by mentioning a project, so project A and project B can
+          be discussed under one ``conversation_id``.
+        * a value **binds** a new conversation to that project (historical
+          behaviour) and, for an existing *global* conversation, selects the
+          project for this one turn only.
+        * a value on an existing *bound* conversation must equal its project.
+          The old isolation rule is unchanged and cannot be bypassed by sending
+          ``null``: an omitted field never rebinds anything, it only means "no
+          per-turn selection".
+        """
+        if project_id is not None:
+            self._validate_project_id(project_id)
         if conversation_id is not None:
             self._validate_conversation_id(conversation_id)
         if not isinstance(message, str) or not message.strip():
@@ -180,18 +199,27 @@ class ChatBridge:
                 f"message exceeds the {MAX_MESSAGE_CHARS} character limit")
 
         with self._chat_session() as (chat, chats, store):
-            if store.get_project(project_id) is None:
+            if project_id is not None and store.get_project(project_id) is None:
                 raise KeyError(f"no project {project_id}")
+            per_turn: str | None = project_id
             if conversation_id:
                 existing = chats.get_conversation(conversation_id)
                 if existing is None:
                     raise KeyError(f"no conversation {conversation_id}")
                 bound = existing.get("project_id")
-                if bound and bound != project_id:
+                if bound and project_id and bound != project_id:
                     raise ConversationProjectMismatch(
                         "conversation belongs to a different project")
+                if bound and not project_id:
+                    # Omitting the field is not a way to leave the project: a
+                    # bound conversation keeps answering about its own project.
+                    per_turn = None
+                elif not bound:
+                    # Global conversation: the field selects this turn's project
+                    # and the row's project_id stays NULL (no silent rebinding).
+                    per_turn = project_id
             result = chat.handle(
-                message, conversation_id=conversation_id, project_id=project_id)
+                message, conversation_id=conversation_id, project_id=per_turn)
         return self._turn_view(result)
 
     def publish_task(self, *, project_id: str, objective: str) -> dict[str, Any]:
@@ -395,6 +423,25 @@ class ChatBridge:
                 ("resumed", "cancelled", "stale_confirmation", "already_consumed")
                 if key in facts}
 
+    @staticmethod
+    def _routing_view(routing: Any) -> dict[str, Any] | None:
+        """Which project the LD resolved for this turn, and how.
+
+        The console shows "当前识别的目标项目", so it must come from the routing
+        decision itself — never from what the UI had selected, and never from a
+        model's prose.  ``candidates`` is included only for the ambiguous case,
+        where the answer is a question rather than a target.
+        """
+        if not isinstance(routing, dict):
+            return None
+        view = {"source": routing.get("source") or "unknown"}
+        if routing.get("project_id"):
+            view["project_id"] = routing["project_id"]
+        candidates = [str(item) for item in routing.get("candidates") or []][:20]
+        if candidates:
+            view["candidates"] = candidates
+        return view
+
     @classmethod
     def _turn_view(cls, result: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -403,6 +450,7 @@ class ChatBridge:
             "facts": cls._facts_view(result.get("facts")),
             "intent": cls._intent_view(result.get("intent")),
             "intent_source": str(result.get("intent_source") or "unknown"),
+            "project_routing": cls._routing_view(result.get("project_routing")),
             "goal_ids": [str(item) for item in (result.get("goal_ids") or [])][:20],
             "requires_confirmation": bool(result.get("requires_confirmation")),
             "staged_for_confirmation": bool(

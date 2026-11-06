@@ -226,7 +226,17 @@ class DashboardApp:
         return 0, b""   # sentinel: not an API path (static handler decides)
 
     def handle_chat_message(self, payload: Any) -> dict[str, Any]:
-        """Validate the only UI-1 write schema and call the real LDChat."""
+        """Validate the chat write schema and call the real LDChat.
+
+        Three fields, all still required to be *present*: the browser may not
+        omit ``project_id`` and hope something is inferred.  It may send
+        ``null``, which means "global LD": the LD resolves each turn's project
+        from the sentence and asks when it cannot.  Sending a value keeps the
+        historical UI-1 meaning.
+
+        The wire contract stays a closed set of three keys, so a caller still
+        cannot smuggle an ``intent``, a ``goal_id``, a budget or a command.
+        """
         self._require_chat()
         if not isinstance(payload, dict):
             raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_body",
@@ -241,9 +251,11 @@ class DashboardApp:
         if conversation_id is not None and not isinstance(conversation_id, str):
             raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_conversation",
                            "conversation_id must be a string or null.")
-        if not isinstance(project_id, str) or not project_id:
+        if project_id is not None and (not isinstance(project_id, str)
+                                       or not project_id.strip()):
             raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_project",
-                           "project_id must name a registered project.")
+                           "project_id must be a registered project id or null "
+                           "for the global LD.")
         if not isinstance(message, str) or not message.strip():
             raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_message",
                            "message must be a non-empty string.")
@@ -588,10 +600,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
     @staticmethod
     def _audit_chat(result: dict[str, Any], project_id: str | None) -> None:
         intent = result.get("intent") or {}
+        routing = result.get("project_routing") or {}
+        # The *effective* project of the turn, not the request field: in a
+        # global conversation the field is null and the LD resolved the project,
+        # so auditing only the field would lose which project was discussed.
+        # ``routing_source`` says on what basis it was resolved.
         # No message text, answer text, token, endpoint, key or arbitrary facts.
         event = {
             "event": "chat_turn",
-            "project_id": project_id,
+            "project_id": routing.get("project_id") or None,
+            "requested_project_id": project_id,
+            "routing_source": routing.get("source"),
+            "routing_candidate_count": len(routing.get("candidates") or []),
             "conversation_id": result.get("conversation_id"),
             "intent": intent.get("intent"),
             "intent_source": result.get("intent_source"),

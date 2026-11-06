@@ -1,0 +1,140 @@
+{
+  "task": "T71-ui4-global-ld",
+  "schema_version": "ui-4.v1",
+  "result": "PASS",
+  "checks": {
+    "1_no_project_query_answered_from_ledger": true,
+    "2_one_conversation_two_projects": true,
+    "3_named_write_is_project_scoped": true,
+    "4_ambiguous_creates_nothing": true,
+    "5_unidentified_write_creates_nothing": true,
+    "6_bound_conversation_isolation": true,
+    "7_no_invented_progress_or_liveness": true,
+    "8_playwright_browser_flow": true
+  },
+  "failed": [],
+  "environment": {
+    "ledger": "isolated throwaway ledger under .poc-state/t71-ui4",
+    "production_manager_touched": false,
+    "chat": "real LDChat + LDGoalStore + TaskStore behind a real loopback HTTP server",
+    "worker": "none: no WorkItem is dispatched by chat",
+    "intent_routing": "deterministic in-process router (no model endpoint configured)"
+  },
+  "scenarios": {
+    "turn_1": {
+      "intent": "list_projects",
+      "intent_source": "heuristic_router",
+      "project_routing": {
+        "source": "none"
+      },
+      "goal_ids": [],
+      "requires_confirmation": false
+    },
+    "turn_2a": {
+      "intent": "project_status",
+      "intent_source": "heuristic_router",
+      "project_routing": {
+        "source": "named",
+        "project_id": "prj-e22a845358"
+      },
+      "goal_ids": [],
+      "requires_confirmation": false
+    },
+    "turn_2b": {
+      "intent": "explain_blockers",
+      "intent_source": "heuristic_router",
+      "project_routing": {
+        "source": "named",
+        "project_id": "prj-a6eba4a5d6"
+      },
+      "goal_ids": [],
+      "requires_confirmation": false
+    },
+    "conversation_row": {
+      "conversation_id": "conv-f9394b4434a9",
+      "project_id": null,
+      "message_count": 6
+    },
+    "turn_3": {
+      "intent": "submit_goal",
+      "intent_source": "heuristic_router",
+      "project_routing": {
+        "source": "named",
+        "project_id": "prj-e22a845358"
+      },
+      "goal_ids": [
+        "goal-5c93edf7863e"
+      ],
+      "requires_confirmation": false
+    },
+    "alpha_goals": [
+      {
+        "goal_id": "goal-5c93edf7863e",
+        "goal_text": "实现 greet.py 并补充测试",
+        "status": "active"
+      }
+    ],
+    "beta_goals": [],
+    "turn_4": {
+      "intent": "clarify",
+      "intent_source": "heuristic_router",
+      "project_routing": {
+        "source": "ambiguous",
+        "candidates": [
+          "prj-a6eba4a5d6",
+          "prj-e22a845358"
+        ]
+      },
+      "goal_ids": [],
+      "requires_confirmation": false
+    },
+    "turn_5": {
+      "intent": "clarify",
+      "intent_source": "heuristic_router",
+      "project_routing": {
+        "source": "none"
+      },
+      "goal_ids": [],
+      "requires_confirmation": false
+    },
+    "turn_6": {
+      "intent": "goal_status",
+      "intent_source": "heuristic_router",
+      "project_routing": {
+        "source": "bound",
+        "project_id": "prj-e22a845358"
+      },
+      "goal_ids": [
+        "goal-5c93edf7863e"
+      ],
+      "requires_confirmation": false
+    },
+    "bound_conversation_row": {
+      "conversation_id": "conv-d48712f0110d",
+      "project_id": "prj-e22a845358",
+      "message_count": 4
+    },
+    "bound_sentence_status": 400,
+    "bound_field_status": 409,
+    "bound_sentence_error": "chat_request_rejected",
+    "bound_field_error": "conversation_project_mismatch",
+    "health_chat": {
+      "enabled": true,
+      "authentication": "bearer_token",
+      "task_publish_enabled": true,
+      "task_publish_creates": "goal_only_no_work_item",
+      "intent_model_configured": false,
+      "intent_routing": "deterministic_local_fallback",
+      "model_local_domain_authorized": true,
+      "goal_runner_liveness": "unknown",
+      "goal_runner_note": "The ledger has no runner heartbeat. This Dashboard cannot claim that LDGoalRunner is online.",
+      "decision_model_runtime_status": "unknown"
+    },
+    "summary_answer_has_no_percentage": true
+  },
+  "browser_suite": {
+    "exit_code": 0,
+    "status": "PASS",
+    "tail": "......                                                                   [100%]\n6 passed in 34.26s"
+  }
+}

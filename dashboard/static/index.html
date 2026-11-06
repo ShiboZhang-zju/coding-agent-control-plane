@@ -21,7 +21,7 @@
 
   <div class="topbar-right">
     <span class="badge badge-readonly" id="modeBadge" title="本页面不会写入账本">只读</span>
-    <button type="button" id="chatToggle" class="btn btn-primary" hidden>调度对话（LD Chat）</button>
+    <button type="button" id="chatToggle" class="btn btn-primary" hidden>全局调度对话（LD）</button>
     <div class="refresh-box">
       <label class="refresh-label" for="autoRefresh">
         <input type="checkbox" id="autoRefresh" checked>
@@ -57,16 +57,15 @@
     <div id="overviewView" class="view"></div>
     <div id="detailView" class="view" hidden></div>
   </section>
-</main>
 
-<aside id="chatPanel" class="chat-panel" aria-label="LD Chat" hidden>
+  <aside id="chatPanel" class="chat-panel" aria-label="全局调度对话（LD）" hidden>
   <div class="chat-head">
-    <div>
-      <h2>调度对话（LD Chat）</h2>
-      <p id="chatRuntimeStatus" class="muted">正在读取交互能力…</p>
-    </div>
-    <button type="button" id="chatClose" class="btn btn-ghost" aria-label="关闭调度对话">关闭</button>
+  <div>
+    <h2>全局调度对话（LD）</h2>
+    <p id="chatRuntimeStatus" class="muted">正在读取交互能力…</p>
   </div>
+  <button type="button" id="chatClose" class="btn btn-ghost" aria-label="关闭调度对话">关闭</button>
+</div>
 
   <div class="chat-auth" id="chatAuthBox">
     <label for="chatToken">本地操作员 Token</label>
@@ -79,14 +78,20 @@
   </div>
 
   <div id="chatControls" class="chat-controls" hidden>
-    <label for="chatProject">工作项目（Project）</label>
-    <select id="chatProject" class="select"></select>
     <label for="chatConversation">会话（Conversation）</label>
     <div class="chat-conversation-row">
       <select id="chatConversation" class="select"></select>
       <button type="button" id="chatNew" class="btn btn-ghost">新会话</button>
     </div>
     <div id="chatConversationId" class="mono small muted">尚未创建会话</div>
+    <div class="chat-scope">
+      <span class="muted small">当前识别的目标项目：</span>
+      <span id="chatIdentifiedProject" class="badge">尚未识别</span>
+    </div>
+    <p id="chatGlobalHint" class="muted small">
+      这是一个全局会话，可以在同一会话里先后讨论不同项目；不指定项目时，LD 会从你的话里识别项目，
+      无法确定时会先向你确认。
+    </p>
   </div>
 
   <section id="publishBox" class="chat-publish" hidden aria-label="发布任务给 LD">
@@ -95,6 +100,8 @@
       <span class="muted small">只创建工作目标（Goal）；由调度器转发给执行器（Worker）</span>
     </div>
     <div id="publishProjectNotice" class="publish-notice" hidden></div>
+    <label for="chatProject">发布目标项目（Project，必须明确选择）</label>
+    <select id="chatProject" class="select"></select>
     <label for="publishObjective">目标正文（Goal）</label>
     <textarea id="publishObjective" rows="3" maxlength="2000"
               placeholder="例如：实现 greet.py 并补充测试"></textarea>
@@ -129,7 +136,8 @@
       <button type="button" id="chatSend" class="btn btn-primary">发送</button>
     </div>
   </div>
-</aside>
+  </aside>
+</main>
 
 <div id="goalHandling" class="modal" hidden role="dialog" aria-modal="true"
      aria-labelledby="goalHandlingTitle">

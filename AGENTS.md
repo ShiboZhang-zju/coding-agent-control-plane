@@ -360,6 +360,31 @@
   evidence，保留 `m2-auto/execution-evidence/task-specific` 来源标签和 candidate
   状态；不得从一次断言成功自动推导、合并或晋升为通用 verified knowledge。
 
+### 5.8 全局 LD 入口边界（UI-4 引入）
+
+- **会话有两种，不是一个。** `ld_conversations.project_id` 非空的是**项目绑定会话**
+  （`ld chat --project`、控制台暂存恢复等历史入口创建）；为空的是**全局会话**。
+  全局会话可以在同一 `conversation_id` 下先后讨论多个项目，且**永远不会**因为
+  某一轮提到某项目而被静默绑定。
+- **一轮的项目归属是这一轮的属性。** 由 `LDChat._route_project()` 决定，结果以
+  `project_routing = {source, project_id, candidates}` 作为数据返回并落审计日志。
+  `source` 只允许 `selected` / `task` / `goal` / `named` / `reference` /
+  `bound` / `ambiguous` / `none`。
+- **写操作必须解析到唯一确定项目。** 只有 `bound`、调用方显式 `selected`、句中
+  唯一的已注册项目、句中已知 task/goal id 的归属项目、以及“对话中最近一次唯一
+  提到的项目 + 指示代词”这几种可以承载写。`ambiguous` / `none` 必须变成
+  `clarify`，不得派工、建 Goal 或 resume。
+- **禁止"就近猜测"项目。** 注册表中第一个项目、最近更新过的项目、界面上一次
+  点击、`argparse` 默认值都不得成为写操作的项目来源；UI 也不得默认选中发布目标。
+- **项目绑定会话仍是隔离边界，`null` 不是绕过方式。** 绑定会话收到另一个项目的
+  请求字段返回 `conversation_project_mismatch`；句中点名其他项目（或属于其他项目
+  的 task/goal id）为 `ChatPolicyError`；省略字段只是"本轮不额外选择"，不会解绑。
+- **全局聊天不降低发布门槛。** `/api/chat/publish` 仍要求显式 `project_id`；
+  发布目标必须由人选择，且确认信息必须展示项目名称、项目 ID 与执行仓库路径；
+  切换目标使旧确认失效。
+- **进度摘要只能来自 Ledger。** 全局摘要不得给出完成比例、Worker 存活或 Runner
+  在线状态；`goal_runner_liveness` 恒为 `unknown`。
+
 ## 6. 派发与审批规则（M1 补充）
 - 入队即冻结 Effective Prompt。已入队任务的内容不得因上下文更新而改变。
 - `task_digest` 必须绑定实际执行内容；项目任务的 digest 还包含

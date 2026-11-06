@@ -116,10 +116,19 @@
     system: "系统",
   };
 
+  //: 意图来源。未列出的值会显示成「原始值（未知状态）」，不会被猜成模型判定。
   const INTENT_SOURCE = {
     model: "模型判定",
     deterministic: "本地确定性路由",
+    heuristic_router: "本地确定性路由",
+    local_only: "本地路由（未外发）",
     fallback: "回退路由",
+    model_unavailable: "模型不可达（未执行）",
+    invalid_model_intent: "模型输出不合法（已请求澄清）",
+    human_confirmation: "人工确认",
+    human_confirmation_denied: "人工取消",
+    human_confirmation_stale: "确认已过期",
+    console_staged_resume: "控制台暂存恢复",
   };
 
   //: 主题。

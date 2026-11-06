@@ -540,6 +540,8 @@ def test_publish_confirmation_still_requires_explicit_confirm(browser, site: Sit
         page.fill("#chatToken", TOKEN)
         page.click("#chatConnect")
         page.wait_for_selector("#publishBox:not([hidden])", timeout=15_000)
+        # 发布是项目级写操作，UI-4 起必须先显式选择目标项目（不再默认第一个）。
+        page.select_option("#chatProject", site.alpha["id"])
         page.fill("#publishObjective", "最小目标：读取 HEAD")
         page.click("#publishBtn")
         page.wait_for_selector("#publishConfirm:not([hidden])", timeout=10_000)

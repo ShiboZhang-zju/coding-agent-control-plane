@@ -30,6 +30,13 @@
     chat: {
       enabled: false,
       token: "",
+      // The project of the *conversation*, as recorded by the store.  A global
+      // conversation has none, and discussing a project never changes it.
+      conversationProjectId: null,
+      // Which project the LD resolved for the last turn (from the server's
+      // routing decision, never inferred here).
+      identified: null,
+      // Publication target: an explicit project-level choice.
       projectId: null,
       conversationId: null,
       conversations: [],
@@ -875,23 +882,40 @@
     }
     clear(notice);
     if (!state.chat.projectId) {
-      notice.hidden = false;
-      notice.appendChild(el("span", { text: "尚未选择发布目标 Project。" }));
+      // Nothing to warn about yet: the empty selector plus the disabled button
+      // already say "choose a project".  A permanent red box here would be
+      // noise, and noise is what makes a real mismatch easy to miss.
+      notice.hidden = true;
       return;
     }
+    // Two independent warnings: the target may differ from the project being
+    // *viewed*, and from the project the LD currently *understands*.
     const row = chatProjectRow(state.chat.projectId);
     const viewed = state.selectedProjectId;
-    const mismatch = viewed && viewed !== state.chat.projectId;
+    const identified = state.chat.identified && state.chat.identified.project_id;
+    const mismatch = (viewed && viewed !== state.chat.projectId) ||
+      (identified && identified !== state.chat.projectId);
     notice.hidden = !mismatch;
     if (!mismatch) return;
     const viewedRow = chatProjectRow(viewed);
+    const identifiedRow = chatProjectRow(identified);
     notice.appendChild(el("strong", {
-      text: "发布目标与当前查看的 Project 不一致：",
+      text: "发布目标与当前查看 / 识别到的 Project 不一致：",
     }));
+    if (viewed && viewed !== state.chat.projectId) {
+      notice.appendChild(el("span", {
+        text: "当前查看 " + (viewedRow ? viewedRow.name + " · " : "") + viewed + "。",
+      }));
+    }
+    if (identified && identified !== state.chat.projectId) {
+      notice.appendChild(el("span", {
+        text: "LD 当前识别 " + (identifiedRow ? identifiedRow.name + " · " : "")
+          + identified + "。",
+      }));
+    }
     notice.appendChild(el("span", {
-      text: "当前查看 " + (viewedRow ? viewedRow.name + " · " : "") + viewed +
-        "；发布目标是 " + (row ? row.name + " · " : "") + state.chat.projectId +
-        "。确认发布对象无误，或先在 LD Chat 中切换 Project。",
+      text: "发布目标是 " + (row ? row.name + " · " : "") + state.chat.projectId
+        + "。确认发布对象无误，或先在「发布目标项目」中重新选择。",
     }));
   }
 
@@ -1459,6 +1483,9 @@
   function chatSaveSession() {
     try {
       if (state.chat.token) window.sessionStorage.setItem("ui1-chat-token", state.chat.token);
+      // Only the *publication target* is remembered.  The conversation's own
+      // project is server state and a global conversation must stay global
+      // across reloads.
       if (state.chat.projectId) {
         window.sessionStorage.setItem("ui1-chat-project", state.chat.projectId);
       } else {
@@ -1497,12 +1524,23 @@
     $("chatRuntimeStatus").textContent = text;
   }
 
+  /**
+   * Fill the *publication target* selector.
+   *
+   * Deliberately does not preselect a project: publishing is a project-level
+   * write, and "the first project in the ledger" / "the one just clicked" is
+   * not a statement that the operator meant that project.  The chat itself no
+   * longer needs a project at all — that is the whole point of the global LD.
+   */
   function syncChatProjects() {
     if (!state.chat.enabled) return;
     const select = $("chatProject");
     const projects = (state.overview && state.overview.projects) || [];
     const previous = state.chat.projectId;
     clear(select);
+    select.appendChild(el("option", {
+      text: "请选择发布目标项目…", attrs: { value: "" },
+    }));
     projects.forEach(function (project) {
       const option = el("option", {
         text: project.name + " · " + project.project_id,
@@ -1511,15 +1549,46 @@
       if (project.project_id === previous) option.selected = true;
       select.appendChild(option);
     });
-    if (!state.chat.projectId && projects.length) {
-      const preferred = projects.some(function (p) {
-        return p.project_id === state.selectedProjectId;
-      }) ? state.selectedProjectId : projects[0].project_id;
-      state.chat.projectId = preferred;
-      select.value = preferred;
+    // A previously chosen target that no longer exists is dropped rather than
+    // silently pointing at a different project.
+    if (state.chat.projectId && !projects.some(function (project) {
+      return project.project_id === state.chat.projectId;
+    })) {
+      state.chat.projectId = null;
+      resetPublishConfirm();
     }
-    if (state.chat.projectId) select.value = state.chat.projectId;
+    select.value = state.chat.projectId || "";
+    renderIdentifiedProject();
     renderPublishNotice();
+  }
+
+  /** Which project the LD resolved for this turn, straight from the server. */
+  function renderIdentifiedProject() {
+    const badge = $("chatIdentifiedProject");
+    if (!badge) return;
+    const info = state.chat.identified;
+    const bound = state.chat.conversationProjectId;
+    let text = "尚未识别";
+    let title = "";
+    if (info && info.source === "ambiguous") {
+      text = "待澄清（候选 " + (info.candidates || []).length + " 个）";
+      title = (info.candidates || []).join(", ");
+      badge.className = "badge badge-warn";
+    } else if (info && info.project_id) {
+      const row = chatProjectRow(info.project_id);
+      text = (row ? row.name + " · " : "") + info.project_id;
+      title = "识别依据：" + info.source;
+      badge.className = "badge";
+    } else if (bound) {
+      const row = chatProjectRow(bound);
+      text = (row ? row.name + " · " : "") + bound;
+      title = "本会话绑定到此项目";
+      badge.className = "badge";
+    } else {
+      badge.className = "badge badge-readonly";
+    }
+    badge.textContent = text;
+    badge.title = title;
   }
 
   function renderConversationChoices() {
@@ -1546,7 +1615,9 @@
     const box = clear($("chatMessages"));
     if (!state.chat.messages.length) {
       box.appendChild(el("p", { class: "placeholder",
-        text: "这是一个新会话。选择 Project 后输入自然语言消息。" }));
+        text: "这是一个新的全局会话。直接说你想问的项目或目标即可，例如"
+          + "「现在有哪些项目？」「ACP-Development 进行到哪了？」"
+          + "「在 ACP-Development 实现 greet.py」。写操作会先让你确认项目与目标。" }));
       return;
     }
     const lastSeq = state.chat.messages.reduce(function (best, row) {
@@ -1748,11 +1819,13 @@
       $("goalHandlingConfirmBtn").dataset.conversationId = turn.conversation_id;
       $("goalHandlingConfirmBtn").dataset.goalId = goalId;
       // Show the same staging in the chat panel, so the operator can also finish
-      // there with the ordinary confirm button.
+      // there with the ordinary confirm button.  This conversation *is* bound to
+      // the goal's project (it was created for that resume), so it is carried as
+      // the conversation binding, not as a publication target.
       state.chat.conversationId = turn.conversation_id;
-      state.chat.projectId = projectId;
+      state.chat.conversationProjectId = projectId;
+      state.chat.identified = { source: "bound", project_id: projectId };
       chatSaveSession();
-      syncChatProjects();
       loadChatConversation(turn.conversation_id).catch(function () {
         /* the panel is best-effort; the modal stays authoritative */
       });
@@ -1779,8 +1852,10 @@
     chatJson("/api/chat/messages", {
       method: "POST",
       body: { conversation_id: conversationId,
-              project_id: state.handling
-                ? state.handling.project_id : state.chat.projectId,
+              // The staged resume belongs to the handling view's project; the
+              // publication target is irrelevant here.
+              project_id: (state.handling && state.handling.project_id)
+                || state.chat.conversationProjectId || null,
               message: "confirm" },
     }).then(function (turn) {
       button.disabled = false;
@@ -1813,8 +1888,8 @@
     chatJson("/api/chat/messages", {
       method: "POST",
       body: { conversation_id: conversationId,
-              project_id: state.handling
-                ? state.handling.project_id : state.chat.projectId,
+              project_id: (state.handling && state.handling.project_id)
+                || state.chat.conversationProjectId || null,
               message: "cancel" },
     }).then(function (turn) {
       handlingStatus("已取消：" + (turn.answer || "未恢复任何目标。"));
@@ -1839,9 +1914,19 @@
     $("chatConfirm").disabled = state.chat.sending;
     $("chatCancel").disabled = state.chat.sending;
     $("chatSendStatus").textContent = state.chat.sending ? "调度器（LD）正在处理…" : "";
+    // A global conversation is the default; a bound one only appears when the
+    // operator arrived from a project-level entry point (console resume).
+    const bound = state.chat.conversationProjectId;
+    $("chatGlobalHint").hidden = Boolean(bound);
+    if (bound) {
+      $("chatGlobalHint").textContent =
+        "本会话绑定到项目 " + bound + "，不能在此切换到其他项目；"
+        + "需要跨项目讨论请新建会话（全局会话）。";
+    }
     renderConversationChoices();
     renderChatMessages();
     renderChatRuntime();
+    renderIdentifiedProject();
     renderPublishNotice();
   }
 
@@ -1850,6 +1935,10 @@
     state.chat.messages = [];
     state.chat.pendingAction = null;
     state.chat.lastIntentSource = null;
+    state.chat.conversationProjectId = null;
+    // A new conversation starts with no identified project: the LD will resolve
+    // one from the first sentence instead of inheriting the previous topic.
+    state.chat.identified = null;
     chatSaveSession();
     renderChatPending(null);
     renderChatConnection();
@@ -1866,10 +1955,11 @@
       .then(function (payload) {
         const conversation = payload.conversation;
         state.chat.conversationId = conversation.conversation_id;
-        state.chat.projectId = conversation.project_id;
+        // The conversation's own binding — never the publication target, which
+        // is an unrelated, explicit choice.
+        state.chat.conversationProjectId = conversation.project_id || null;
         state.chat.messages = payload.messages || [];
         state.chat.lastIntentSource = null;
-        syncChatProjects();
         renderChatPending(conversation);
         chatSaveSession();
         renderChatConnection();
@@ -1881,9 +1971,10 @@
   }
 
   function loadChatConversations(restoreConversation) {
-    if (!state.chat.projectId) return Promise.resolve();
-    const url = "/api/chat/conversations?project_id=" +
-      encodeURIComponent(state.chat.projectId) + "&limit=100";
+    // Global conversation list: no project filter.  Conversations of every
+    // project (and unbound ones) appear in one history, which is what makes the
+    // entry point global.
+    const url = "/api/chat/conversations?limit=100";
     return chatJson(url).then(function (payload) {
       state.chat.connected = true;
       state.chat.conversations = payload.conversations || [];
@@ -1920,27 +2011,33 @@
   }
 
   function sendChatMessage(explicitMessage) {
-    if (state.chat.sending || !state.chat.projectId) return;
+    if (state.chat.sending) return;
     const input = $("chatInput");
     const message = explicitMessage === undefined ? input.value.trim() : explicitMessage;
     if (!message) return;
     state.chat.sending = true;
     chatError(null);
     renderChatConnection();
+    // ``project_id: null`` is the global LD: it identifies the project from the
+    // sentence.  A bound conversation ignores the field on the server side, so
+    // sending null here can never detach it from its project.
+    const bound = state.chat.conversationProjectId;
     chatJson("/api/chat/messages", {
       method: "POST",
       body: {
         conversation_id: state.chat.conversationId,
-        project_id: state.chat.projectId,
+        project_id: bound || null,
         message: message,
       },
     }).then(function (turn) {
       state.chat.conversationId = turn.conversation_id;
       state.chat.lastIntentSource = turn.intent_source;
+      state.chat.identified = turn.project_routing || null;
       if (explicitMessage === undefined) input.value = "";
       chatSaveSession();
       return loadChatConversation(turn.conversation_id).then(function () {
         state.chat.lastIntentSource = turn.intent_source;
+        state.chat.identified = turn.project_routing || state.chat.identified;
         renderChatConnection();
         return loadChatConversations(turn.conversation_id);
       });
@@ -1960,10 +2057,11 @@
     state.chat.enabled = Boolean(health && health.chat_enabled);
     $("chatToggle").hidden = !state.chat.enabled;
     if (state.chat.enabled) {
-      $("modeBadge").textContent = "交互模式（UI-1）";
+      $("modeBadge").textContent = "全局调度对话";
       $("modeBadge").className = "badge";
-      $("modeBadge").title = "页面查询仍为只读；仅 LD Chat 端点可写";
-      $("modeSubtitle").textContent = "项目驾驶舱 · 交互式调度（UI-1）";
+      $("modeBadge").title = "页面查询仍为只读；仅 LD 对话端点可写";
+      $("modeSubtitle").textContent = "项目驾驶舱 · 全局调度对话（LD）";
+      $("chatToggle").textContent = "全局调度对话（LD）";
     } else {
       $("modeBadge").textContent = "只读";
       $("modeBadge").className = "badge badge-readonly";
@@ -1975,6 +2073,13 @@
       restoreChatState();
     }
     if (state.chat.token) loadPublishTargets();
+    if (state.chat.enabled && !state.chat.autoOpened) {
+      // The global chat is the default entry point, not a drawer behind a
+      // project picker.  It does not create a conversation by itself: the
+      // conversation starts with the first message.
+      state.chat.autoOpened = true;
+      openChatAsDefaultEntry();
+    }
   }
 
   function restoreChatState() {
@@ -1991,6 +2096,22 @@
       loadPublishTargets();
       loadChatConversations(state.chat.conversationId).catch(function () { /* rendered */ });
     }
+  }
+
+  /**
+   * Open the chat as the default entry point.
+   *
+   * The global LD chat is the primary interaction surface: an operator opens the
+   * dashboard and talks to it without picking a project first.  It is only
+   * opened automatically when chat is enabled and a token is already available
+   * (the token is never fabricated or asked for by a popup).
+   */
+  function openChatAsDefaultEntry() {
+    if (!state.chat.enabled) return;
+    $("chatPanel").hidden = false;
+    renderChatConnection();
+    if (state.chat.connected) $("chatInput").focus();
+    else $("chatToken").focus();
   }
 
   // ------------------------------------------------------------------ //
@@ -2192,13 +2313,18 @@
       if (event.key === "Enter") connectChat();
     });
     $("chatProject").addEventListener("change", function (event) {
+      // This selects the *publication target* only.  It never rebinds the
+      // conversation and never starts a new one: switching what you are talking
+      // about is a matter of what you say, not of a dropdown.
       state.chat.projectId = event.target.value || null;
       // A confirmation rendered for the previous project must never be reusable.
       resetPublishConfirm();
-      renderPublishNotice();
       publishStatus("");
-      newChatConversation();
-      loadChatConversations(null).catch(function () { /* rendered */ });
+      chatSaveSession();
+      // The publish button is only usable with an explicit target.
+      $("publishBtn").disabled = state.chat.publishing || !state.chat.projectId;
+      renderIdentifiedProject();
+      renderPublishNotice();
       loadPublishTargets();
     });
 
