@@ -420,7 +420,8 @@ class ChatBridge:
         if not isinstance(facts, dict):
             return None
         return {key: bool(facts[key]) for key in
-                ("resumed", "cancelled", "stale_confirmation", "already_consumed")
+                ("resumed", "cancelled", "stale_confirmation", "already_consumed",
+                 "project_mismatch", "confirmed_by_human")
                 if key in facts}
 
     @staticmethod

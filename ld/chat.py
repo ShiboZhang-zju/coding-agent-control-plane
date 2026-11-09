@@ -134,6 +134,24 @@ def _has_project_reference(message: str) -> bool:
     return any(marker in text for marker in _PROJECT_REFERENCES)
 
 
+#: Wording that asks about the *registry* rather than about one project.
+_REGISTRY_PHRASES = (
+    "哪些项目", "所有项目", "项目列表", "几个项目", "有什么项目",
+    "what projects", "which projects", "all projects", "list projects",
+)
+
+
+def _is_registry_question(message: str) -> bool:
+    """True when the answer is the project list, which is not about one project.
+
+    Used to exempt ``list_projects`` from the "ambiguous routing cannot answer"
+    rule: an ambiguity in the sentence does not matter when the answer is the
+    whole registry anyway.
+    """
+    text = (message or "").lower()
+    return any(phrase in text for phrase in _REGISTRY_PHRASES)
+
+
 #: Write intents that may only run against one *resolved* project.  ``clarify``
 #: and the read intents are absent on purpose: reading a list of projects needs
 #: no single target.
@@ -682,7 +700,8 @@ class LDChat:
         pending = conversation.get("pending_action")
         if pending:
             return self._handle_confirmation(
-                conversation_id, message, pending, routing=routing)
+                conversation_id, message, pending, routing=routing,
+                requested_project=project_id)
 
         intent, intent_meta = self._classify(message, conversation_id, routing)
         turn = self._dispatch(intent, conversation, message,
@@ -699,37 +718,55 @@ class LDChat:
                        explicit: str | None) -> ProjectRouting:
         """Decide which project *this turn* is about, and on what authority.
 
-        Order matters and is deliberate:
+        All *deterministic* clues found in the sentence are gathered first and
+        then reconciled — never "whichever check ran first wins":
 
-        1. an explicitly selected project (the caller's field) — authoritative;
-        2. a task id or goal id present in the sentence — the ledger owns the
-           project of its own rows, so this is also authoritative;
-        3. exactly one registered project named in the sentence;
-        4. a demonstrative ("这个项目") resolved from what this conversation has
-           actually discussed — only when that is unambiguous;
-        5. otherwise ``ambiguous`` / ``none``.  The first project in the
-           registry, the most recently updated project and the operator's last
-           click are all *absent* from this list on purpose: none of them is a
-           statement about what the human meant.
+        1. the project the caller selected for this turn;
+        2. owner projects of task/goal ids present in the sentence (the ledger
+           owns the project of its own rows);
+        3. registered projects named by id or name in the sentence.
+
+        If those clues point at more than one project the turn is ``ambiguous``:
+        there is no ordering among them, because a sentence that names project B
+        and task A does not mean "B, because a name was seen first" nor "A,
+        because a task id was seen first".  Asking is the only honest answer.
+
+        A demonstrative ("这个项目") is resolved afterwards from what this
+        conversation actually discussed; ``none`` otherwise.  The first project in
+        the registry, the most recently updated project and the operator's last
+        click are all *absent* on purpose: none of them is a statement about what
+        the human meant.
         """
         projects = self._safe("list_projects", self._tools.list_projects, [])
-        if explicit:
-            resolved = self._resolve_project(explicit)
-            if resolved is not None:
-                return ProjectRouting(resolved, "selected")
-
-        task_project = self._project_for_task(message)
-        if task_project:
-            return ProjectRouting(task_project, "task")
-        goal_project = self._project_for_goal(message)
-        if goal_project:
-            return ProjectRouting(goal_project, "goal")
-
+        selected = self._resolve_project(explicit) if explicit else None
+        task_projects = self._projects_for_tasks(message)
+        goal_projects = self._projects_for_goals(message)
         named = self._match_projects(message, projects)
-        if len(named) == 1:
-            return ProjectRouting(named[0], "named")
-        if len(named) > 1:
-            return ProjectRouting(None, "ambiguous", tuple(sorted(named)))
+
+        clues: list[str] = []
+
+        def add(project_id: str | None) -> None:
+            if project_id and project_id not in clues:
+                clues.append(project_id)
+
+        for project_id in ([selected] if selected else []):
+            add(project_id)
+        for project_id in task_projects + goal_projects + named:
+            add(project_id)
+
+        if len(clues) > 1:
+            return ProjectRouting(None, "ambiguous", tuple(sorted(clues)))
+        if len(clues) == 1:
+            project_id = clues[0]
+            if selected and project_id == selected:
+                source = "selected"
+            elif task_projects:
+                source = "task"
+            elif goal_projects:
+                source = "goal"
+            else:
+                source = "named"
+            return ProjectRouting(project_id, source)
 
         if _has_project_reference(message):
             return self._reference_project(conversation_id)
@@ -741,35 +778,49 @@ class LDChat:
     def _reference_project(self, conversation_id: str) -> ProjectRouting:
         """Resolve "这个项目" / "继续刚才的任务" from the conversation's own topic.
 
-        Only the **most recent turn that named a project** counts, and only when
-        that turn named exactly one.  This is topic tracking inside the
-        transcript, which is what the demonstrative refers to; it is explicitly
-        *not* "the project the ledger touched last" or "the project that is first
-        in the registry".  Two projects named in the same recent turn, or no
-        project at all, is reported as ambiguous/none so the turn asks.
+        The *most recent turn that has a routing record* decides, including a
+        turn that was itself ambiguous: once the human asked about "A and B",
+        "这个项目" has no referent, and quietly falling back to an older turn
+        that mentioned only A would answer a question the human did not ask.
+        Only a record-less turn (a confirmation, a system notice) is skipped,
+        because those do not move the topic.
+
+        This is topic tracking inside the transcript, which is what the
+        demonstrative refers to; it is explicitly *not* "the project the ledger
+        touched last" or "the project that is first in the registry".
         """
         for row in reversed(self._chats.recent_turns(
                 conversation_id, limit=CONVERSATION_WINDOW * 2)):
-            found = self._projects_of_message(row)
-            if not found:
+            record = self._routing_of_turn(row)
+            if record is None:
                 continue
-            if len(found) > 1:
-                return ProjectRouting(None, "ambiguous", tuple(sorted(found)))
-            return ProjectRouting(found[0], "reference")
+            project_id = record.get("project_id")
+            if project_id:
+                return ProjectRouting(str(project_id), "reference")
+            candidates = tuple(sorted(str(item) for item in
+                                      record.get("candidates") or ()))
+            return ProjectRouting(None, "ambiguous", candidates)
         return ProjectRouting(None, "ambiguous", ())
 
-    def _projects_of_message(self, row: Mapping[str, Any]) -> list[str]:
-        """Projects one stored turn referred to (intent id, else facts id)."""
-        intent = row.get("intent") or {}
+    def _routing_of_turn(self, row: Mapping[str, Any]) -> dict[str, Any] | None:
+        """The routing decision recorded for one stored turn, if any.
+
+        New transcripts store it in the LD row's ``facts``.  Older ones only kept
+        the ids, so they are read as "that one project" when there is exactly one
+        — the same answer the old code gave, without pretending it saw a record.
+        """
         facts = row.get("facts") or {}
-        found = [str(item) for item in
-                 (intent.get("project_id"), facts.get("project_id"))
-                 if item]
-        unique: list[str] = []
-        for project_id in found:
-            if project_id not in unique:
-                unique.append(project_id)
-        return unique
+        record = facts.get("project_routing")
+        if isinstance(record, dict) and record.get("source"):
+            return record
+        intent = row.get("intent") or {}
+        legacy = {str(item) for item in
+                  (intent.get("project_id"), facts.get("project_id")) if item}
+        if len(legacy) == 1:
+            return {"source": "legacy", "project_id": legacy.pop()}
+        if len(legacy) > 1:
+            return {"source": "legacy", "candidates": sorted(legacy)}
+        return None
 
     @staticmethod
     def _match_projects(message: str, projects: list[dict]) -> list[str]:
@@ -812,23 +863,43 @@ class LDChat:
             return owner
         return None
 
-    def _project_for_task(self, message: str) -> str | None:
-        """Owner project of a task id that appears in the sentence."""
+    def _projects_for_tasks(self, message: str) -> list[str]:
+        """Every project owning a task id that appears in the sentence.
+
+        Plural on purpose: two task ids from two projects is not "the first task
+        wins", it is a sentence whose target cannot be determined.
+        """
         text = message or ""
+        found: list[str] = []
         for task in self._safe("recent_tasks_all", self._all_task_rows, []):
             task_id = task.get("task_id")
             if task_id and task_id in text and task.get("project_id"):
-                return task["project_id"]
-        return None
+                project_id = str(task["project_id"])
+                if project_id not in found:
+                    found.append(project_id)
+        return found
 
-    def _project_for_goal(self, message: str) -> str | None:
-        """Owner project of a goal id that appears in the sentence."""
+    def _projects_for_goals(self, message: str) -> list[str]:
+        """Every project owning a goal id that appears in the sentence."""
         text = message or ""
+        found: list[str] = []
         for goal in self._safe("all_goals", self._goals.all_goals, []):
             goal_id = goal.get("goal_id")
             if goal_id and goal_id in text and goal.get("project_id"):
-                return goal["project_id"]
-        return None
+                project_id = str(goal["project_id"])
+                if project_id not in found:
+                    found.append(project_id)
+        return found
+
+    def _project_for_task(self, message: str) -> str | None:
+        """Owner project of the task ids in the sentence, if they agree."""
+        found = self._projects_for_tasks(message)
+        return found[0] if len(found) == 1 else None
+
+    def _project_for_goal(self, message: str) -> str | None:
+        """Owner project of the goal ids in the sentence, if they agree."""
+        found = self._projects_for_goals(message)
+        return found[0] if len(found) == 1 else None
 
     def _all_task_rows(self) -> list[dict]:
         return list(self._tools.service.store.all())
@@ -845,6 +916,14 @@ class LDChat:
         Returns ``(project_id, question)``.  ``question`` non-empty means the
         turn must be answered as a clarification: no Goal, no WorkItem, no
         resume, and no "nearest" project chosen on the human's behalf.
+
+        The deterministic routing decision is the *only* authority here.  A
+        project id carried by the intent is a **model output**: it can only ever
+        agree with a decision that already resolved one, never create one.  If
+        the router said ``none`` or ``ambiguous``, the model naming a valid
+        registered project does not make the sentence about that project — it
+        just means the model guessed, and a guess is exactly what must not start
+        work.
         """
         candidates = ", ".join(routing.candidates) or ", ".join(
             sorted(str(item.get("project_id"))
@@ -857,16 +936,28 @@ class LDChat:
                 "我没有创建任何目标。请指明项目名称或 ID（例如"
                 "「推进 <项目ID>：<目标>」）。")
         if routing.project_id:
-            return self._require_project(routing.project_id), None
-        # The model may have read a project id out of the sentence that the
-        # deterministic matcher did not see.  That is still an explicit claim,
-        # so it is *checked* against the registry — never trusted as a default.
-        if intent.project_id:
-            return self._require_project(intent.project_id), None
+            resolved = self._require_project(routing.project_id)
+            if intent.project_id and self._resolve_project(
+                    intent.project_id) != resolved:
+                # The model wants a different project than the one the sentence
+                # deterministically points at.  Model output cannot move the
+                # target of a write; refuse rather than pick a winner.
+                return None, (
+                    f"这一轮的项目归属已由确定性路由确定为 {resolved}，"
+                    "与模型给出的项目不一致，因此我没有创建任何目标。"
+                    f"如果确实要在 {intent.project_id} 上工作，请直接说明该项目。")
+            return resolved, None
         if _has_project_reference(message):
             return None, (
                 "对话里还没有可以指向的项目（或指向了不止一个），所以我没有"
                 "创建任何目标。请明确项目名称或 ID。")
+        # ``none``: the sentence resolved nothing.  ``intent.project_id`` is
+        # deliberately ignored — see the docstring.
+        if intent.project_id:
+            return None, (
+                "这一轮没有从你的话里确定目标项目（模型提到的 "
+                f"{intent.project_id} 不能作为项目归属依据），因此我没有创建"
+                f"任何目标。已注册项目：{candidates}。请明确说明项目名称或 ID。")
         return None, (
             "这次请求没有指明项目，写操作需要确定的项目归属，因此我没有创建"
             f"任何目标。已注册项目：{candidates}。请说明是哪一个。")
@@ -1055,13 +1146,59 @@ class LDChat:
             project_id, question = self._write_project(intent, routing, message)
             if question is not None:
                 return {"answer": question,
+                        # The turn *is* a clarification: reporting the classifier's
+                        # original write intent would claim work was requested
+                        # when nothing was accepted.
+                        "intent": ChatIntent(
+                            ChatIntentKind.CLARIFY, None, None, None,
+                            "write without a single resolved project",
+                            {"question": question}).to_dict(),
                         "facts": {"clarify": True,
                                   "routing": routing._asdict(),
                                   "candidates": list(routing.candidates)},
                         "goal_ids": [], "pending_action": None,
                         "requires_confirmation": False,
-                        "staged_for_confirmation": False}
+                        "staged_for_confirmation": False,
+                        "project_routing": routing._asdict()}
             intent = replace(intent, project_id=project_id)
+        elif (routing.source == "ambiguous"
+                and intent.intent is not ChatIntentKind.CLARIFY
+                and not (intent.intent is ChatIntentKind.LIST_PROJECTS
+                         and _is_registry_question(message))):
+            # A read also cannot be answered when the sentence points at several
+            # projects: any single-project answer would be about a project the
+            # human may not have meant.  Asking for the registry itself is exempt
+            # because that answer is not about one project at all.
+            answer = (
+                "这一句可能指向多个项目："
+                f"{', '.join(routing.candidates)}。我没有读取或创建任何东西。"
+                "请指明项目名称或 ID。")
+            return {"answer": answer,
+                    # The turn *is* a clarification, whatever the classifier
+                    # labelled it: saying "list_projects" while answering with a
+                    # question would misreport what happened.
+                    "intent": ChatIntent(
+                        ChatIntentKind.CLARIFY, None, None, None,
+                        "ambiguous project for this turn",
+                        {"question": answer}).to_dict(),
+                    "facts": {"clarify": True,
+                              "routing": routing._asdict(),
+                              "candidates": list(routing.candidates)},
+                    "goal_ids": [], "pending_action": None,
+                    "requires_confirmation": False,
+                    "staged_for_confirmation": False,
+                    "project_routing": routing._asdict()}
+        elif routing.project_id and intent.project_id and intent.intent not in (
+                ChatIntentKind.LIST_PROJECTS,):
+            # A read is refused when the model asks about a different project
+            # than the sentence deterministically points at.  Answering it would
+            # render one project's state under another project's question.
+            resolved = self._resolve_project(routing.project_id)
+            if resolved and self._resolve_project(intent.project_id) != resolved:
+                raise ChatPolicyError(
+                    f"this turn is deterministically about project {resolved}; "
+                    f"it cannot read project {intent.project_id}. Naming the "
+                    "project you mean is required.")
         if (intent.intent is ChatIntentKind.SUBMIT_GOAL
                 and intent_source == "model" and not confirmed_stage
                 and not HeuristicIntentRouter.is_imperative_submission(message)):
@@ -1364,12 +1501,15 @@ class LDChat:
                        "goal_text": goal_text, "staged_at": time.time(),
                        "origin": intent.reason[:200]}
             preview = goal_text if len(goal_text) <= 300 else goal_text[:300] + "…"
-            answer = (f"I read this as a request to start work in {project_id}:\n"
-                      f"  {preview}\n\n"
-                      f"It would create goal {goal_id}. If that is not what you "
-                      "meant, say 'cancel'. Say 'confirm' to create it; nothing "
-                      "has been created or dispatched yet, and no budget is "
-                      "granted here.")
+            # Everything the human is agreeing to, spelled out: a confirmation
+            # that only says "goal X" cannot be checked against what they meant.
+            answer = (f"我理解这是要在这个项目开始工作：\n"
+                      f"  项目名称：{self._project_label(project_id)}\n"
+                      f"  项目 ID：{project_id}\n"
+                      f"  Goal 正文：{preview}\n"
+                      f"  目标 ID：{goal_id}\n\n"
+                      "如果这不是你的意思，回复 'cancel'。回复 'confirm' 才会创建；"
+                      "目前还没有创建或派发任何东西，也不会在这里授予预算。")
             return answer, {"project_id": project_id, "goal_id": goal_id,
                             "goal_ref": goal_ref, "staged": True,
                             "goal_chars": len(goal_text),
@@ -1572,12 +1712,15 @@ class LDChat:
                    "staged_at": time.time(),
                    "decision_count": int(goal.get("decision_count") or 0),
                    "stop_signature": _stop_signature(goal)}
-        answer = (f"Goal {intent.goal_id} is stopped: "
-                  f"{(goal.get('goal_text') or '')[:200]}\n"
-                  f"Last step: {json.dumps(goal.get('last_decision') or {}, ensure_ascii=False, default=str)[:300]}\n\n"
-                  "Say 'confirm' (or '确认') to resume it, or 'cancel' to leave it "
-                  "stopped. Resuming does not increase the goal's budget. This "
-                  "confirmation applies to this pause only.")
+        answer = (
+            "这个 Goal 已停止，恢复前请你确认：\n"
+            f"  项目名称：{self._project_label(project_id)}\n"
+            f"  项目 ID：{project_id}\n"
+            f"  Goal 正文：{(goal.get('goal_text') or '')[:200]}\n"
+            f"  目标 ID：{intent.goal_id}\n"
+            f"上一步：{json.dumps(goal.get('last_decision') or {}, ensure_ascii=False, default=str)[:300]}\n\n"
+            "回复 'confirm'（或 '确认'）才会恢复，回复 'cancel' 则保持停止。"
+            "恢复不会增加该 Goal 的预算。本次确认只对这一次暂停有效。")
         return answer, {"goal_id": intent.goal_id,
                         "status": goal.get("status"),
                         "decision_count": pending["decision_count"],
@@ -1588,7 +1731,8 @@ class LDChat:
     # ------------------------------------------------------------------ #
     def _handle_confirmation(self, conversation_id: str, message: str,
                              pending: dict, *,
-                             routing: ProjectRouting) -> dict:
+                             routing: ProjectRouting,
+                             requested_project: str | None = None) -> dict:
         decision = normalize_confirmation(message)
         if decision is None:
             # Any other sentence supersedes the staged action: never let a stale
@@ -1602,6 +1746,40 @@ class LDChat:
             return {"conversation_id": conversation_id, "intent": intent.to_dict(),
                     "intent_source": intent_meta,
                     "superseded_pending_action": pending, **turn}
+
+        # A confirmation may not be pointed at a different project than the one
+        # that was staged.  Silently applying the staged action would create (or
+        # resume) work in a project the operator just named as *not* the target;
+        # applying nothing and saying so is the only honest answer.  The staged
+        # action is left in place, so the operator can confirm the original one
+        # or supersede it explicitly.  Bound conversations never reach here with
+        # a foreign id (``handle`` refuses it earlier), which is what keeps their
+        # historical behaviour unchanged.
+        staged_project = pending.get("project_id")
+        if requested_project and staged_project:
+            wanted = self._resolve_project(requested_project)
+            if wanted and wanted != self._resolve_project(staged_project):
+                answer = (
+                    f"我没有执行按下的确认：这次确认是针对项目 {staged_project} 的，"
+                    f"而请求里指定的是 {wanted}。为避免在错误的项目上创建或恢复"
+                    "目标，本次没有任何写入；原暂存操作仍然有效，可以用来确认"
+                    "原项目，或发一条新消息覆盖它。")
+                turn = {"answer": answer,
+                        "facts": {"project_mismatch": True,
+                                  "staged_project_id": staged_project,
+                                  "requested_project_id": wanted,
+                                  "pending": pending},
+                        "goal_ids": [], "pending_action": pending,
+                        "requires_confirmation": True}
+                intent = ChatIntent(ChatIntentKind.CLARIFY, staged_project, None,
+                                    pending.get("goal_id"),
+                                    "confirmation addressed to a different project",
+                                    {"question": answer})
+                self._record_turn(conversation_id, intent, turn)
+                return {"conversation_id": conversation_id,
+                        "intent": intent.to_dict(),
+                        "intent_source": "human_confirmation_project_mismatch",
+                        "project_routing": routing._asdict(), **turn}
 
         # Consume the staged action atomically: of two concurrent confirmations
         # exactly one wins, the other sees nothing to apply.  Doing this *before*
@@ -1759,9 +1937,18 @@ class LDChat:
     # ------------------------------------------------------------------ #
     def _record_turn(self, conversation_id: str, intent: ChatIntent,
                      turn: dict[str, Any], *, role: str = "ld") -> None:
+        facts = turn.get("facts")
+        routing = turn.get("project_routing")
+        if isinstance(routing, dict) and routing.get("source"):
+            # Persist the routing decision with the answer, including an
+            # ``ambiguous`` one: "这个项目" must be able to see that the last
+            # turn pointed at two projects instead of skipping back to an older
+            # turn that named one.
+            facts = dict(facts or {})
+            facts["project_routing"] = routing
         self._chats.append_message(
             conversation_id, role=role, content=turn["answer"][:4000],
-            intent=intent.to_dict(), facts=turn.get("facts"),
+            intent=intent.to_dict(), facts=facts,
             goal_ids=turn.get("goal_ids") or [])
         self._chats.set_pending_action(conversation_id, turn.get("pending_action"))
         if self._fault_hook is not None:
@@ -1848,6 +2035,23 @@ class LDChat:
                     self._tools.get_project_tasks(project_id, limit=20)]
         except Exception:  # noqa: BLE001 - hint only
             return []
+
+    def _project_label(self, project_id: str | None) -> str:
+        """A human-readable project name for a confirmation, or the id itself.
+
+        Only used in human-facing text, and only from the registry projection
+        that already passed the security filter, so it never introduces a root
+        path or local-domain content.
+        """
+        if not project_id:
+            return "（未指定）"
+        for item in self._safe("list_projects", self._tools.list_projects, []):
+            if item.get("project_id") == project_id:
+                name = item.get("name")
+                if name and "local" in self._domains:
+                    return str(name)
+                break
+        return project_id
 
     def _resolve_project(self, requested: str | None) -> str | None:
         if requested is None:

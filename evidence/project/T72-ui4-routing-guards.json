@@ -1,0 +1,50 @@
+{
+  "task": "T72-ui4-routing-guards",
+  "schema_version": "ui-4-routing-guards.v1",
+  "result": "PASS",
+  "suite": "tests/test_ui4_routing_guards.py",
+  "guards": {
+    "agreement between model and router still creates exactly one Goal": true,
+    "project-bound conversation confirmation is unchanged": true,
+    "confirmation shows name + id + goal text + goal id": true,
+    "confirmation addressed to another project writes nothing": true,
+    "model cannot retarget a write away from the named project": true,
+    "model cannot read a project the sentence does not point at": true,
+    "model project_id cannot authorise a write (route=ambiguous)": true,
+    "model project_id cannot authorise a write (route=none)": true,
+    "project name + foreign task id is ambiguous, not ordered": true,
+    "a recent ambiguous turn is not skipped by 「这个项目」": true,
+    "two goal ids from two projects are refused": true,
+    "several ids from ONE project still resolve": true,
+    "two task ids from two projects are refused": true
+  },
+  "outcomes": {
+    "test_model_project_id_is_not_authority_when_routing_is_none": "PASSED",
+    "test_model_project_id_is_not_authority_when_routing_is_ambiguous": "PASSED",
+    "test_model_cannot_move_a_write_to_another_project": "PASSED",
+    "test_model_cannot_read_a_different_project_than_the_sentence": "PASSED",
+    "test_agreement_between_model_and_router_still_writes": "PASSED",
+    "test_project_name_plus_another_projects_task_id_is_ambiguous": "PASSED",
+    "test_two_task_ids_from_two_projects_are_refused": "PASSED",
+    "test_two_goal_ids_from_two_projects_are_refused": "PASSED",
+    "test_two_task_ids_from_one_project_still_resolve": "PASSED",
+    "test_reference_does_not_skip_a_recent_ambiguous_turn": "PASSED",
+    "test_confirming_with_another_project_writes_nothing": "PASSED",
+    "test_confirmation_shows_project_name_id_goal_text_and_goal_id": "PASSED",
+    "test_bound_conversation_confirmation_behaviour_is_unchanged": "PASSED"
+  },
+  "missing_guards": [],
+  "not_passed": [],
+  "environment": {
+    "ledger": "isolated throwaway ledger per test under .poc-state/ui4-guards",
+    "chat": "real LDChat + LDGoalStore + TaskStore behind a real loopback HTTP server",
+    "model_paths_covered": [
+      "no endpoint (in-process router)",
+      "fake intent_model with model_domains=local"
+    ],
+    "worker": "none: chat never dispatches a WorkItem",
+    "production_manager_touched": false
+  },
+  "negative_assertions": "every rejection re-reads SQLite: per-project Goal counts, the needs_human status of both seeded goals, the pending_action row and the WorkItem count (the harness seeds exactly one per project, so a chat-side dispatch would change the number)",
+  "pytest_tail": "============================= test session starts =============================\ncollecting ... collected 13 items\n\ntests/test_ui4_routing_guards.py::test_model_project_id_is_not_authority_when_routing_is_none PASSED [  7%]\ntests/test_ui4_routing_guards.py::test_model_project_id_is_not_authority_when_routing_is_ambiguous PASSED [ 15%]\ntests/test_ui4_routing_guards.py::test_model_cannot_move_a_write_to_another_project PASSED [ 23%]\ntests/test_ui4_routing_guards.py::test_model_cannot_read_a_different_project_than_the_sentence PASSED [ 30%]\ntests/test_ui4_routing_guards.py::test_agreement_between_model_and_router_still_writes PASSED [ 38%]\ntests/test_ui4_routing_guards.py::test_project_name_plus_another_projects_task_id_is_ambiguous PASSED [ 46%]\ntests/test_ui4_routing_guards.py::test_two_task_ids_from_two_projects_are_refused PASSED [ 53%]\ntests/test_ui4_routing_guards.py::test_two_goal_ids_from_two_projects_are_refused PASSED [ 61%]\ntests/test_ui4_routing_guards.py::test_two_task_ids_from_one_project_still_resolve PASSED [ 69%]\ntests/test_ui4_routing_guards.py::test_reference_does_not_skip_a_recent_ambiguous_turn PASSED [ 76%]\ntests/test_ui4_routing_guards.py::test_confirming_with_another_project_writes_nothing PASSED [ 84%]\ntests/test_ui4_routing_guards.py::test_confirmation_shows_project_name_id_goal_text_and_goal_id PASSED [ 92%]\ntests/test_ui4_routing_guards.py::test_bound_conversation_confirmation_behaviour_is_unchanged PASSED [100%]\n\n============================= 13 passed in 55.79s ============================="
+}
