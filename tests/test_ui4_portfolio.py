@@ -49,7 +49,7 @@ from controlplane.project_service import ProjectService  # noqa: E402
 from controlplane.store import TaskStore  # noqa: E402
 from dashboard.api import make_server  # noqa: E402
 from dashboard.chat import ChatBridge  # noqa: E402
-from ld.chat import LDChat  # noqa: E402
+from ld.chat import MAX_REPORTED_WORK_ITEMS, LDChat  # noqa: E402
 from ld.chat_store import LDChatStore  # noqa: E402
 from ld.goal_store import LDGoalStore, goal_identity  # noqa: E402
 from ld.tools import LDTools  # noqa: E402
@@ -484,6 +484,112 @@ def test_progress_read_failure_is_not_reported_as_zero(harness: Harness):
     # The full task list was still readable, so the physical work items are
     # still reported — it is the *counts* and *blocking* set that are unknown.
     assert metrics["tasks_known"] is True
+
+
+def test_blocked_survives_a_task_list_failure(harness: Harness):
+    """A known blocker must not be erased by an unrelated read failure.
+
+    ``get_project_progress`` *is* the authority on what is blocked, and it
+    succeeded — it named ``cp-...`` as blocked.  ``get_project_tasks`` then
+    failed.  The old code built the blocked list by iterating the task list, so
+    that failure silently turned a known blocker into "阻塞：无".  The blocking
+    facts the authoritative read already returned (id, state, verdict,
+    queue_status, attention_flags) have to survive; only the title, which lives
+    exclusively on the task list, may be missing.
+    """
+    chat = harness.chat()
+    try:
+        # The progress projection is real; only the detail scan breaks.
+        chat._tools.get_project_tasks = lambda project_id, **kwargs: \
+            (_ for _ in ()).throw(RuntimeError("task detail unavailable"))
+        metrics = chat._project_metrics(harness.beta["id"])
+        turn = chat.handle("汇总所有项目目前的进度")
+    finally:
+        harness.close_all()
+
+    # 1. The blocker is still there, with its authoritative facts intact.
+    blocked_ids = [task["task_id"] for task in metrics["blocked_workitems"]]
+    assert blocked_ids == [harness.beta_blocked], (
+        "a failed task read must not erase a blocker the progress read returned")
+    blocked = metrics["blocked_workitems"][0]
+    assert blocked["state"] == "unknown"
+    assert blocked["verdict"] == "inconclusive"
+    assert blocked["queue_status"] == "needs_human"
+    assert blocked["attention_flags"], "attention flags come from the blocker row"
+    # The title is the only casualty, because only the task list carries it.
+    assert blocked["title"] is None
+
+    # 2. ``blocking_known`` describes the *authoritative* read, which succeeded.
+    assert metrics["blocking_known"] is True
+    assert "blocked" not in metrics["unknown"]
+    # The task detail is still honestly reported as unread.
+    assert metrics["tasks_known"] is False
+    assert "work_items" in metrics["unknown"]
+    # So the project is incomplete overall, but not because of the blockers.
+    assert metrics["complete"] is False
+
+    # 3. The report shows the blocker rather than "阻塞：无".  Locate the project
+    # *heading* (not just its id, which also appears in the leading notice).
+    answer = turn["answer"]
+    assert harness.beta_blocked in answer
+    heading = f"【ACP-Beta】{harness.beta['id']}"
+    assert heading in answer, answer[:400]
+    beta_section = answer.split(heading, 1)[1].split("【", 1)[0]
+    assert "阻塞：无" not in beta_section, beta_section
+    assert harness.beta_blocked in beta_section
+
+
+def test_bounded_scan_does_not_claim_exact_abnormal_detail(harness: Harness):
+    """Past the read bound the abnormal *detail* cannot be called exact.
+
+    The project-level counts are confirmed by ``get_project_progress`` and stay
+    exact; what is uncertain is the enumeration of individual abnormal verdicts,
+    because rows older than the bound were never scanned.  An older rejection is
+    therefore allowed to be absent — but the report must say so instead of
+    presenting the shorter list as complete.
+    """
+    # Fill alpha past the bound with newer verified tasks, so the seeded
+    # rejected task is older than anything the scan can reach.
+    store = TaskStore(harness.ledger)
+    plane = ControlPlane(_Adapter(), store, require_registered_projects=True)
+    try:
+        for index in range(MAX_REPORTED_WORK_ITEMS):
+            task_id = plane.enqueue(
+                f"filler {index}", str(harness.root / "alpha"),
+                assertions=[ArtifactAssertion("file_exists", f"f{index}.md")],
+                project_id=harness.alpha["id"])["task_id"]
+            store.update(task_id, state="succeeded", verdict="verified",
+                         queue_status="complete")
+    finally:
+        store.close()
+
+    chat = harness.chat()
+    try:
+        metrics = chat._project_metrics(harness.alpha["id"])
+        turn = chat.handle("汇总所有项目目前的进度")
+    finally:
+        harness.close_all()
+
+    # The scan really was bounded.
+    if not metrics["truncated"]:
+        pytest.skip("the fixture did not exceed the scan bound on this backend")
+    assert metrics["abnormal_detail_complete"] is False
+    assert metrics["abnormal_detail_note"]
+    # The old rejection fell outside the scan, which is precisely why the detail
+    # cannot be called complete.
+    assert harness.alpha_rejected not in [
+        task["task_id"] for task in metrics["abnormal_verdict_workitems"]]
+    # The progress projection still answered, so its role is unchanged: what it
+    # reports is retained, and the *detail* is what gets qualified.
+    assert metrics["counts_known"] is True
+
+    answer = turn["answer"]
+    alpha_section = answer.split(harness.alpha["id"], 1)[1].split("【", 1)[0]
+    # The detail is qualified rather than asserted as exact.
+    assert "可能不完整" in alpha_section or "≥" in alpha_section, alpha_section
+    # And the qualified wording is specifically about the abnormal detail, not
+    # a blanket claim that every number is wrong.
+    assert metrics["abnormal_detail_complete"] is False
 
 
 def test_progress_read_failure_in_answer_says_unknown_not_zero(

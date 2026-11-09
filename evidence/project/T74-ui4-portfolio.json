@@ -25,10 +25,10 @@
   },
   "failed": [],
   "detail": {
-    "fixture_answer": "跨项目只读汇总（全部数值来自 Ledger 确定性读取）\n\n一、事实\n共 4 个项目、4 个 WorkItem：verified 1、rejected 2、inconclusive 1；当前阻塞 1 项、异常验收 2 项、待人工 Goal 2 个、未完成 Goal 2 个。\n\n【ACP-Alpha】prj-5f79722835\n  任务 1 个：verified 0、rejected 1、inconclusive 0、active 0、awaiting approval 0\n  Goal 1 个：needs_human 1\n  阻塞：无\n  异常验收（历史结论，不必然是当前待办）：\n    - cp-b5de840ed9d6 verdict=rejected alpha rejected\n  未完成 Goal：\n    - goal-a24e7ef9edcf [needs_human] alpha exhausted goal\n      停止原因：lifetime decision budget exhausted\n\n【ACP-Beta】prj-d9273e1097\n  任务 2 个：verified 0、rejected 1、inconclusive 1、active 0、awaiting approval 0\n  Goal 1 个：needs_human 1\n  阻塞（现在就需要人决定）：\n    - cp-3d2df301d9e0 state=unknown verdict=inconclusive flags=unknown\n  异常验收（历史结论，不必然是当前待办）：\n    - cp-d7c6c7ee36d5 verdict=rejected beta rejected\n  未完成 Goal：\n    - goal-52c630ca48bf [needs_human] beta needs decision\n\n【ACP-Delta】prj-20c74ed349\n  任务 0 个：verified 0、rejected 0、inconclusive 0、active 0、awaiting approval 0\n  Goal 0 个\n  阻塞：无\n  未完成 Goal：无\n\n【ACP-Gamma】prj-6f4eb3d4b6\n  任务 1 个：verified 1、rejected 0、inconclusive 0、active 0、awaiting approval 0\n  Goal 1 个：completed 1\n  阻塞：无\n  未完成 Goal：无\n\n二、判断（依据上面事实的固定规则，可被质疑）\n规则：先看「执行结果未知」（可能重复投入），再看「等一个具体决定」，再看「预算耗尽（不要直接恢复）」，最后看「历史异常验收」。\nLedger 未记录项目之间的依赖关系，因此这里不做跨项目依赖排序。\n- [P1] ACP-Beta：1 个任务状态未定（cp-3d2df301d9e0）：可能已创建作业但未被观测到，重复处理有重复投入风险\n    依据：state=unknown / dispatch_unknown 且 queue_status 非 complete\n    同时存在：1 个 Goal 在等一个具体决定（goal-52c630ca48bf）\n- [P3] ACP-Alpha：1 个 Goal 因预算耗尽停止（goal-a24e7ef9edcf）：恢复会再次耗尽同一预算，应先判断目标是否还值得继续\n    依据：status=needs_human 且 last_decision.stop 含 budget\n    同时存在：1 个任务验收未通过但当前不阻塞：属历史结论，是否重做由你决定\n\n三、暂无法判断\n- cp-3d2df301d9e0（ACP-Beta）处于 unknown / needs_human：Ledger 未记录该作业是否真的创建成功，需要查 Worker 侧日志才能定案。\n\n本次为只读汇总：未创建 Goal，未恢复任何 Goal，未提交 WorkItem。",
+    "fixture_answer": "跨项目只读汇总（全部数值来自 Ledger 确定性读取）\n\n一、事实\n共 4 个项目、4 个 WorkItem：verified 1、rejected 2、inconclusive 1；当前阻塞 1 项、异常验收 2 项、待人工 Goal 2 个、未完成 Goal 2 个。\n\n【ACP-Alpha】prj-970b6d6baa\n  任务 1 个：verified 0、rejected 1、inconclusive 0、active 0、awaiting approval 0\n  Goal 1 个：needs_human 1\n  阻塞：无\n  异常验收（历史结论，不必然是当前待办）：\n    - cp-c86e02227e55 verdict=rejected alpha rejected\n  未完成 Goal：\n    - goal-8d0b17a07838 [needs_human] alpha exhausted goal\n      停止原因：lifetime decision budget exhausted\n\n【ACP-Beta】prj-49ef5c093b\n  任务 2 个：verified 0、rejected 1、inconclusive 1、active 0、awaiting approval 0\n  Goal 1 个：needs_human 1\n  阻塞（现在就需要人决定）：\n    - cp-bdcce8036465 state=unknown verdict=inconclusive flags=unknown\n  异常验收（历史结论，不必然是当前待办）：\n    - cp-08bb1e8c3c15 verdict=rejected beta rejected\n  未完成 Goal：\n    - goal-5b339f9e73c2 [needs_human] beta needs decision\n\n【ACP-Delta】prj-9c08025d1c\n  任务 0 个：verified 0、rejected 0、inconclusive 0、active 0、awaiting approval 0\n  Goal 0 个\n  阻塞：无\n  未完成 Goal：无\n\n【ACP-Gamma】prj-354a8a671f\n  任务 1 个：verified 1、rejected 0、inconclusive 0、active 0、awaiting approval 0\n  Goal 1 个：completed 1\n  阻塞：无\n  未完成 Goal：无\n\n二、判断（依据上面事实的固定规则，可被质疑）\n规则：先看「执行结果未知」（可能重复投入），再看「等一个具体决定」，再看「预算耗尽（不要直接恢复）」，最后看「历史异常验收」。\nLedger 未记录项目之间的依赖关系，因此这里不做跨项目依赖排序。\n- [P1] ACP-Beta：1 个任务状态未定（cp-bdcce8036465）：可能已创建作业但未被观测到，重复处理有重复投入风险\n    依据：state=unknown / dispatch_unknown 且 queue_status 非 complete\n    同时存在：1 个 Goal 在等一个具体决定（goal-5b339f9e73c2）\n- [P3] ACP-Alpha：1 个 Goal 因预算耗尽停止（goal-8d0b17a07838）：恢复会再次耗尽同一预算，应先判断目标是否还值得继续\n    依据：status=needs_human 且 last_decision.stop 含 budget\n    同时存在：1 个任务验收未通过但当前不阻塞：属历史结论，是否重做由你决定\n\n三、暂无法判断\n- cp-bdcce8036465（ACP-Beta）处于 unknown / needs_human：Ledger 未记录该作业是否真的创建成功，需要查 Worker 侧日志才能定案。\n\n本次为只读汇总：未创建 Goal，未恢复任何 Goal，未提交 WorkItem。",
     "fixture_rows": {
-      "prj-5f79722835": {
-        "project_id": "prj-5f79722835",
+      "prj-970b6d6baa": {
+        "project_id": "prj-970b6d6baa",
         "name": "ACP-Alpha",
         "active": true,
         "counts": {
@@ -49,6 +49,7 @@
         "blocking_known": true,
         "abnormal_verdict": 1,
         "tasks_known": true,
+        "abnormal_detail_complete": true,
         "needs_human_goals": 1,
         "goals_known": true,
         "complete": true,
@@ -59,8 +60,8 @@
         },
         "truncated": false
       },
-      "prj-d9273e1097": {
-        "project_id": "prj-d9273e1097",
+      "prj-49ef5c093b": {
+        "project_id": "prj-49ef5c093b",
         "name": "ACP-Beta",
         "active": true,
         "counts": {
@@ -81,6 +82,7 @@
         "blocking_known": true,
         "abnormal_verdict": 1,
         "tasks_known": true,
+        "abnormal_detail_complete": true,
         "needs_human_goals": 1,
         "goals_known": true,
         "complete": true,
@@ -91,8 +93,8 @@
         },
         "truncated": false
       },
-      "prj-20c74ed349": {
-        "project_id": "prj-20c74ed349",
+      "prj-9c08025d1c": {
+        "project_id": "prj-9c08025d1c",
         "name": "ACP-Delta",
         "active": true,
         "counts": {
@@ -113,6 +115,7 @@
         "blocking_known": true,
         "abnormal_verdict": 0,
         "tasks_known": true,
+        "abnormal_detail_complete": true,
         "needs_human_goals": 0,
         "goals_known": true,
         "complete": true,
@@ -121,8 +124,8 @@
         "goal_status_counts": {},
         "truncated": false
       },
-      "prj-6f4eb3d4b6": {
-        "project_id": "prj-6f4eb3d4b6",
+      "prj-354a8a671f": {
+        "project_id": "prj-354a8a671f",
         "name": "ACP-Gamma",
         "active": true,
         "counts": {
@@ -143,6 +146,7 @@
         "blocking_known": true,
         "abnormal_verdict": 0,
         "tasks_known": true,
+        "abnormal_detail_complete": true,
         "needs_human_goals": 0,
         "goals_known": true,
         "complete": true,
@@ -212,6 +216,7 @@
         "blocking_known": true,
         "abnormal_verdict": 1,
         "tasks_known": true,
+        "abnormal_detail_complete": true,
         "needs_human_goals": 1,
         "goals_known": true,
         "complete": true,
@@ -245,6 +250,7 @@
         "blocking_known": true,
         "abnormal_verdict": 2,
         "tasks_known": true,
+        "abnormal_detail_complete": true,
         "needs_human_goals": 4,
         "goals_known": true,
         "complete": true,

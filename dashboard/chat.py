@@ -471,6 +471,13 @@ class ChatBridge:
                 "counts": dict(row.get("counts") or {}),
                 "blocked": int(row.get("blocked") or 0),
                 "abnormal_verdict": int(row.get("abnormal_verdict") or 0),
+                # A bounded scan yields a lower bound, so the console must be
+                # able to render "≥N" rather than an exact figure.
+                "abnormal_detail_complete": bool(
+                    row.get("abnormal_detail_complete", True)),
+                "abnormal_detail_note": (str(row["abnormal_detail_note"])[:300]
+                                         if row.get("abnormal_detail_note")
+                                         else None),
                 "needs_human_goals": int(row.get("needs_human_goals") or 0),
                 "goal_status_counts": dict(row.get("goal_status_counts") or {}),
                 "truncated": bool(row.get("truncated")),
@@ -532,6 +539,11 @@ class ChatBridge:
                 "counts": dict(row.get("counts") or {}),
                 "blocked": int(row.get("blocked") or 0),
                 "abnormal_verdict": int(row.get("abnormal_verdict") or 0),
+                "abnormal_detail_complete": bool(
+                    row.get("abnormal_detail_complete", True)),
+                "abnormal_detail_note": (str(row["abnormal_detail_note"])[:300]
+                                         if row.get("abnormal_detail_note")
+                                         else None),
                 "needs_human_goals": int(row.get("needs_human_goals") or 0),
                 "truncated": bool(row.get("truncated")),
                 # Without these a console cannot distinguish "0 rejected" from

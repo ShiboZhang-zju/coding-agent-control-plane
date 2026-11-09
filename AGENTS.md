@@ -433,6 +433,15 @@
   才能归为「预算耗尽」；`request_human` 归为「等一个具体决定」；其余（含
   `invalid_model_decision` 和无法识别/未记录的停止原因）一律按记录原样显示并标注
   「待核查」。不得因为「不是 request_human」就推断为预算耗尽——缺证据不等于某一原因。
+- **阻塞以 `get_project_progress().blocked_tasks` 为权威来源。** `blocked_workitems`
+  必须直接由该投影构造，不得通过遍历任务明细推导：两者是独立读取，任务明细失败
+  不能把已确认的阻塞抹成「阻塞：无」。`blocking_known` 只反映权威读取是否成功；
+  任务明细成功时按 `task_id` 补充标题，失败时保留阻塞行已有的 ID/state/verdict/
+  queue_status/attention_flags（标题是唯一可能缺失的字段）。
+- **明细达到读取上限时不得声称明细精确。** `truncated` 为真表示扫描提前结束，
+  异常验收的**明细**可能缺少更早记录（`abnormal_detail_complete=False`），
+  汇总须用 `≥N`/「明细可能不完整」表述；而 `get_project_progress` 已确认的
+  汇总计数不受影响，可照常保留。读取失败与扫描截断是两件事，不要混为一谈。
 - **跨项目汇总是只读意图，且无需唯一项目。** `portfolio_status` 从已注册项目与
   Ledger 构造，不得因为 `routing.source=none/ambiguous` 降级为 `clarify`——它本来
   就不针对单一项目。豁免只在 `portfolio_status` 与**措辞确实是注册表问题**的

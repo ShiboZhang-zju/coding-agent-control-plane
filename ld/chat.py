@@ -1431,17 +1431,25 @@ class LDChat:
                          f"{counts.get('rejected', 0)} rejected, "
                          f"{counts.get('inconclusive', 0)} inconclusive)"
                          if metrics["counts_known"] else "tasks 计数未知")
+            # The abnormal-verdict figure is qualified when the scan was
+            # bounded: a count taken from a truncated scan is a lower bound, not
+            # an exact figure, and must not be printed as one.
+            abnormal_figure = figure(len(abnormal), metrics["tasks_known"])
+            if metrics["tasks_known"] and not metrics["abnormal_detail_complete"]:
+                abnormal_figure = f"≥{len(abnormal)}（明细可能不完整）"
             lines.append(
                 f"- {item.get('name')} ({item['project_id']})"
                 f"{'' if item.get('active') else ' [disabled]'}: "
                 f"{task_part}, "
                 f"{figure(len(blocked), metrics['blocking_known'])} blocked, "
-                f"{figure(len(abnormal), metrics['tasks_known'])} abnormal verdict, "
+                f"{abnormal_figure} abnormal verdict, "
                 f"{figure(len(metrics['needs_human_goals']), metrics['goals_known'])}"
                 " goals needing a human"
                 f"{'' if metrics['complete'] else ' ⚠ 数据不完整'}")
             if metrics["read_error"]:
                 lines.append(f"    读取失败：{metrics['read_error']}")
+            if metrics.get("abnormal_detail_note"):
+                lines.append(f"    {metrics['abnormal_detail_note']}")
             rows.append({"project_id": item["project_id"], "name": item.get("name"),
                          "active": item.get("active"), "counts": counts,
                          "counts_known": metrics["counts_known"],
@@ -1449,6 +1457,9 @@ class LDChat:
                          "blocking_known": metrics["blocking_known"],
                          "abnormal_verdict": len(abnormal),
                          "tasks_known": metrics["tasks_known"],
+                         "abnormal_detail_complete":
+                             metrics["abnormal_detail_complete"],
+                         "abnormal_detail_note": metrics["abnormal_detail_note"],
                          "needs_human_goals": len(metrics["needs_human_goals"]),
                          "goals_known": metrics["goals_known"],
                          "complete": metrics["complete"],
@@ -1513,6 +1524,8 @@ class LDChat:
                           "abnormal_verdict": len(
                               entry["metrics"]["abnormal_verdict_workitems"]),
                           "tasks_known": entry["metrics"]["tasks_known"],
+                          "abnormal_detail_complete":
+                              entry["metrics"]["abnormal_detail_complete"],
                           "needs_human_goals": len(
                               entry["metrics"]["needs_human_goals"]),
                           "goals_known": entry["metrics"]["goals_known"],
@@ -1631,11 +1644,24 @@ class LDChat:
             if not metrics["tasks_known"]:
                 lines.append("  异常验收：未知（未能读取任务明细）")
             elif metrics["abnormal_verdict_workitems"]:
-                lines.append("  异常验收（历史结论，不必然是当前待办）：")
+                # The heading itself carries the qualification when the scan was
+                # bounded: the enumeration may be missing older rows even though
+                # the project-level counts are exact.
+                suffix = ("" if metrics["abnormal_detail_complete"]
+                          else "（明细可能不完整）")
+                lines.append(f"  异常验收（历史结论，不必然是当前待办）{suffix}：")
                 for task in metrics["abnormal_verdict_workitems"]:
                     lines.append(f"    - {task['task_id']} "
                                  f"verdict={task.get('verdict')} "
                                  f"{(task.get('title') or '')[:60]}")
+                if metrics.get("abnormal_detail_note"):
+                    lines.append(f"    ⚠ {metrics['abnormal_detail_note']}")
+            elif not metrics["abnormal_detail_complete"]:
+                # Nothing abnormal found in the part that was scanned, but the
+                # scan was bounded: "none" is not an assertion we can make.
+                lines.append("  异常验收：扫描范围内未见；明细可能不完整")
+                if metrics.get("abnormal_detail_note"):
+                    lines.append(f"    ⚠ {metrics['abnormal_detail_note']}")
 
             if not metrics["goals_known"]:
                 pass  # already stated above
@@ -1676,6 +1702,11 @@ class LDChat:
         blocking_ok = all(entry["metrics"]["blocking_known"]
                           for entry in portfolio)
         tasks_ok = all(entry["metrics"]["tasks_known"] for entry in portfolio)
+        # The *detail* enumeration is exact only if every project's scan ran to
+        # completion; a bounded scan may be missing older abnormal rows, so the
+        # abnormal-verdict total is a lower bound even when every read succeeded.
+        abnormal_ok = tasks_ok and all(
+            entry["metrics"]["abnormal_detail_complete"] for entry in portfolio)
         goals_ok = all(entry["metrics"]["goals_known"] for entry in portfolio)
         lines.insert(0, (
             f"共 {totals['projects']} 个项目、"
@@ -1684,7 +1715,7 @@ class LDChat:
             f"rejected {at_least(totals['rejected'], counts_ok)}、"
             f"inconclusive {at_least(totals['inconclusive'], counts_ok)}；"
             f"当前阻塞 {at_least(totals['blocked'], blocking_ok)} 项、"
-            f"异常验收 {at_least(totals['abnormal_verdict'], tasks_ok)} 项、"
+            f"异常验收 {at_least(totals['abnormal_verdict'], abnormal_ok)} 项、"
             f"待人工 Goal {at_least(totals['needs_human_goals'], goals_ok)} 个、"
             f"未完成 Goal {at_least(totals['unfinished_goals'], goals_ok)} 个。"))
         if totals["incomplete_projects"]:
@@ -2619,32 +2650,43 @@ class LDChat:
         read_error = "; ".join(
             item for item in (progress_error, tasks_error) if item) or None
 
-        # ``blocked_tasks`` carries the flags the service considers blocking;
-        # merge them onto the full task records so one record has everything.
-        # When the progress read failed, the blocking set is *unknown*, not
-        # empty: an empty set here would silently report "阻塞：无" for a project
-        # that may well be blocked.
-        blocked_ids = {task.get("task_id")
-                       for task in progress.get("blocked_tasks") or []}
-        flags_by_id = {task.get("task_id"): list(task.get("attention_flags") or [])
-                       for task in progress.get("blocked_tasks") or []}
+        # ``blocked_tasks`` from ``get_project_progress`` is the **authority** on
+        # what is blocked, and it is read independently of the task list.  The
+        # previous version derived the blocked set by iterating the task list,
+        # which coupled two separate reads: when ``get_project_tasks`` failed,
+        # the blocked list came back empty and the project was reported as
+        # "阻塞：无" even though the progress projection had just told us exactly
+        # which tasks were stuck.  A known blocker must never be erased by a
+        # failure in an unrelated read.
         blocking_known = progress_error is None
-        blocked: list[dict] = []
+        blocked_rows = list(progress.get("blocked_tasks") or []) if blocking_known else []
+        blocked_ids = {row.get("task_id") for row in blocked_rows}
+        # Titles only exist on the task list, so they are the one thing a failed
+        # ``get_project_tasks`` costs us; the blocking facts themselves survive.
+        title_by_id = {task.get("task_id"): task.get("title")
+                       for task in tasks}
+
+        blocked: list[dict] = [
+            {
+                "task_id": row.get("task_id"),
+                "title": title_by_id.get(row.get("task_id")),
+                "state": row.get("state"),
+                "verdict": row.get("verdict"),
+                "queue_status": row.get("queue_status"),
+                "attention_flags": list(row.get("attention_flags") or []),
+            }
+            for row in blocked_rows
+        ]
+
         abnormal: list[dict] = []
         for task in tasks:
             task_id = task.get("task_id")
             verdict = task.get("verdict")
-            is_blocked = task_id in blocked_ids
-            if is_blocked:
-                blocked.append({
-                    "task_id": task_id,
-                    "title": task.get("title"),
-                    "state": task.get("state"),
-                    "verdict": verdict,
-                    "queue_status": task.get("queue_status"),
-                    "attention_flags": flags_by_id.get(task_id) or [],
-                })
-            elif verdict in ABNORMAL_VERDICTS:
+            # Blocked tasks are reported once, under ``blocked``, with their bad
+            # verdict carried along; only the rest can be "abnormal only".
+            if task_id in blocked_ids:
+                continue
+            if verdict in ABNORMAL_VERDICTS:
                 abnormal.append({
                     "task_id": task_id,
                     "title": task.get("title"),
@@ -2672,10 +2714,26 @@ class LDChat:
             key = str(goal["status"])
             goal_status_counts[key] = goal_status_counts.get(key, 0) + 1
 
+        # Hitting the read bound means the scan stopped early, so the *detail*
+        # list of abnormal verdicts may be missing older rows.  This is a
+        # different statement from "the read failed": ``tasks_known`` stays True
+        # and the confirmed aggregate counts are still exact — only the detail
+        # enumeration is qualified.  Claiming an exact abnormal-verdict count
+        # from a truncated scan would be the same overstatement this method is
+        # being fixed for.
+        abnormal_detail_complete = tasks_known and not truncated
+        if truncated:
+            abnormal_detail_note = (
+                f"仅扫描前 {MAX_REPORTED_WORK_ITEMS} 条 WorkItem："
+                "异常验收明细可能缺少更早的记录，不得视为精确清单"
+                "（项目汇总计数仍然准确）")
+        else:
+            abnormal_detail_note = None
+
         # ``complete`` is the single flag a reader must consult before printing
-        # any precise number.  It is False when *any* of the three reads failed,
-        # so a partial report can never look like a complete one; ``unknown``
-        # names exactly which quantities are unknown rather than zero.
+        # any precise number.  It is False when *any* read failed, so a partial
+        # report can never look like a complete one; ``unknown`` names exactly
+        # which quantities are unknown rather than zero.
         unknown = [name for name, known in (
             ("task_counts", counts_known),
             ("work_items", tasks_known),
@@ -2692,6 +2750,8 @@ class LDChat:
             "complete": not unknown,
             "unknown": unknown,
             "truncated": truncated,
+            "abnormal_detail_complete": abnormal_detail_complete,
+            "abnormal_detail_note": abnormal_detail_note,
             "read_error": read_error,
             "work_items_total": (counts.get("total", len(tasks))
                                  if tasks_known or counts_known else None),
