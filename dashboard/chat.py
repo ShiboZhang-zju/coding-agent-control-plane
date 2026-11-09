@@ -474,6 +474,13 @@ class ChatBridge:
                 "needs_human_goals": int(row.get("needs_human_goals") or 0),
                 "goal_status_counts": dict(row.get("goal_status_counts") or {}),
                 "truncated": bool(row.get("truncated")),
+                # Completeness, so a console can refuse to render a precise
+                # number that was never read.  Only flags and the error string
+                # are forwarded — never the full ``facts`` payload.
+                "complete": bool(row.get("complete", True)),
+                "unknown": [str(item) for item in row.get("unknown") or []],
+                "read_error": (str(row["read_error"])[:300]
+                               if row.get("read_error") else None),
             })
         totals = dict(facts.get("totals") or {})
         priorities = []
@@ -491,6 +498,10 @@ class ChatBridge:
         return {
             "projects": projects,
             "totals": totals,
+            # A cross-project report must not look complete when it is not.
+            "complete": bool(facts.get("complete", True)),
+            "incomplete_projects": [str(item) for item in
+                                    facts.get("incomplete_projects") or []][:20],
             "priorities": priorities,
             "unknowns": [str(item)[:500] for item in
                          (facts.get("unknowns") or [])][:20],
@@ -523,6 +534,16 @@ class ChatBridge:
                 "abnormal_verdict": int(row.get("abnormal_verdict") or 0),
                 "needs_human_goals": int(row.get("needs_human_goals") or 0),
                 "truncated": bool(row.get("truncated")),
+                # Without these a console cannot distinguish "0 rejected" from
+                # "could not read", and would render the second as the first.
+                "complete": bool(row.get("complete", True)),
+                "counts_known": bool(row.get("counts_known", True)),
+                "blocking_known": bool(row.get("blocking_known", True)),
+                "tasks_known": bool(row.get("tasks_known", True)),
+                "goals_known": bool(row.get("goals_known", True)),
+                "unknown": [str(item) for item in row.get("unknown") or []],
+                "read_error": (str(row["read_error"])[:300]
+                               if row.get("read_error") else None),
             })
         return out
 

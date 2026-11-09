@@ -259,6 +259,37 @@ ABNORMAL_VERDICTS = ("rejected", "inconclusive")
 #: Goal statuses that are finished, so they are not "unfinished work".
 TERMINAL_GOAL_STATUSES = ("completed", "cancelled", "failed")
 
+#: Wording a recorded stop reason uses when a goal exhausted its lifetime
+#: budget.  Matched against the *recorded* text only — a goal is never called
+#: "budget exhausted" because no other reason matched.
+BUDGET_STOP_MARKERS = ("lifetime decision budget exhausted",
+                       "budget exhausted",
+                       "budget_exhausted",
+                       "decision budget")
+#: Stop reasons this module understands well enough to describe.  Anything else
+#: is reported verbatim and marked 待核查 rather than folded into a known cause.
+KNOWN_STOP_REASONS = ("request_human", "human_required") + BUDGET_STOP_MARKERS
+
+
+def _is_budget_stop(goal: Mapping[str, Any]) -> bool:
+    """True only when the *recorded* reason says the budget ran out.
+
+    The previous rule treated "not a ``request_human``" as synonymous with
+    "budget exhausted", which silently relabelled ``invalid_model_decision``
+    and every future/unknown reason.  Absence of evidence is not evidence of a
+    particular cause, so this returns False for anything it cannot read.
+    """
+    reason = str(goal.get("stop_reason") or "").lower()
+    if not reason:
+        return False
+    return any(marker in reason for marker in BUDGET_STOP_MARKERS)
+
+
+def _is_known_stop_reason(reason: str) -> bool:
+    """Whether a recorded reason is one this module can name confidently."""
+    lowered = str(reason or "").lower()
+    return any(marker in lowered for marker in KNOWN_STOP_REASONS)
+
 #: Markers that a sentence is quoting project knowledge, credentials or other
 #: local-domain content.  This is a conservative *detector*, not a redactor:
 #: when it fires and the model is not authorized for ``local``, the turn falls
@@ -1386,21 +1417,43 @@ class LDChat:
             # The old single "needing attention" number read only
             # ``blocked_tasks``, so a rejected task and a stopped goal were both
             # invisible here even though the single-project view reported them.
+            #
+            # A number that could not be read is printed as "未知", never as 0:
+            # "0 rejected" and "could not tell" are different statements, and
+            # only one of them is safe to act on.
+            def figure(value, known: bool, label: str = "") -> str:
+                if not known:
+                    return "未知"
+                return str(value) + (f" {label}" if label else "")
+
+            task_part = (f"{counts.get('total', item.get('task_count', 0))} tasks "
+                         f"({counts.get('verified', 0)} verified, "
+                         f"{counts.get('rejected', 0)} rejected, "
+                         f"{counts.get('inconclusive', 0)} inconclusive)"
+                         if metrics["counts_known"] else "tasks 计数未知")
             lines.append(
                 f"- {item.get('name')} ({item['project_id']})"
                 f"{'' if item.get('active') else ' [disabled]'}: "
-                f"{counts.get('total', item.get('task_count', 0))} tasks "
-                f"({counts.get('verified', 0)} verified, "
-                f"{counts.get('rejected', 0)} rejected, "
-                f"{counts.get('inconclusive', 0)} inconclusive), "
-                f"{len(blocked)} blocked, "
-                f"{len(abnormal)} abnormal verdict, "
-                f"{len(metrics['needs_human_goals'])} goals needing a human")
+                f"{task_part}, "
+                f"{figure(len(blocked), metrics['blocking_known'])} blocked, "
+                f"{figure(len(abnormal), metrics['tasks_known'])} abnormal verdict, "
+                f"{figure(len(metrics['needs_human_goals']), metrics['goals_known'])}"
+                " goals needing a human"
+                f"{'' if metrics['complete'] else ' ⚠ 数据不完整'}")
+            if metrics["read_error"]:
+                lines.append(f"    读取失败：{metrics['read_error']}")
             rows.append({"project_id": item["project_id"], "name": item.get("name"),
                          "active": item.get("active"), "counts": counts,
+                         "counts_known": metrics["counts_known"],
                          "blocked": len(blocked),
+                         "blocking_known": metrics["blocking_known"],
                          "abnormal_verdict": len(abnormal),
+                         "tasks_known": metrics["tasks_known"],
                          "needs_human_goals": len(metrics["needs_human_goals"]),
+                         "goals_known": metrics["goals_known"],
+                         "complete": metrics["complete"],
+                         "unknown": list(metrics["unknown"]),
+                         "read_error": metrics["read_error"],
                          "truncated": metrics["truncated"]})
         return "\n".join(lines), {"projects": rows}, [], None
 
@@ -1454,28 +1507,46 @@ class LDChat:
                           "name": entry["project"].get("name"),
                           "active": entry["project"].get("active"),
                           "counts": entry["metrics"]["counts"],
+                          "counts_known": entry["metrics"]["counts_known"],
                           "blocked": len(entry["metrics"]["blocked_workitems"]),
+                          "blocking_known": entry["metrics"]["blocking_known"],
                           "abnormal_verdict": len(
                               entry["metrics"]["abnormal_verdict_workitems"]),
+                          "tasks_known": entry["metrics"]["tasks_known"],
                           "needs_human_goals": len(
                               entry["metrics"]["needs_human_goals"]),
+                          "goals_known": entry["metrics"]["goals_known"],
+                          "complete": entry["metrics"]["complete"],
+                          "unknown": list(entry["metrics"]["unknown"]),
+                          "read_error": entry["metrics"]["read_error"],
                           "goal_status_counts": entry["metrics"][
                               "goal_status_counts"],
                           "truncated": entry["metrics"]["truncated"]}
                          for entry in portfolio],
+            "complete": facts["totals"]["complete"],
+            "incomplete_projects": facts["totals"]["incomplete_projects"],
             "totals": facts["totals"],
             "priorities": judgement["priorities"],
             "unknowns": facts["unknowns"],
         }, [], None
 
     def _portfolio_facts(self, portfolio: list[dict]) -> dict:
-        """Every number a portfolio answer may state, and nothing else."""
+        """Every number a portfolio answer may state, and nothing else.
+
+        Totals are summed **only over projects whose read succeeded**.  A
+        cross-project total that quietly added a zero for an unreadable project
+        would be a precise-looking number nobody actually measured, so when any
+        project is incomplete the headline says so and the affected quantity is
+        reported as a lower bound rather than an exact figure.
+        """
         lines: list[str] = []
         unknowns: list[str] = []
         totals = {"projects": len(portfolio), "work_items": 0, "verified": 0,
                   "rejected": 0, "inconclusive": 0, "blocked": 0,
                   "abnormal_verdict": 0, "needs_human_goals": 0,
-                  "unfinished_goals": 0, "truncated_projects": []}
+                  "unfinished_goals": 0, "truncated_projects": [],
+                  "incomplete_projects": [], "complete": True,
+                  "unread_projects": []}
 
         for entry in portfolio:
             project = entry["project"]
@@ -1483,48 +1554,71 @@ class LDChat:
             counts = metrics["counts"]
             name = project.get("name")
             pid = project["project_id"]
-            totals["work_items"] += counts.get("total", 0)
-            totals["verified"] += counts.get("verified", 0)
-            totals["rejected"] += counts.get("rejected", 0)
-            totals["inconclusive"] += counts.get("inconclusive", 0)
-            totals["blocked"] += len(metrics["blocked_workitems"])
-            totals["abnormal_verdict"] += len(
-                metrics["abnormal_verdict_workitems"])
-            totals["needs_human_goals"] += len(metrics["needs_human_goals"])
-            totals["unfinished_goals"] += len(metrics["unfinished_goals"])
+            if not metrics["complete"]:
+                totals["complete"] = False
+                totals["incomplete_projects"].append(pid)
+            if not metrics["counts_known"]:
+                totals["unread_projects"].append(pid)
+            # Only add what was actually read: a 0 for an unread project is the
+            # exact failure mode this fix removes.
+            if metrics["counts_known"]:
+                totals["work_items"] += counts.get("total", 0)
+                totals["verified"] += counts.get("verified", 0)
+                totals["rejected"] += counts.get("rejected", 0)
+                totals["inconclusive"] += counts.get("inconclusive", 0)
+            if metrics["blocking_known"]:
+                totals["blocked"] += len(metrics["blocked_workitems"])
+            if metrics["tasks_known"]:
+                totals["abnormal_verdict"] += len(
+                    metrics["abnormal_verdict_workitems"])
+            if metrics["goals_known"]:
+                totals["needs_human_goals"] += len(metrics["needs_human_goals"])
+                totals["unfinished_goals"] += len(metrics["unfinished_goals"])
             if metrics["truncated"]:
                 totals["truncated_projects"].append(pid)
 
             lines.append("")
             lines.append(f"【{name}】{pid}"
                          f"{'' if project.get('active') else ' [已停用]'}")
-            lines.append(
-                f"  任务 {counts.get('total', 0)} 个："
-                f"verified {counts.get('verified', 0)}、"
-                f"rejected {counts.get('rejected', 0)}、"
-                f"inconclusive {counts.get('inconclusive', 0)}、"
-                f"active {counts.get('active', 0)}、"
-                f"awaiting approval {counts.get('needs_approval', 0)}")
+
+            def figure(value, known: bool) -> str:
+                return "未知" if not known else str(value)
+
+            if metrics["counts_known"]:
+                lines.append(
+                    f"  任务 {counts.get('total', 0)} 个："
+                    f"verified {counts.get('verified', 0)}、"
+                    f"rejected {counts.get('rejected', 0)}、"
+                    f"inconclusive {counts.get('inconclusive', 0)}、"
+                    f"active {counts.get('active', 0)}、"
+                    f"awaiting approval {counts.get('needs_approval', 0)}")
+            else:
+                lines.append("  任务计数：未知（未能读取项目进度）")
             if metrics.get("read_error"):
                 lines.append(
-                    f"  ⚠ 读取任务明细失败（{metrics['read_error']}）："
-                    "下面的阻塞/异常列表不完整，请以计数为准。")
+                    f"  ⚠ 数据不完整（{metrics['read_error']}）："
+                    "下列未知项不得当作 0 处理。")
                 unknowns.append(
-                    f"{name} 的任务明细未能读取（{metrics['read_error']}），"
-                    "无法判断其阻塞与异常验收明细。")
+                    f"{name} 的部分数据未能读取（{metrics['read_error']}）："
+                    f"未知项 = {', '.join(metrics['unknown'])}。"
+                    "该项目的对应数字不是 0，而是没有读到。")
             if metrics["truncated"]:
                 lines.append(
                     f"  ⚠ WorkItem 明细达到读取上限 {MAX_REPORTED_WORK_ITEMS}，"
                     "列表可能不完整（计数仍然正确）。")
             goal_counts = metrics["goal_status_counts"]
-            if goal_counts:
+            if not metrics["goals_known"]:
+                lines.append("  Goal：未知（未能读取 Goal 记录）")
+            elif goal_counts:
                 rendered = "、".join(f"{key} {value}"
                                      for key, value in sorted(goal_counts.items()))
                 lines.append(f"  Goal {sum(goal_counts.values())} 个：{rendered}")
             else:
                 lines.append("  Goal 0 个")
 
-            if metrics["blocked_workitems"]:
+            if not metrics["blocking_known"]:
+                lines.append("  阻塞：未知（未能读取阻塞信息）")
+            elif metrics["blocked_workitems"]:
                 lines.append("  阻塞（现在就需要人决定）：")
                 for task in metrics["blocked_workitems"]:
                     flags = ", ".join(task.get("attention_flags") or []) or "unknown"
@@ -1534,14 +1628,18 @@ class LDChat:
             else:
                 lines.append("  阻塞：无")
 
-            if metrics["abnormal_verdict_workitems"]:
+            if not metrics["tasks_known"]:
+                lines.append("  异常验收：未知（未能读取任务明细）")
+            elif metrics["abnormal_verdict_workitems"]:
                 lines.append("  异常验收（历史结论，不必然是当前待办）：")
                 for task in metrics["abnormal_verdict_workitems"]:
                     lines.append(f"    - {task['task_id']} "
                                  f"verdict={task.get('verdict')} "
                                  f"{(task.get('title') or '')[:60]}")
 
-            if metrics["unfinished_goals"]:
+            if not metrics["goals_known"]:
+                pass  # already stated above
+            elif metrics["unfinished_goals"]:
                 lines.append("  未完成 Goal：")
                 for goal in metrics["unfinished_goals"]:
                     text = (goal.get("goal_text") or "").replace("\n", " ")
@@ -1568,13 +1666,34 @@ class LDChat:
                         f"{task.get('queue_status')}：Ledger 未记录该作业是否真的"
                         "创建成功，需要查 Worker 侧日志才能定案。")
 
+        def at_least(value: int, *known_flags: bool) -> str:
+            """A total is exact only if every contributing read succeeded."""
+            if all(known_flags):
+                return str(value)
+            return f"≥{value}（部分项目未读到）"
+
+        counts_ok = not totals["unread_projects"]
+        blocking_ok = all(entry["metrics"]["blocking_known"]
+                          for entry in portfolio)
+        tasks_ok = all(entry["metrics"]["tasks_known"] for entry in portfolio)
+        goals_ok = all(entry["metrics"]["goals_known"] for entry in portfolio)
         lines.insert(0, (
-            f"共 {totals['projects']} 个项目、{totals['work_items']} 个 WorkItem："
-            f"verified {totals['verified']}、rejected {totals['rejected']}、"
-            f"inconclusive {totals['inconclusive']}；"
-            f"当前阻塞 {totals['blocked']} 项、异常验收 {totals['abnormal_verdict']} 项、"
-            f"待人工 Goal {totals['needs_human_goals']} 个、"
-            f"未完成 Goal {totals['unfinished_goals']} 个。"))
+            f"共 {totals['projects']} 个项目、"
+            f"{at_least(totals['work_items'], counts_ok)} 个 WorkItem："
+            f"verified {at_least(totals['verified'], counts_ok)}、"
+            f"rejected {at_least(totals['rejected'], counts_ok)}、"
+            f"inconclusive {at_least(totals['inconclusive'], counts_ok)}；"
+            f"当前阻塞 {at_least(totals['blocked'], blocking_ok)} 项、"
+            f"异常验收 {at_least(totals['abnormal_verdict'], tasks_ok)} 项、"
+            f"待人工 Goal {at_least(totals['needs_human_goals'], goals_ok)} 个、"
+            f"未完成 Goal {at_least(totals['unfinished_goals'], goals_ok)} 个。"))
+        if totals["incomplete_projects"]:
+            # Says plainly that the summary is partial: a cross-project report
+            # must not look complete when one project could not be read.
+            lines.insert(1, (
+                f"⚠ 本汇总不完整：{', '.join(totals['incomplete_projects'])} "
+                "读取失败，上述总计只覆盖读取成功的项目（以 ≥ 标注），"
+                "不得当作全量精确值。"))
         if totals["truncated_projects"]:
             lines.insert(1, (
                 f"注意：{'、'.join(totals['truncated_projects'])} 的 WorkItem 数"
@@ -1632,9 +1751,16 @@ class LDChat:
 
             # 3: goals stopped on exhausted budget.  Flagged as "do not simply
             # resume": resuming spends the same exhausted budget again.
+            #
+            # Only goals whose *recorded* stop reason actually names budget
+            # exhaustion go here.  Classifying every non-``request_human`` goal
+            # as "budget exhausted" mislabelled ``invalid_model_decision`` and
+            # any unrecognised reason, and told the operator to weigh the budget
+            # when the recorded cause was something else entirely.
             exhausted = [goal for goal in needs_human
                          if goal["goal_id"] not in
-                         {g["goal_id"] for g in requested}]
+                         {g["goal_id"] for g in requested}
+                         and _is_budget_stop(goal)]
             if exhausted:
                 reasons.append((
                     3,
@@ -1642,6 +1768,29 @@ class LDChat:
                     f"（{', '.join(g['goal_id'] for g in exhausted)}）："
                     "恢复会再次耗尽同一预算，应先判断目标是否还值得继续",
                     "status=needs_human 且 last_decision.stop 含 budget"))
+
+            # 3b: goals stopped for any *other* recorded reason, or for a reason
+            # this code does not recognise.  Shown as recorded, marked 待核查 —
+            # the report must not invent a cause it cannot read.
+            other = [goal for goal in needs_human
+                     if goal["goal_id"] not in
+                     {g["goal_id"] for g in requested}
+                     and not _is_budget_stop(goal)]
+            if other:
+                described = []
+                for goal in other:
+                    reason = (goal.get("stop_reason") or "").strip()
+                    if not reason:
+                        reason = "未记录停止原因"
+                    elif not _is_known_stop_reason(reason):
+                        reason = f"未识别的停止原因：{reason}"
+                    described.append(f"{goal['goal_id']}（{reason}）")
+                reasons.append((
+                    3,
+                    f"{len(other)} 个 Goal 等待人工处理，停止原因以记录为准："
+                    f"{'；'.join(described)}。原因未明确前按「待核查」对待，"
+                    "不要假定为预算耗尽",
+                    "status=needs_human 且停止原因不属于 lifetime budget exhausted"))
 
             if abnormal and not blocked:
                 reasons.append((
@@ -2435,10 +2584,23 @@ class LDChat:
         only the newest 10 (``recent_tasks``) is what used to hide older
         rejections.
         """
-        progress = self._safe(
-            "get_project_progress",
-            lambda: self._tools.get_project_progress(project_id), None) or {}
-        counts = progress.get("counts") or {}
+        # ``get_project_progress`` supplies the counters *and* the blocking
+        # flags.  A failure here used to fall back to ``{}``, which every reader
+        # then rendered as "0 tasks, 0 verified, 0 rejected" — an exact-looking
+        # number that was never read.  That is the same class of error as the
+        # swallowed task read below, so it is reported rather than defaulted:
+        # ``counts_known`` is False and no reader may print a precise zero.
+        progress: dict = {}
+        counts: dict = {}
+        progress_error: str | None = None
+        try:
+            progress = self._tools.get_project_progress(project_id) or {}
+        except Exception as exc:  # noqa: BLE001 - reported, not swallowed
+            progress_error = f"get_project_progress: {type(exc).__name__}: {exc}"
+        counts_known = progress_error is None and isinstance(
+            progress.get("counts"), dict) and bool(progress.get("counts"))
+        if counts_known:
+            counts = progress["counts"]
 
         # Full project task list, not ``recent_tasks`` (which is capped at 10).
         # A failure here is *reported*, never silently turned into "no tasks":
@@ -2446,20 +2608,27 @@ class LDChat:
         # rejected work, which is exactly the class of wrong number this fix is
         # about.  ``read_error`` makes the uncertainty visible instead.
         tasks: list[dict] = []
-        read_error: str | None = None
+        tasks_error: str | None = None
         try:
             tasks = self._tools.get_project_tasks(
                 project_id, limit=MAX_REPORTED_WORK_ITEMS) or []
         except Exception as exc:  # noqa: BLE001 - reported, not swallowed
-            read_error = f"{type(exc).__name__}: {exc}"
+            tasks_error = f"get_project_tasks: {type(exc).__name__}: {exc}"
+        tasks_known = tasks_error is None
         truncated = len(tasks) >= MAX_REPORTED_WORK_ITEMS
+        read_error = "; ".join(
+            item for item in (progress_error, tasks_error) if item) or None
 
         # ``blocked_tasks`` carries the flags the service considers blocking;
         # merge them onto the full task records so one record has everything.
+        # When the progress read failed, the blocking set is *unknown*, not
+        # empty: an empty set here would silently report "阻塞：无" for a project
+        # that may well be blocked.
         blocked_ids = {task.get("task_id")
                        for task in progress.get("blocked_tasks") or []}
         flags_by_id = {task.get("task_id"): list(task.get("attention_flags") or [])
                        for task in progress.get("blocked_tasks") or []}
+        blocking_known = progress_error is None
         blocked: list[dict] = []
         abnormal: list[dict] = []
         for task in tasks:
@@ -2485,7 +2654,16 @@ class LDChat:
                     "attention_flags": [f"verdict:{verdict}"],
                 })
 
-        goals = self._goal_rows(project_id, include_completed=True)
+        goals: list[dict] = []
+        goals_error: str | None = None
+        try:
+            goals = self._goal_rows(project_id, include_completed=True)
+        except Exception as exc:  # noqa: BLE001 - reported, not swallowed
+            goals_error = f"goals: {type(exc).__name__}: {exc}"
+        goals_known = goals_error is None
+        if goals_error:
+            read_error = "; ".join(
+                item for item in (read_error, goals_error) if item)
         unfinished = [goal for goal in goals
                       if goal["status"] not in TERMINAL_GOAL_STATUSES]
         needs_human = [goal for goal in goals if goal["status"] == "needs_human"]
@@ -2494,12 +2672,29 @@ class LDChat:
             key = str(goal["status"])
             goal_status_counts[key] = goal_status_counts.get(key, 0) + 1
 
+        # ``complete`` is the single flag a reader must consult before printing
+        # any precise number.  It is False when *any* of the three reads failed,
+        # so a partial report can never look like a complete one; ``unknown``
+        # names exactly which quantities are unknown rather than zero.
+        unknown = [name for name, known in (
+            ("task_counts", counts_known),
+            ("work_items", tasks_known),
+            ("blocked", blocking_known),
+            ("goals", goals_known)) if not known]
+
         return {
             "project_id": project_id,
             "counts": counts,
+            "counts_known": counts_known,
+            "tasks_known": tasks_known,
+            "blocking_known": blocking_known,
+            "goals_known": goals_known,
+            "complete": not unknown,
+            "unknown": unknown,
             "truncated": truncated,
             "read_error": read_error,
-            "work_items_total": counts.get("total", len(tasks)),
+            "work_items_total": (counts.get("total", len(tasks))
+                                 if tasks_known or counts_known else None),
             "blocked_workitems": blocked,
             "abnormal_verdict_workitems": abnormal,
             "needs_human_goals": needs_human,

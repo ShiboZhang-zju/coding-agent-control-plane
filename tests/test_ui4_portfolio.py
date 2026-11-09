@@ -94,6 +94,10 @@ class Harness:
         # 4. no work items at all
         self.delta = plane.register_project(
             "ACP-Delta", str(_git_repo(root / "delta")), default_adapter="stub")
+        # 5. needs_human goals whose stop reason is *not* budget exhaustion
+        self.epsilon = plane.register_project(
+            "ACP-Epsilon", str(_git_repo(root / "epsilon")),
+            default_adapter="stub")
 
         self.alpha_rejected = plane.enqueue(
             "alpha rejected task", str(root / "alpha"),
@@ -148,6 +152,37 @@ class Harness:
         self.gamma_goal, ref = goal_identity(gamma_text, self.gamma["id"])
         goals.get_or_create(self.gamma_goal, self.gamma["id"], gamma_text, ref)
         goals.update_goal(self.gamma_goal, status="completed")
+        # Epsilon carries the goals whose stop reason is *not* a budget stop.
+        # Keeping them off ``delta`` preserves that project as the genuinely
+        # empty one ("no tasks, no goals") used by other tests.
+        # ``invalid_model_decision``: the case the old rule mislabelled as
+        # "budget exhausted".
+        self.epsilon_goal_text = "epsilon goal invalid model decision"
+        self.epsilon_goal, ref = goal_identity(self.epsilon_goal_text,
+                                               self.epsilon["id"])
+        goals.get_or_create(self.epsilon_goal, self.epsilon["id"],
+                            self.epsilon_goal_text, ref)
+        # Recorded as a *stop*, not as an action=request_human: this is the goal
+        # the old rule swept into "budget exhausted" purely because it was not
+        # request_human.
+        goals.update_goal(self.epsilon_goal, status="needs_human",
+                          last_decision={"stop": "invalid_model_decision"})
+        # And one with no recognisable reason at all.
+        self.epsilon_goal2_text = "epsilon goal unrecognised stop"
+        self.epsilon_goal2, ref = goal_identity(self.epsilon_goal2_text,
+                                                self.epsilon["id"])
+        goals.get_or_create(self.epsilon_goal2, self.epsilon["id"],
+                            self.epsilon_goal2_text, ref)
+        goals.update_goal(self.epsilon_goal2, status="needs_human",
+                          last_decision={"stop": "something_new_entirely"})
+        # And one that records *no* reason at all: the ledger says it is parked
+        # but not why, so the only honest label is "未记录停止原因".
+        self.epsilon_goal3_text = "epsilon goal with no recorded reason"
+        self.epsilon_goal3, ref = goal_identity(self.epsilon_goal3_text,
+                                                self.epsilon["id"])
+        goals.get_or_create(self.epsilon_goal3, self.epsilon["id"],
+                            self.epsilon_goal3_text, ref)
+        goals.update_goal(self.epsilon_goal3, status="needs_human")
         goals.close()
 
         bridge = ChatBridge(self.ledger)
@@ -247,7 +282,7 @@ class Harness:
                            goal.get("decision_count"), goal.get("resume_count"),
                            goal.get("task_count"))
                           for project in (self.alpha, self.beta, self.gamma,
-                                          self.delta)
+                                          self.delta, self.epsilon)
                           for goal in goals.find_by_project(project["id"]))
         finally:
             goals.close()
@@ -389,8 +424,14 @@ def test_task_read_failure_is_reported_not_silently_zero(harness: Harness):
     assert metrics["abnormal_verdict_workitems"] == []
 
 
-def test_read_failure_appears_in_the_answer_and_unknowns(harness: Harness):
-    """The report must say the detail is incomplete, not just omit it."""
+def test_task_read_failure_marks_unknown_not_zero(harness: Harness):
+    """A task-detail failure must surface as 未知, never as an exact zero.
+
+    The report has to say *which* quantity is unknown and must not present the
+    abnormal-verdict total as a precise number, because that total was never
+    read.  ``unknown`` names the missing quantity so a console can refuse to
+    render a zero.
+    """
     chat = harness.chat()
     try:
         chat._tools.get_project_tasks = lambda project_id, *, limit=200: \
@@ -398,8 +439,211 @@ def test_read_failure_appears_in_the_answer_and_unknowns(harness: Harness):
         turn = chat.handle("汇总所有项目目前的进度")
     finally:
         harness.close_all()
-    assert "读取任务明细失败" in turn["answer"]
     assert any("boom" in line for line in turn["facts"]["unknowns"])
+    assert "数据不完整" in turn["answer"]
+    # The per-project line says the detail is unknown rather than "无".
+    assert "异常验收：未知" in turn["answer"]
+    # And the headline total is a lower bound, not an exact figure.
+    assert "异常验收 ≥" in turn["answer"] or "≥0" in turn["answer"]
+    # The overall summary is declared incomplete.
+    assert turn["facts"]["complete"] is False
+    assert turn["facts"]["totals"]["incomplete_projects"]
+
+
+def test_progress_read_failure_is_not_reported_as_zero(harness: Harness):
+    """A failed progress read must not become "0 tasks, 0 rejected".
+
+    ``get_project_progress`` supplies both the counters and the blocking flags.
+    Silently defaulting it to ``{}`` made every derived number a confident zero
+    for a project that actually has rejected work — a precise-looking figure
+    nobody measured.
+    """
+    chat = harness.chat()
+    try:
+        original = chat._tools.get_project_progress
+
+        def broken(project_id, **kwargs):
+            raise RuntimeError("progress unavailable")
+
+        chat._tools.get_project_progress = broken
+        try:
+            metrics = chat._project_metrics(harness.alpha["id"])
+        finally:
+            chat._tools.get_project_progress = original
+    finally:
+        harness.close_all()
+
+    assert metrics["counts_known"] is False
+    assert metrics["blocking_known"] is False
+    assert metrics["complete"] is False
+    assert "task_counts" in metrics["unknown"]
+    assert "blocked" in metrics["unknown"]
+    assert metrics["read_error"] and "progress unavailable" in metrics["read_error"]
+    # No fabricated zero: the counters are simply absent.
+    assert metrics["counts"] == {}
+    # The full task list was still readable, so the physical work items are
+    # still reported — it is the *counts* and *blocking* set that are unknown.
+    assert metrics["tasks_known"] is True
+
+
+def test_progress_read_failure_in_answer_says_unknown_not_zero(
+        harness: Harness):
+    chat = harness.chat()
+    try:
+        chat._tools.get_project_progress = lambda project_id, **kwargs: \
+            (_ for _ in ()).throw(RuntimeError("progress unavailable"))
+        turn = chat.handle("汇总所有项目目前的进度")
+    finally:
+        harness.close_all()
+    answer = turn["answer"]
+    # The project block declines to print counts it does not have.
+    assert "任务计数：未知" in answer
+    assert "阻塞：未知" in answer
+    # And it does not print the fabricated "0 个" for tasks.
+    assert "任务 0 个" not in answer
+    # The summary is explicitly declared partial, with the project named.
+    assert "本汇总不完整" in answer
+    assert harness.alpha["id"] in answer
+    assert turn["facts"]["complete"] is False
+    assert harness.alpha["id"] in turn["facts"]["totals"]["incomplete_projects"]
+    # A lower bound, not an exact total.
+    assert "≥" in answer
+
+
+def test_progress_read_failure_in_list_projects(harness: Harness):
+    """``list_projects`` must show the same unknown, not a clean zero line."""
+    chat = harness.chat()
+    try:
+        chat._tools.get_project_progress = lambda project_id, **kwargs: \
+            (_ for _ in ()).throw(RuntimeError("progress unavailable"))
+        answer, facts, _goal_ids, _pending = chat._list_projects(
+            None, {}, "现在有哪些项目？")
+    finally:
+        harness.close_all()
+    rows = {row["project_id"]: row for row in facts["projects"]}
+    alpha = rows[harness.alpha["id"]]
+    assert alpha["complete"] is False
+    assert alpha["counts_known"] is False
+    assert alpha["blocking_known"] is False
+    assert alpha["unknown"]
+    assert alpha["read_error"]
+    assert "未知" in answer
+    assert "数据不完整" in answer
+
+
+def test_read_failure_exposed_through_http_projection(harness: Harness):
+    """The console must be able to tell "0" from "could not read".
+
+    The restricted HTTP projection forwards completeness flags and a truncated
+    error string — never the full ``facts`` payload.
+    """
+    status, body = harness.say("现在有哪些项目？")
+    assert status == 200, body
+    rows = {row["project_id"]: row for row in body["project_rows"]}
+    healthy = rows[harness.alpha["id"]]
+    # A healthy project is explicitly complete, so a console can trust the zeros.
+    assert healthy["complete"] is True
+    assert healthy["counts_known"] is True
+    assert healthy["unknown"] == []
+    assert healthy["read_error"] is None
+    # The full facts payload is still withheld.
+    assert "goals" not in healthy
+
+
+def test_budget_stop_is_classified_as_budget(harness: Harness):
+    """Case 1: an explicit lifetime-budget stop is called budget exhaustion."""
+    chat = harness.chat()
+    try:
+        turn = chat.handle("给出各项目的优先级建议")
+        answer, facts = turn["answer"], turn["facts"]
+    finally:
+        harness.close_all()
+    priorities = {item["project_id"]: item
+                  for item in facts["priorities"]}
+    alpha = priorities[harness.alpha["id"]]
+    assert "预算耗尽" in alpha["why"], alpha
+    assert harness.alpha_goal in alpha["why"]
+    assert "budget" in alpha["basis"]
+
+
+def test_request_human_stop_is_classified_as_awaiting_decision(
+        harness: Harness):
+    """Case 2: ``request_human`` is a pending decision, not a budget stop."""
+    chat = harness.chat()
+    try:
+        turn = chat.handle("给出各项目的优先级建议")
+        answer, facts = turn["answer"], turn["facts"]
+    finally:
+        harness.close_all()
+    priorities = {item["project_id"]: item
+                  for item in facts["priorities"]}
+    beta = priorities[harness.beta["id"]]
+    # Beta's most urgent finding is its unknown-state task (P1), so the pending
+    # decision appears alongside rather than as the headline reason.  Search the
+    # whole entry, not just ``why``.
+    entry_text = beta["why"] + " " + " ".join(beta.get("also") or [])
+    assert "等一个具体决定" in entry_text, beta
+    assert harness.beta_goal in entry_text
+    assert beta["rank"] == "P1"
+    assert "预算耗尽" not in entry_text, (
+        "a request_human stop must not be described as budget exhaustion")
+
+
+@pytest.mark.parametrize("goal_attr", ["epsilon_goal", "epsilon_goal2",
+                                       "epsilon_goal3"])
+def test_non_budget_needs_human_is_not_labelled_budget(goal_attr, harness: Harness):
+    """Case 3: an unrecognised / non-budget reason is 待核查, never budget.
+
+    ``invalid_model_decision`` and a wholly unknown stop reason are both
+    ``needs_human`` without a budget cause.  The old rule put every goal that
+    was not ``request_human`` into the budget bucket, which told the operator to
+    weigh a budget that was never the reason.
+    """
+    goal_id = getattr(harness, goal_attr)
+    chat = harness.chat()
+    try:
+        turn = chat.handle("给出各项目的优先级建议")
+        answer, facts = turn["answer"], turn["facts"]
+    finally:
+        harness.close_all()
+
+    assert "待核查" in answer
+    # The goal is named with its recorded reason, not with an invented one.
+    assert goal_id in answer
+    # This goal is never *attributed* to budget exhaustion.  The wording may
+    # still mention the budget to say the opposite ("不要假定为预算耗尽"), so the
+    # check is that no line attributes the stop to a budget cause.
+    for line in answer.splitlines():
+        if goal_id not in line:
+            continue
+        assert "因预算耗尽停止" not in line, line
+        assert "恢复会再次耗尽同一预算" not in line, line
+    # And the goal is not listed under the budget reason at all.
+    budget_lines = [line for line in answer.splitlines()
+                    if "因预算耗尽停止" in line]
+    assert not any(goal_id in line for line in budget_lines), budget_lines
+
+
+def test_budget_and_non_budget_goals_are_not_merged(harness: Harness):
+    """The two causes must stay distinguishable in one project's answer."""
+    chat = harness.chat()
+    try:
+        turn = chat.handle("给出各项目的优先级建议")
+        answer, facts = turn["answer"], turn["facts"]
+    finally:
+        harness.close_all()
+    # alpha (budget) and epsilon (non-budget) are separate project entries, so a
+    # reader can see which cause belongs to which goal.
+    priorities = {item["project_id"]: item for item in facts["priorities"]}
+    # alpha is *attributed* to a budget stop; epsilon is not.  Matching on the
+    # attribution phrase keeps this honest even though the epsilon text mentions
+    # the budget to say the opposite ("不要假定为预算耗尽").
+    assert "因预算耗尽停止" in priorities[harness.alpha["id"]]["why"]
+    epsilon_text = (priorities[harness.epsilon["id"]]["why"] + " "
+                    + " ".join(priorities[harness.epsilon["id"]].get("also") or []))
+    assert "因预算耗尽停止" not in epsilon_text
+    assert "待核查" in epsilon_text
+    assert "待核查" in answer
 
 
 def test_global_list_uses_the_same_metrics(harness: Harness):
@@ -519,7 +763,8 @@ def test_portfolio_numbers_match_the_ledger(harness: Harness):
     totals = body["portfolio"]["totals"]
     all_items = []
     goals = []
-    for project in (harness.alpha, harness.beta, harness.gamma, harness.delta):
+    for project in (harness.alpha, harness.beta, harness.gamma, harness.delta,
+                    harness.epsilon):
         all_items.extend(harness.work_items(project["id"]))
         goals.extend(harness.goals(project["id"]))
     assert totals["work_items"] == len(all_items)

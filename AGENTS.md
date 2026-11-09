@@ -424,6 +424,15 @@
   全量读取，上限受工具层约束（当前 200）；达到上限必须显式标注不完整。
 - **读取失败不得当作"零"。** 静默吞异常会把"读不到"变成"没有任务"，从而给出错误
   数字。失败必须记录 `read_error` 并在答案与 `unknowns` 中声明明细不完整。
+  `get_project_progress` 与 `get_project_tasks`、Goal 读取三者任一失败都必须是
+  `complete=False`：`counts_known` / `tasks_known` / `blocking_known` / `goals_known`
+  分开记录，未读到的量打印「未知」，绝不打印精确零。跨项目总计只累加读取成功的项目，
+  有不完整项时以 `≥` 标注并置顶声明「本汇总不完整」。HTTP 受限投影同步暴露
+  `complete` / `unknown` / `read_error`，不开放完整 `facts`。
+- **停止原因只能按记录归类。** 只有记录文本明确是 lifetime budget exhausted 的 Goal
+  才能归为「预算耗尽」；`request_human` 归为「等一个具体决定」；其余（含
+  `invalid_model_decision` 和无法识别/未记录的停止原因）一律按记录原样显示并标注
+  「待核查」。不得因为「不是 request_human」就推断为预算耗尽——缺证据不等于某一原因。
 - **跨项目汇总是只读意图，且无需唯一项目。** `portfolio_status` 从已注册项目与
   Ledger 构造，不得因为 `routing.source=none/ambiguous` 降级为 `clarify`——它本来
   就不针对单一项目。豁免只在 `portfolio_status` 与**措辞确实是注册表问题**的
