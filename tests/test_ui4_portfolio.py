@@ -584,9 +584,23 @@ def test_bounded_scan_does_not_claim_exact_abnormal_detail(harness: Harness):
     assert metrics["counts_known"] is True
 
     answer = turn["answer"]
-    alpha_section = answer.split(harness.alpha["id"], 1)[1].split("【", 1)[0]
-    # The detail is qualified rather than asserted as exact.
-    assert "可能不完整" in alpha_section or "≥" in alpha_section, alpha_section
+    # Split on the project *heading*, not on its id: the id also appears in the
+    # leading truncation notice, which already says "可能不完整".  Splitting on
+    # the id let this assertion pass without ever inspecting the section whose
+    # completeness is in question.
+    heading = f"【ACP-Alpha】{harness.alpha['id']}"
+    assert heading in answer, answer[:400]
+    alpha_section = answer.split(heading, 1)[1].split("【", 1)[0]
+    # The abnormal detail in that section is qualified, not stated as exact.
+    assert "明细可能不完整" in alpha_section, alpha_section
+    # The cross-project headline must not print the abnormal total as exact.
+    assert "异常验收 ≥" in answer, answer[:400]
+    # The summary projection carries the qualification too, so a console cannot
+    # render the bounded enumeration as a complete count.
+    alpha_row = next(row for row in turn["facts"]["projects"]
+                     if row["project_id"] == harness.alpha["id"])
+    assert alpha_row["abnormal_detail_complete"] is False
+    assert alpha_row["truncated"] is True
     # And the qualified wording is specifically about the abnormal detail, not
     # a blanket claim that every number is wrong.
     assert metrics["abnormal_detail_complete"] is False
