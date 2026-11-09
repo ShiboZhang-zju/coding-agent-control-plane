@@ -400,6 +400,17 @@
   确认时显式传入其它项目必须拒绝（`human_confirmation_project_mismatch`），
   不得无提示地按原项目执行，也不得消费掉暂存动作。项目绑定会话的历史确认行为
   保持不变。
+- **全局会话的每次 `submit_goal` 都必须暂存。** 即使确定性路由把句子识别为明确
+  命令（`intent_source` 为本地路由或模型），也只代表"这是要做的工作、项目是哪个"，
+  不代表人可以跳过核对。暂存文案必须逐字给出**完整目标**（不是截断预览）、
+  项目名称、项目 ID 与 Goal ID，确认后才 `get_or_create`。项目绑定会话保留历史
+  行为：明确的祈使句直接创建（`ld chat --project` 的操作者已用 `--project` 表过态），
+  只有模型提出而确定性路由不认的提交才暂存。结构化发布 `/api/chat/publish`
+  不经聊天确认，行为不变。
+- **被门控改写意图的回合必须全线一致。** 路由拒绝（`none` / `ambiguous`）或
+  项目冲突使一个 `submit_goal` 变成 `clarify` 时，HTTP 响应的 `intent`、写入
+  `ld_messages.intent` 的记录、以及 `chat_turn` 审计行必须都是 `clarify`，
+  `goal_count` 为 0。不得"回答是提问、持久化仍记原始写意图"。
 - **进度摘要只能来自 Ledger。** 全局摘要不得给出完成比例、Worker 存活或 Runner
   在线状态；`goal_runner_liveness` 恒为 `unknown`。
 

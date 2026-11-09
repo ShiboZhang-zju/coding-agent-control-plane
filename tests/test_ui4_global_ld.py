@@ -216,12 +216,20 @@ def test_project_name_also_routes(harness: Harness):
 def test_named_write_creates_a_goal_for_that_project_only(harness: Harness):
     _, _, turn = harness.say(
         f"继续推进 {harness.alpha['id']}：实现 greet.py 并补充测试")
+    # In a global conversation every submit_goal is staged, even when the
+    # routing is unambiguous: the operator confirms the project and objective.
     assert turn["intent"]["intent"] == "submit_goal"
     assert turn["project_routing"]["project_id"] == harness.alpha["id"]
-    assert len(turn["goal_ids"]) == 1
+    assert turn["requires_confirmation"] is True
+    assert turn["goal_ids"] == []
+    assert harness.goals_of(harness.alpha["id"]) == []
+    assert harness.work_items(harness.alpha["id"]) == []
+
+    _, _, confirmed = harness.say("confirm", turn["conversation_id"])
+    assert confirmed["goal_ids"] == [turn["pending_action"]["goal_id"]]
 
     alpha_goals = harness.goals_of(harness.alpha["id"])
-    assert [goal["goal_id"] for goal in alpha_goals] == turn["goal_ids"]
+    assert [goal["goal_id"] for goal in alpha_goals] == confirmed["goal_ids"]
     assert harness.goals_of(harness.beta["id"]) == []
     # A Goal is all that was written: no WorkItem is submitted from chat.
     assert harness.work_items(harness.alpha["id"]) == []

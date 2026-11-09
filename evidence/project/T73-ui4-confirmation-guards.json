@@ -1,0 +1,50 @@
+{
+  "task": "T73-ui4-confirmation-guards",
+  "schema_version": "ui-4-confirmation-guards.v1",
+  "result": "PASS",
+  "suite": "tests/test_ui4_confirmation_guards.py",
+  "guards": {
+    "an ambiguous write is clarify in the persisted history": true,
+    "the chat_turn audit line reports the effective intent": true,
+    "cancel creates nothing and clears the stage": true,
+    "a confirmation addressed to another project writes nothing and keeps the stage": true,
+    "global chat: an unambiguous command creates nothing until confirmed": true,
+    "global chat: the model path is staged too": true,
+    "compat: a project-bound conversation still applies a clear imperative": true,
+    "a routed-away write is clarify in body, history and audit": true,
+    "a repeated confirmation creates no second goal and starts no execution": true,
+    "compat: structured publish still creates the goal directly": true,
+    "a superseded confirmation creates nothing": true
+  },
+  "outcomes": {
+    "test_global_command_creates_nothing_until_confirmed": "PASSED",
+    "test_global_command_with_a_model_still_needs_confirmation": "PASSED",
+    "test_repeated_confirmation_creates_only_one_goal": "PASSED",
+    "test_cancel_creates_nothing_and_clears_the_stage": "PASSED",
+    "test_superseded_confirmation_creates_nothing": "PASSED",
+    "test_confirmation_for_another_project_writes_nothing": "PASSED",
+    "test_refused_write_is_clarify_in_body_history_and_audit": "PASSED",
+    "test_ambiguous_write_is_clarify_in_history": "PASSED",
+    "test_audit_line_reports_the_effective_intent": "PASSED",
+    "test_project_bound_conversation_still_applies_an_imperative": "PASSED",
+    "test_structured_publish_still_creates_the_goal_directly": "PASSED"
+  },
+  "missing_guards": [],
+  "not_passed": [],
+  "environment": {
+    "ledger": "isolated throwaway ledger per test under .poc-state/ui4-confirm",
+    "chat": "real LDChat + LDGoalStore + TaskStore behind a real loopback HTTP server",
+    "model_paths_covered": [
+      "no endpoint (in-process router)",
+      "fake intent_model with model_domains=local"
+    ],
+    "worker": "none: chat never dispatches a WorkItem",
+    "production_manager_touched": false
+  },
+  "negative_assertions": "every staging/rejection re-reads SQLite: per-project Goal rows and goal_text, the frozen pending_action payload, the persisted ld_messages.intent of the last turn, created_at/decision_count of the created goal, and the WorkItem count (one seeded per project)",
+  "mutation_checks": [
+    "removing the 'global conversation always stages' rule breaks 6 tests",
+    "persisting the classifier intent instead of the mapped intent breaks test_refused_write_is_clarify_in_body_history_and_audit"
+  ],
+  "pytest_tail": "============================= test session starts =============================\ncollecting ... collected 11 items\n\ntests/test_ui4_confirmation_guards.py::test_global_command_creates_nothing_until_confirmed PASSED [  9%]\ntests/test_ui4_confirmation_guards.py::test_global_command_with_a_model_still_needs_confirmation PASSED [ 18%]\ntests/test_ui4_confirmation_guards.py::test_repeated_confirmation_creates_only_one_goal PASSED [ 27%]\ntests/test_ui4_confirmation_guards.py::test_cancel_creates_nothing_and_clears_the_stage PASSED [ 36%]\ntests/test_ui4_confirmation_guards.py::test_superseded_confirmation_creates_nothing PASSED [ 45%]\ntests/test_ui4_confirmation_guards.py::test_confirmation_for_another_project_writes_nothing PASSED [ 54%]\ntests/test_ui4_confirmation_guards.py::test_refused_write_is_clarify_in_body_history_and_audit PASSED [ 63%]\ntests/test_ui4_confirmation_guards.py::test_ambiguous_write_is_clarify_in_history PASSED [ 72%]\ntests/test_ui4_confirmation_guards.py::test_audit_line_reports_the_effective_intent PASSED [ 81%]\ntests/test_ui4_confirmation_guards.py::test_project_bound_conversation_still_applies_an_imperative PASSED [ 90%]\ntests/test_ui4_confirmation_guards.py::test_structured_publish_still_creates_the_goal_directly PASSED [100%]\n\n============================= 11 passed in 50.99s ============================="
+}

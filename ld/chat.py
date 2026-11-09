@@ -134,6 +134,31 @@ def _has_project_reference(message: str) -> bool:
     return any(marker in text for marker in _PROJECT_REFERENCES)
 
 
+def _intent_from_dict(raw: Mapping[str, Any] | None) -> ChatIntent | None:
+    """Rebuild a :class:`ChatIntent` from the dict a handler returned.
+
+    Used only when a handler *re-mapped* the turn (a write that the routing
+    refused is answered as a clarification).  The turn must be persisted and
+    reported under the intent that actually happened, so this reconstructs the
+    mapped intent rather than keeping the classifier's original one.  It never
+    parses untrusted model output: the dict was built by this module.
+    """
+    if not isinstance(raw, Mapping):
+        return None
+    try:
+        kind = ChatIntentKind(str(raw.get("intent")))
+    except ValueError:
+        return None
+    parameters = raw.get("parameters")
+    return ChatIntent(
+        kind,
+        raw.get("project_id"),
+        raw.get("task_id"),
+        raw.get("goal_id"),
+        str(raw.get("reason") or "mapped by the LD"),
+        dict(parameters) if isinstance(parameters, Mapping) else {})
+
+
 #: Wording that asks about the *registry* rather than about one project.
 _REGISTRY_PHRASES = (
     "哪些项目", "所有项目", "项目列表", "几个项目", "有什么项目",
@@ -706,6 +731,14 @@ class LDChat:
         intent, intent_meta = self._classify(message, conversation_id, routing)
         turn = self._dispatch(intent, conversation, message,
                               intent_source=intent_meta, routing=routing)
+        # The turn may have been *re-mapped* (a write refused for lack of a
+        # single project becomes a clarification).  The transcript and the audit
+        # log must record what actually happened, not what was classified:
+        # storing the original ``submit_goal`` while answering "I did not create
+        # anything" makes the history say work was requested and accepted.
+        effective = turn.get("intent")
+        intent = _intent_from_dict(effective) if effective else intent
+        turn = {key: value for key, value in turn.items() if key != "intent"}
         self._record_turn(conversation_id, intent, turn)
         return {"conversation_id": conversation_id, "intent": intent.to_dict(),
                 "intent_source": intent_meta,
@@ -1199,14 +1232,28 @@ class LDChat:
                     f"this turn is deterministically about project {resolved}; "
                     f"it cannot read project {intent.project_id}. Naming the "
                     "project you mean is required.")
-        if (intent.intent is ChatIntentKind.SUBMIT_GOAL
-                and intent_source == "model" and not confirmed_stage
-                and not HeuristicIntentRouter.is_imperative_submission(message)):
-            # The model asked to create work; a deterministic second opinion
-            # does not read the sentence as an instruction.  Stage, never apply.
-            staged = True
-            answer, facts, goal_ids, pending = self._submit_goal(
-                intent, conversation, message, staged=True)
+        if intent.intent is ChatIntentKind.SUBMIT_GOAL and not confirmed_stage:
+            bound_project = conversation.get("project_id")
+            # A **global** conversation always stages: the operator talks about
+            # many projects there, so creating a goal is a project-level write
+            # that must be read back (name, id, full objective, goal id) and
+            # confirmed.  Even a sentence the deterministic router reads as an
+            # unambiguous instruction does not skip that step — the routing
+            # proves *which project*, not that the human meant to start work.
+            #
+            # A **project-bound** conversation keeps the historical behaviour:
+            # only a model-proposed submit that the deterministic second opinion
+            # does not read as an instruction is staged.
+            must_stage = bound_project is None or (
+                intent_source == "model"
+                and not HeuristicIntentRouter.is_imperative_submission(message))
+            if must_stage:
+                staged = True
+                answer, facts, goal_ids, pending = self._submit_goal(
+                    intent, conversation, message, staged=True)
+            else:
+                answer, facts, goal_ids, pending = handler(
+                    intent, conversation, message)
         else:
             answer, facts, goal_ids, pending = handler(intent, conversation, message)
         return {"answer": answer, "facts": facts, "goal_ids": goal_ids,
@@ -1500,13 +1547,14 @@ class LDChat:
                        "goal_ref": goal_ref, "project_id": project_id,
                        "goal_text": goal_text, "staged_at": time.time(),
                        "origin": intent.reason[:200]}
-            preview = goal_text if len(goal_text) <= 300 else goal_text[:300] + "…"
-            # Everything the human is agreeing to, spelled out: a confirmation
-            # that only says "goal X" cannot be checked against what they meant.
+            # Everything the human is agreeing to, spelled out — including the
+            # *complete* objective (bounded by MAX_GOAL_CHARS, which is what a
+            # goal may be).  A truncated preview would let someone confirm text
+            # they have not read, and the goal id is a hash of the full text.
             answer = (f"我理解这是要在这个项目开始工作：\n"
                       f"  项目名称：{self._project_label(project_id)}\n"
                       f"  项目 ID：{project_id}\n"
-                      f"  Goal 正文：{preview}\n"
+                      f"  Goal 正文：{goal_text}\n"
                       f"  目标 ID：{goal_id}\n\n"
                       "如果这不是你的意思，回复 'cancel'。回复 'confirm' 才会创建；"
                       "目前还没有创建或派发任何东西，也不会在这里授予预算。")
@@ -1716,7 +1764,7 @@ class LDChat:
             "这个 Goal 已停止，恢复前请你确认：\n"
             f"  项目名称：{self._project_label(project_id)}\n"
             f"  项目 ID：{project_id}\n"
-            f"  Goal 正文：{(goal.get('goal_text') or '')[:200]}\n"
+            f"  Goal 正文：{goal.get('goal_text') or ''}\n"
             f"  目标 ID：{intent.goal_id}\n"
             f"上一步：{json.dumps(goal.get('last_decision') or {}, ensure_ascii=False, default=str)[:300]}\n\n"
             "回复 'confirm'（或 '确认'）才会恢复，回复 'cancel' 则保持停止。"
@@ -1742,6 +1790,12 @@ class LDChat:
             turn = self._dispatch(
                 intent, self._chats.get_conversation(conversation_id) or {},
                 message, intent_source=intent_meta, routing=routing)
+            # Same rule as a normal turn: persist what actually happened.
+            effective = turn.get("intent")
+            if effective:
+                intent = _intent_from_dict(effective) or intent
+                turn = {key: value for key, value in turn.items()
+                        if key != "intent"}
             self._record_turn(conversation_id, intent, turn)
             return {"conversation_id": conversation_id, "intent": intent.to_dict(),
                     "intent_source": intent_meta,

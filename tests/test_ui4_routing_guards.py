@@ -292,7 +292,12 @@ def test_model_cannot_read_a_different_project_than_the_sentence(harness: Harnes
 
 
 def test_agreement_between_model_and_router_still_writes(harness: Harness):
-    """The guard must not break the working case."""
+    """The guard must not break the working case.
+
+    Agreement means the write is *allowed* to be staged for the stated project —
+    not that it is applied without confirmation (global conversations always
+    stage).  After the confirmation exactly one goal exists, in alpha only.
+    """
     model = _ClaimingModel("submit_goal", "PLACEHOLDER", goal="实现 greet.py")
     harness2 = Harness(intent_model=model, model_domains="local")
     model.project_id = harness2.alpha["id"]
@@ -302,7 +307,16 @@ def test_agreement_between_model_and_router_still_writes(harness: Harness):
             f"继续推进 {harness2.alpha['id']}：实现 greet.py")
         assert status == 200, body
         assert body["intent"]["intent"] == "submit_goal"
-        assert len(body["goal_ids"]) == 1
+        assert body["requires_confirmation"] is True
+        assert body["pending_action"]["project_id"] == harness2.alpha["id"]
+        assert body["goal_ids"] == []
+        assert _seeded_goal_counts(harness2) == before
+
+        status, confirmed = harness2.say("confirm", body["conversation_id"])
+        assert status == 200, confirmed
+        goal_id = body["pending_action"]["goal_id"]
+        assert confirmed["goal_ids"] == [goal_id]
+        assert harness2.goal(goal_id)["project_id"] == harness2.alpha["id"]
         alpha_goals = harness2.goals_of(harness2.alpha["id"])
         assert len(alpha_goals) == before[0] + 1
         assert len(harness2.goals_of(harness2.beta["id"])) == before[1]

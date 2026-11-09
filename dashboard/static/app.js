@@ -1656,9 +1656,13 @@
       const KIND = { goal_resume: "恢复目标", resume_goal: "恢复目标",
                      publish_goal: "发布目标", cancel: "取消操作" };
       const kindText = KIND[pending.kind] || (pending.kind || "操作");
+      // 目标正文在它上方的消息里完整给出（项目名称/ID/正文/目标 ID）；
+      // 这里只补充标识，避免两处文案不一致。
       $("chatPendingLabel").textContent =
-        kindText + (pending.goal_id ? " · 目标 " + pending.goal_id : "") +
-        "。确认或取消都会作为同一会话（conversation_id）的下一条消息交给调度器（LD）。";
+        kindText + (pending.project_id ? " · 项目 " + pending.project_id : "") +
+        (pending.goal_id ? " · 目标 " + pending.goal_id : "") +
+        "。确认或取消都会作为同一会话（conversation_id）的下一条消息交给调度器（LD）；"
+        + "请先核对上方消息里的项目名称、项目 ID、完整目标与目标 ID。";
     }
   }
 
