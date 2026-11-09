@@ -41,6 +41,7 @@ class ChatPolicyError(ChatValidationError):
 
 class ChatIntentKind(str, Enum):
     LIST_PROJECTS = "list_projects"
+    PORTFOLIO_STATUS = "portfolio_status"
     PROJECT_STATUS = "project_status"
     EXPLAIN_BLOCKERS = "explain_blockers"
     GOAL_STATUS = "goal_status"
@@ -53,11 +54,18 @@ class ChatIntentKind(str, Enum):
 
 #: Intent kinds that only read.  Everything else is gated.
 READ_INTENTS = frozenset({
-    ChatIntentKind.LIST_PROJECTS, ChatIntentKind.PROJECT_STATUS,
-    ChatIntentKind.EXPLAIN_BLOCKERS, ChatIntentKind.GOAL_STATUS,
-    ChatIntentKind.TASK_STATUS, ChatIntentKind.KNOWLEDGE_QUERY,
-    ChatIntentKind.CLARIFY,
+    ChatIntentKind.LIST_PROJECTS, ChatIntentKind.PORTFOLIO_STATUS,
+    ChatIntentKind.PROJECT_STATUS, ChatIntentKind.EXPLAIN_BLOCKERS,
+    ChatIntentKind.GOAL_STATUS, ChatIntentKind.TASK_STATUS,
+    ChatIntentKind.KNOWLEDGE_QUERY, ChatIntentKind.CLARIFY,
 })
+
+#: Intents that are answered from the whole registry and therefore never need a
+#: single resolved project.  They must not be downgraded to ``clarify`` because
+#: ``project_routing.source`` is ``none`` or ``ambiguous``: "not about one
+#: project" is exactly what they are for.
+PORTFOLIO_INTENTS = frozenset({ChatIntentKind.LIST_PROJECTS,
+                               ChatIntentKind.PORTFOLIO_STATUS})
 
 #: Intents that change control-plane state.  Both go through existing, already
 #: bounded machinery (goal creation / explicit human resume).
@@ -70,6 +78,9 @@ _TOP_FIELDS = {"intent", "project_id", "task_id", "goal_id", "parameters", "reas
 
 _PARAMS: dict[ChatIntentKind, set[str]] = {
     ChatIntentKind.LIST_PROJECTS: set(),
+    # ``focus`` only selects how much detail is printed; it never changes which
+    # ledger rows are read, so it cannot be used to ask for a narrower truth.
+    ChatIntentKind.PORTFOLIO_STATUS: {"focus"},
     ChatIntentKind.PROJECT_STATUS: set(),
     ChatIntentKind.EXPLAIN_BLOCKERS: set(),
     ChatIntentKind.GOAL_STATUS: {"include_completed"},
@@ -97,6 +108,11 @@ _REQUIRES_GOAL = frozenset({ChatIntentKind.RESUME_GOAL})
 #: importable without the store).
 KNOWLEDGE_KINDS = ("background", "architecture", "constraints", "progress",
                    "knowledge", "decisions")
+
+#: What the owner emphasised in a portfolio question.  It only selects how much
+#: detail the deterministic renderer prints — never which rows are read, and
+#: never a filter that could hide an unpleasant fact.
+PORTFOLIO_FOCUS = ("summary", "goals", "attention", "priority")
 
 
 def _nonempty(value: Any, field: str) -> str:
@@ -199,8 +215,21 @@ def parse_intent(raw: Any) -> ChatIntent:
         raise ChatValidationError(f"{kind.value} requires goal_id")
     if kind is ChatIntentKind.LIST_PROJECTS and project_id:
         raise ChatPolicyError("list_projects must not name a project")
+    if kind is ChatIntentKind.PORTFOLIO_STATUS and project_id:
+        # A portfolio answer spans every project; naming one would let a caller
+        # believe it is a single-project report.  Ask for project_status instead.
+        raise ChatPolicyError(
+            "portfolio_status must not name a project (use project_status)")
 
-    if kind is ChatIntentKind.GOAL_STATUS:
+    if kind is ChatIntentKind.PORTFOLIO_STATUS:
+        if "focus" in params:
+            value = _nonempty(params["focus"], "parameters.focus")
+            if value not in PORTFOLIO_FOCUS:
+                raise ChatPolicyError(
+                    f"unsupported portfolio focus: {value}; "
+                    f"allowed: {', '.join(PORTFOLIO_FOCUS)}")
+            normalized["focus"] = value
+    elif kind is ChatIntentKind.GOAL_STATUS:
         if "include_completed" in params:
             normalized["include_completed"] = _bool(
                 params["include_completed"], "parameters.include_completed")
@@ -236,6 +265,12 @@ def chat_intent_schema() -> dict[str, Any]:
         "additional_properties": False,
         "intents": {
             "list_projects": {"parameters": {}},
+            "portfolio_status": {
+                "parameters": {"focus": list(PORTFOLIO_FOCUS)},
+                "note": ("a cross-project, read-only report derived from the "
+                         "ledger; it must not name a project and it never "
+                         "creates, resumes or dispatches anything"),
+            },
             "project_status": {"requires_project_id": True, "parameters": {}},
             "explain_blockers": {"requires_project_id": True, "parameters": {}},
             "goal_status": {"requires_project_id": True,
@@ -273,6 +308,7 @@ def chat_intent_schema() -> dict[str, Any]:
 
 __all__ = [
     "ChatIntent", "ChatIntentKind", "ChatPolicyError", "ChatValidationError",
-    "CONFIRMATION_REQUIRED", "KNOWLEDGE_KINDS", "READ_INTENTS", "WRITE_INTENTS",
+    "CONFIRMATION_REQUIRED", "KNOWLEDGE_KINDS", "PORTFOLIO_FOCUS",
+    "PORTFOLIO_INTENTS", "READ_INTENTS", "WRITE_INTENTS",
     "chat_intent_schema", "parse_intent",
 ]

@@ -1,0 +1,265 @@
+{
+  "task": "T74-ui4-portfolio",
+  "schema_version": "ui-4-portfolio.v1",
+  "result": "PASS",
+  "checks": {
+    "fixture_intent_is_portfolio": true,
+    "fixture_no_goal_created": true,
+    "fixture_rejected_counted_separately": true,
+    "fixture_needs_human_counted": true,
+    "fixture_overlap_not_double_counted": true,
+    "fixture_completed_goal_not_unfinished": true,
+    "fixture_empty_project_reported": true,
+    "fixture_mentions_ACP-Alpha": true,
+    "fixture_mentions_ACP-Beta": true,
+    "fixture_mentions_ACP-Gamma": true,
+    "fixture_mentions_ACP-Delta": true,
+    "fixture_declares_unknown": true,
+    "fixture_separates_fact_from_judgement": true,
+    "fixture_read_only": true,
+    "production_ledger_present": true,
+    "production_numbers_match_ledger": true,
+    "production_intent_is_portfolio": true,
+    "production_no_goal_created": true,
+    "production_answer_not_clarify": true
+  },
+  "failed": [],
+  "detail": {
+    "fixture_answer": "跨项目只读汇总（全部数值来自 Ledger 确定性读取）\n\n一、事实\n共 4 个项目、4 个 WorkItem：verified 1、rejected 2、inconclusive 1；当前阻塞 1 项、异常验收 2 项、待人工 Goal 2 个、未完成 Goal 2 个。\n\n【ACP-Alpha】prj-4d8bca5540\n  任务 1 个：verified 0、rejected 1、inconclusive 0、active 0、awaiting approval 0\n  Goal 1 个：needs_human 1\n  阻塞：无\n  异常验收（历史结论，不必然是当前待办）：\n    - cp-237afcf63c84 verdict=rejected alpha rejected\n  未完成 Goal：\n    - goal-035b04e8719d [needs_human] alpha exhausted goal\n      停止原因：lifetime decision budget exhausted\n\n【ACP-Beta】prj-950d4d68f3\n  任务 2 个：verified 0、rejected 1、inconclusive 1、active 0、awaiting approval 0\n  Goal 1 个：needs_human 1\n  阻塞（现在就需要人决定）：\n    - cp-d8ad8d422cc0 state=unknown verdict=inconclusive flags=unknown\n  异常验收（历史结论，不必然是当前待办）：\n    - cp-2cb9171c4607 verdict=rejected beta rejected\n  未完成 Goal：\n    - goal-259c61f77fc8 [needs_human] beta needs decision\n\n【ACP-Delta】prj-fc43c74e36\n  任务 0 个：verified 0、rejected 0、inconclusive 0、active 0、awaiting approval 0\n  Goal 0 个\n  阻塞：无\n  未完成 Goal：无\n\n【ACP-Gamma】prj-08e87fd756\n  任务 1 个：verified 1、rejected 0、inconclusive 0、active 0、awaiting approval 0\n  Goal 1 个：completed 1\n  阻塞：无\n  未完成 Goal：无\n\n二、判断（依据上面事实的固定规则，可被质疑）\n规则：先看「执行结果未知」（可能重复投入），再看「等一个具体决定」，再看「预算耗尽（不要直接恢复）」，最后看「历史异常验收」。\nLedger 未记录项目之间的依赖关系，因此这里不做跨项目依赖排序。\n- [P1] ACP-Beta：1 个任务状态未定（cp-d8ad8d422cc0）：可能已创建作业但未被观测到，重复处理有重复投入风险\n    依据：state=unknown / dispatch_unknown 且 queue_status 非 complete\n    同时存在：1 个 Goal 在等一个具体决定（goal-259c61f77fc8）\n- [P3] ACP-Alpha：1 个 Goal 因预算耗尽停止（goal-035b04e8719d）：恢复会再次耗尽同一预算，应先判断目标是否还值得继续\n    依据：status=needs_human 且 last_decision.stop 含 budget\n    同时存在：1 个任务验收未通过但当前不阻塞：属历史结论，是否重做由你决定\n\n三、暂无法判断\n- cp-d8ad8d422cc0（ACP-Beta）处于 unknown / needs_human：Ledger 未记录该作业是否真的创建成功，需要查 Worker 侧日志才能定案。\n\n本次为只读汇总：未创建 Goal，未恢复任何 Goal，未提交 WorkItem。",
+    "fixture_rows": {
+      "prj-4d8bca5540": {
+        "project_id": "prj-4d8bca5540",
+        "name": "ACP-Alpha",
+        "active": true,
+        "counts": {
+          "total": 1,
+          "active": 0,
+          "verified": 0,
+          "rejected": 1,
+          "inconclusive": 0,
+          "pending": 0,
+          "needs_human": 0,
+          "needs_approval": 0,
+          "dispatch_unknown": 0,
+          "suspected_lost": 0,
+          "session_binding_conflict": 0
+        },
+        "blocked": 0,
+        "abnormal_verdict": 1,
+        "needs_human_goals": 1,
+        "goal_status_counts": {
+          "needs_human": 1
+        },
+        "truncated": false
+      },
+      "prj-950d4d68f3": {
+        "project_id": "prj-950d4d68f3",
+        "name": "ACP-Beta",
+        "active": true,
+        "counts": {
+          "total": 2,
+          "active": 0,
+          "verified": 0,
+          "rejected": 1,
+          "inconclusive": 1,
+          "pending": 0,
+          "needs_human": 1,
+          "needs_approval": 0,
+          "dispatch_unknown": 0,
+          "suspected_lost": 0,
+          "session_binding_conflict": 0
+        },
+        "blocked": 1,
+        "abnormal_verdict": 1,
+        "needs_human_goals": 1,
+        "goal_status_counts": {
+          "needs_human": 1
+        },
+        "truncated": false
+      },
+      "prj-fc43c74e36": {
+        "project_id": "prj-fc43c74e36",
+        "name": "ACP-Delta",
+        "active": true,
+        "counts": {
+          "total": 0,
+          "active": 0,
+          "verified": 0,
+          "rejected": 0,
+          "inconclusive": 0,
+          "pending": 0,
+          "needs_human": 0,
+          "needs_approval": 0,
+          "dispatch_unknown": 0,
+          "suspected_lost": 0,
+          "session_binding_conflict": 0
+        },
+        "blocked": 0,
+        "abnormal_verdict": 0,
+        "needs_human_goals": 0,
+        "goal_status_counts": {},
+        "truncated": false
+      },
+      "prj-08e87fd756": {
+        "project_id": "prj-08e87fd756",
+        "name": "ACP-Gamma",
+        "active": true,
+        "counts": {
+          "total": 1,
+          "active": 0,
+          "verified": 1,
+          "rejected": 0,
+          "inconclusive": 0,
+          "pending": 0,
+          "needs_human": 0,
+          "needs_approval": 0,
+          "dispatch_unknown": 0,
+          "suspected_lost": 0,
+          "session_binding_conflict": 0
+        },
+        "blocked": 0,
+        "abnormal_verdict": 0,
+        "needs_human_goals": 0,
+        "goal_status_counts": {
+          "completed": 1
+        },
+        "truncated": false
+      }
+    },
+    "production_mismatches": [],
+    "production_truth": {
+      "projects": [
+        {
+          "project_id": "prj-b4336da513",
+          "name": "ACP-Development",
+          "active": true,
+          "total": 2,
+          "verified": 1,
+          "rejected": 1,
+          "inconclusive": 0,
+          "blocked": 0,
+          "needs_human_goals": 1,
+          "goal_status": {
+            "needs_human": 1,
+            "completed": 1
+          }
+        },
+        {
+          "project_id": "prj-c8a861e0de",
+          "name": "ACP-SelfTest",
+          "active": true,
+          "total": 5,
+          "verified": 2,
+          "rejected": 2,
+          "inconclusive": 1,
+          "blocked": 1,
+          "needs_human_goals": 4,
+          "goal_status": {
+            "needs_human": 4,
+            "completed": 1
+          }
+        }
+      ]
+    },
+    "production_reported": {
+      "prj-b4336da513": {
+        "project_id": "prj-b4336da513",
+        "name": "ACP-Development",
+        "active": true,
+        "counts": {
+          "total": 2,
+          "active": 0,
+          "verified": 1,
+          "rejected": 1,
+          "inconclusive": 0,
+          "pending": 0,
+          "needs_human": 0,
+          "needs_approval": 0,
+          "dispatch_unknown": 0,
+          "suspected_lost": 0,
+          "session_binding_conflict": 0
+        },
+        "blocked": 0,
+        "abnormal_verdict": 1,
+        "needs_human_goals": 1,
+        "goal_status_counts": {
+          "completed": 1,
+          "needs_human": 1
+        },
+        "truncated": false
+      },
+      "prj-c8a861e0de": {
+        "project_id": "prj-c8a861e0de",
+        "name": "ACP-SelfTest",
+        "active": true,
+        "counts": {
+          "total": 5,
+          "active": 0,
+          "verified": 2,
+          "rejected": 2,
+          "inconclusive": 1,
+          "pending": 0,
+          "needs_human": 1,
+          "needs_approval": 0,
+          "dispatch_unknown": 0,
+          "suspected_lost": 0,
+          "session_binding_conflict": 0
+        },
+        "blocked": 1,
+        "abnormal_verdict": 2,
+        "needs_human_goals": 4,
+        "goal_status_counts": {
+          "needs_human": 4,
+          "completed": 1
+        },
+        "truncated": false
+      }
+    },
+    "production_totals": {
+      "projects": 2,
+      "work_items": 7,
+      "verified": 3,
+      "rejected": 3,
+      "inconclusive": 1,
+      "blocked": 1,
+      "abnormal_verdict": 3,
+      "needs_human_goals": 5,
+      "unfinished_goals": 5,
+      "truncated_projects": []
+    },
+    "production_answer": "跨项目只读汇总（全部数值来自 Ledger 确定性读取）\n\n一、事实\n共 2 个项目、7 个 WorkItem：verified 3、rejected 3、inconclusive 1；当前阻塞 1 项、异常验收 3 项、待人工 Goal 5 个、未完成 Goal 5 个。\n\n【ACP-Development】prj-b4336da513\n  任务 2 个：verified 1、rejected 1、inconclusive 0、active 0、awaiting approval 0\n  Goal 2 个：completed 1、needs_human 1\n  阻塞：无\n  异常验收（历史结论，不必然是当前待办）：\n    - cp-934341b3f942 verdict=rejected T67 Dashboard Playwright DOM 验收\n  未完成 Goal：\n    - goal-b6ca68a03f0d [needs_human] 在 ACP-Development 项目中，基于当前开发仓库 HEAD `c0e89b0ef8229e84c2ecf85a886c824ad990a620` 执行 T67 Dashboard Play\n      预算：decisions 2/24、tasks 1/4\n\n【ACP-SelfTest】prj-c8a861e0de\n  任务 5 个：verified 2、rejected 2、inconclusive 1、active 0、awaiting approval 0\n  Goal 5 个：completed 1、needs_human 4\n  阻塞（现在就需要人决定）：\n    - cp-fbcb5f8242c7 state=unknown verdict=inconclusive flags=unknown\n  异常验收（历史结论，不必然是当前待办）：\n    - cp-d10689e7567f verdict=rejected Add T67 UI-1 Dashboard Playwright DOM acceptance\n    - cp-55e2453a45d2 verdict=rejected Create SELF_TEST.txt with hello-acp-manager\n  未完成 Goal：\n    - goal-72db7e0f8429 [needs_human] # T67：UI-1 Dashboard 真实浏览器 DOM 端到端验收  ## 一、任务目标  为当前 `coding-agent-control-plane` 项目的 UI-1 Dashboard\n      预算：decisions 2/24、tasks 1/4\n    - goal-7916dc942a74 [needs_human] Create a new file named SELF_TEST_3.txt in the project root whose content contains the line hello-ac\n      停止原因：lifetime decision budget exhausted\n      预算：decisions 2/24、tasks 1/4\n    - goal-07afd49598ed [needs_human] Create a new file named SELF_TEST_2.txt in the project root whose content contains the line hello-ac\n      预算：decisions 2/24、tasks 1/4\n    - goal-d4af428694ec [needs_human] Create a new file SELF_TEST.txt in the project root whose content contains the line hello-acp-manage\n      停止原因：lifetime decision budget exhausted\n      预算：decisions 2/24、tasks 1/4\n\n二、判断（依据上面事实的固定规则，可被质疑）\n规则：先看「执行结果未知」（可能重复投入），再看「等一个具体决定」，再看「预算耗尽（不要直接恢复）」，最后看「历史异常验收」。\nLedger 未记录项目之间的依赖关系，因此这里不做跨项目依赖排序。\n- [P1] ACP-SelfTest：1 个任务状态未定（cp-fbcb5f8242c7）：可能已创建作业但未被观测到，重复处理有重复投入风险\n    依据：state=unknown / dispatch_unknown 且 queue_status 非 complete\n    同时存在：2 个 Goal 在等一个具体决定（goal-72db7e0f8429, goal-07afd49598ed）\n    同时存在：2 个 Goal 因预算耗尽停止（goal-7916dc942a74, goal-d4af428694ec）：恢复会再次耗尽同一预算，应先判断目标是否还值得继续\n- [P2] ACP-Development：1 个 Goal 在等一个具体决定（goal-b6ca68a03f0d）\n    依据：status=needs_human 且 last_decision.action=request_human\n    同时存在：1 个任务验收未通过但当前不阻塞：属历史结论，是否重做由你决定\n\n三、暂无法判断\n- cp-fbcb5f8242c7（ACP-SelfTest）处于 unknown / needs_human：Ledger 未记录该作业是否真的创建成功，需要查 Worker 侧日志才能定案。\n\n本次为只读汇总：未创建 Goal，未恢复任何 Goal，未提交 WorkItem。",
+    "production_priorities": [
+      {
+        "rank": "P1",
+        "project_id": "prj-c8a861e0de",
+        "project": "ACP-SelfTest",
+        "why": "1 个任务状态未定（cp-fbcb5f8242c7）：可能已创建作业但未被观测到，重复处理有重复投入风险",
+        "basis": "state=unknown / dispatch_unknown 且 queue_status 非 complete",
+        "also": [
+          "2 个 Goal 在等一个具体决定（goal-72db7e0f8429, goal-07afd49598ed）",
+          "2 个 Goal 因预算耗尽停止（goal-7916dc942a74, goal-d4af428694ec）：恢复会再次耗尽同一预算，应先判断目标是否还值得继续"
+        ]
+      },
+      {
+        "rank": "P2",
+        "project_id": "prj-b4336da513",
+        "project": "ACP-Development",
+        "why": "1 个 Goal 在等一个具体决定（goal-b6ca68a03f0d）",
+        "basis": "status=needs_human 且 last_decision.action=request_human",
+        "also": [
+          "1 个任务验收未通过但当前不阻塞：属历史结论，是否重做由你决定"
+        ]
+      }
+    ],
+    "production_unknowns": [
+      "cp-fbcb5f8242c7（ACP-SelfTest）处于 unknown / needs_human：Ledger 未记录该作业是否真的创建成功，需要查 Worker 侧日志才能定案。"
+    ]
+  },
+  "environment": {
+    "fixture": "isolated throwaway ledger under .poc-state/t74",
+    "production": "opened mode=ro + query_only; never written",
+    "model": "none (in-process deterministic router)",
+    "worker": "none: a portfolio report dispatches nothing"
+  },
+  "note": "production numbers are compared with a fresh SQL read at run time; no figure from this report is hard-coded in the code or the checks"
+}

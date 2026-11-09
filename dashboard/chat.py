@@ -443,12 +443,97 @@ class ChatBridge:
             view["candidates"] = candidates
         return view
 
+    @staticmethod
+    def _portfolio_view(facts: Any) -> dict[str, Any] | None:
+        """The structured part of a cross-project report, and nothing else.
+
+        ``facts`` for a portfolio turn carries per-project counters, the totals
+        and the priority list.  Keeping it out of the generic projection is
+        deliberate (``_facts_view`` exposes only outcome flags), but the console
+        needs the numbers to render a table, so they get their own narrow view.
+
+        What is *not* passed through: goal text, task titles, stop reasons,
+        warnings, project roots.  Those stay in the deterministic answer text,
+        which is already rendered from the ledger with the same care as any other
+        answer.  Re-exposing them here would create a second, less reviewed path
+        from ledger content to the browser.
+        """
+        if not isinstance(facts, dict) or not facts.get("portfolio"):
+            return None
+        projects = []
+        for row in facts.get("projects") or []:
+            if not isinstance(row, dict):
+                continue
+            projects.append({
+                "project_id": row.get("project_id"),
+                "name": row.get("name"),
+                "active": bool(row.get("active")),
+                "counts": dict(row.get("counts") or {}),
+                "blocked": int(row.get("blocked") or 0),
+                "abnormal_verdict": int(row.get("abnormal_verdict") or 0),
+                "needs_human_goals": int(row.get("needs_human_goals") or 0),
+                "goal_status_counts": dict(row.get("goal_status_counts") or {}),
+                "truncated": bool(row.get("truncated")),
+            })
+        totals = dict(facts.get("totals") or {})
+        priorities = []
+        for item in facts.get("priorities") or []:
+            if not isinstance(item, dict):
+                continue
+            priorities.append({
+                "rank": item.get("rank"),
+                "project_id": item.get("project_id"),
+                "project": item.get("project"),
+                "why": str(item.get("why") or "")[:500],
+                "basis": str(item.get("basis") or "")[:300],
+                "also": [str(text)[:300] for text in item.get("also") or []][:5],
+            })
+        return {
+            "projects": projects,
+            "totals": totals,
+            "priorities": priorities,
+            "unknowns": [str(item)[:500] for item in
+                         (facts.get("unknowns") or [])][:20],
+        }
+
+    @staticmethod
+    def _project_rows_view(facts: Any) -> list[dict[str, Any]] | None:
+        """Per-project counters for the registry list (no prose, no titles).
+
+        The list turn's ``facts`` carry exactly the numbers the console tabulates:
+        raw counts plus the three separately-defined attention numbers.  Free-form
+        fields (titles, goal text, stop reasons, roots) are *not* forwarded; they
+        remain in the deterministic answer text.
+        """
+        if not isinstance(facts, dict):
+            return None
+        rows = facts.get("projects")
+        if not isinstance(rows, list):
+            return None
+        out = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            out.append({
+                "project_id": row.get("project_id"),
+                "name": row.get("name"),
+                "active": bool(row.get("active")),
+                "counts": dict(row.get("counts") or {}),
+                "blocked": int(row.get("blocked") or 0),
+                "abnormal_verdict": int(row.get("abnormal_verdict") or 0),
+                "needs_human_goals": int(row.get("needs_human_goals") or 0),
+                "truncated": bool(row.get("truncated")),
+            })
+        return out
+
     @classmethod
     def _turn_view(cls, result: dict[str, Any]) -> dict[str, Any]:
         return {
             "conversation_id": result.get("conversation_id"),
             "answer": str(result.get("answer") or ""),
             "facts": cls._facts_view(result.get("facts")),
+            "portfolio": cls._portfolio_view(result.get("facts")),
+            "project_rows": cls._project_rows_view(result.get("facts")),
             "intent": cls._intent_view(result.get("intent")),
             "intent_source": str(result.get("intent_source") or "unknown"),
             "project_routing": cls._routing_view(result.get("project_routing")),

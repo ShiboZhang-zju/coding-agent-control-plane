@@ -413,6 +413,24 @@
   `goal_count` 为 0。不得"回答是提问、持久化仍记原始写意图"。
 - **进度摘要只能来自 Ledger。** 全局摘要不得给出完成比例、Worker 存活或 Runner
   在线状态；`goal_runner_liveness` 恒为 `unknown`。
+- **三类计数必须分开，不能合成一个"需要注意"。** `blocked_workitems`（执行阻塞或
+  待决）、`abnormal_verdict_workitems`（rejected / inconclusive）、
+  `needs_human_goals`（待人工 Goal）回答三个不同问题。同一 WorkItem 只进一个任务桶：
+  既阻塞又有坏 verdict 的（真实数据里的 inconclusive + needs_human 重叠）记为阻塞并在
+  同一条记录上保留 `verdict`。曾把"需要注意"只算 `blocked_tasks`，导致全局视图报
+  "0 needing attention"，而实际有 rejected 任务与停滞 Goal。
+- **统计必须读全量，不能读"最近 10 条"。** `get_project_progress()['recent_tasks']`
+  被截断到 10 条，较早的异常记录会消失。指标层用 `get_project_tasks(limit=...)`
+  全量读取，上限受工具层约束（当前 200）；达到上限必须显式标注不完整。
+- **读取失败不得当作"零"。** 静默吞异常会把"读不到"变成"没有任务"，从而给出错误
+  数字。失败必须记录 `read_error` 并在答案与 `unknowns` 中声明明细不完整。
+- **跨项目汇总是只读意图，且无需唯一项目。** `portfolio_status` 从已注册项目与
+  Ledger 构造，不得因为 `routing.source=none/ambiguous` 降级为 `clarify`——它本来
+  就不针对单一项目。豁免只在 `portfolio_status` 与**措辞确实是注册表问题**的
+  `list_projects` 上生效，不得因此放松任何写操作路由或确认门槛。
+- **事实与判断必须分开写。** 事实段只陈述 Ledger 已记录的状态、错误与计数；判断段
+  标注所依据的固定规则，且不得声称 Ledger 未记录的依赖关系或严重程度。无法判断时
+  写"暂无法判断"，例如 `unknown` 状态的派发只能说明需要查 Worker 侧日志。
 
 ## 6. 派发与审批规则（M1 补充）
 - 入队即冻结 Effective Prompt。已入队任务的内容不得因上下文更新而改变。

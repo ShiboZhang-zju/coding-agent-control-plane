@@ -59,6 +59,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, NamedTuple
 
 from ld.chat_intent import (
+    PORTFOLIO_INTENTS,
     READ_INTENTS,
     WRITE_INTENTS,
     ChatIntent,
@@ -177,6 +178,26 @@ def _is_registry_question(message: str) -> bool:
     return any(phrase in text for phrase in _REGISTRY_PHRASES)
 
 
+def _is_portfolio_answer(kind, message: str) -> bool:
+    """An answer that is legitimately about *every* project.
+
+    Two cases, and both are checked against the sentence rather than trusted
+    from the classifier:
+
+    * ``portfolio_status`` — its whole subject is the set of projects, so an
+      ambiguous reference inside the sentence is irrelevant to it;
+    * ``list_projects`` — only when the wording really asks for the registry,
+      because an ambiguous sentence that merely got labelled ``list_projects``
+      must still be refused rather than answered with a list.
+    """
+    from ld.chat_intent import ChatIntentKind as _Kind
+    if kind is _Kind.PORTFOLIO_STATUS:
+        return True
+    if kind is _Kind.LIST_PROJECTS:
+        return _is_registry_question(message)
+    return False
+
+
 #: Write intents that may only run against one *resolved* project.  ``clarify``
 #: and the read intents are absent on purpose: reading a list of projects needs
 #: no single target.
@@ -215,6 +236,28 @@ class ProjectRouting(NamedTuple):
 #: truncated: the objective *is* the goal's identity, so silently shortening it
 #: would create a different goal than the one that was confirmed.
 MAX_GOAL_CHARS = 2000
+
+#: How many ledger work items one project may contribute to a report.  This is a
+#: *safety* bound on a single read, not a "recent tasks" window: it is the largest
+#: page the tools layer will serve, so an old rejection is still counted instead
+#: of falling outside the 10-row ``recent_tasks`` window.  When the bound is
+#: actually hit the report says so rather than presenting a partial count as
+#: complete (see ``truncated`` in :meth:`LDChat._project_metrics`).
+#:
+#: It must not exceed the tools layer's own maximum: asking for more raises
+#: ``ValueError``, and a swallowed exception here once turned every project's
+#: task list into "empty" — the report then said "0 tasks" for a project with
+#: rejected work.  A wrong number is worse than an error.
+MAX_REPORTED_WORK_ITEMS = 200
+
+#: Verdicts that mean "the control plane did not accept this artifact".  They are
+#: *not* "blocked": nothing is waiting in a queue.  Mixing the two is what made
+#: a global overview say "0 needing attention" while three rejected tasks and
+#: five stopped goals were sitting in the ledger.
+ABNORMAL_VERDICTS = ("rejected", "inconclusive")
+
+#: Goal statuses that are finished, so they are not "unfinished work".
+TERMINAL_GOAL_STATUSES = ("completed", "cancelled", "failed")
 
 #: Markers that a sentence is quoting project knowledge, credentials or other
 #: local-domain content.  This is a conservative *detector*, not a redactor:
@@ -333,6 +376,29 @@ class HeuristicIntentRouter:
     _LIST_PROJECTS = ("哪些项目", "所有项目", "项目列表", "几个项目", "what projects",
                       "which projects", "all projects", "list projects")
 
+    #: Unambiguous aggregation words: on their own they already mean "more than
+    #: one project", so they are a portfolio request by themselves.
+    _PORTFOLIO_STRONG = ("汇总", "各项目", "每个项目", "跨项目", "优先", "优先级",
+                         "需要我", "要我处理", "需要人工", "待我", "介入",
+                         "portfolio", "across projects", "every project",
+                         "priorit", "needs me")
+    #: Words that may mean "all projects" *or* merely introduce the topic.  They
+    #: only count when a second signal says the sentence aggregates (e.g.
+    #: "所有项目有哪些未完成目标" vs "现在有哪些项目").  Recognising the bare
+    #: "所有项目" as aggregation would turn the registry question into a report.
+    _PORTFOLIO_WEAK = ("所有项目", "全部项目", "all projects")
+    #: Second signals that make a weak phrase an aggregation request.
+    _PORTFOLIO_SECOND = ("未完成", "未结束", "没完成", "还在跑", "未达成", "遗留",
+                         "阻塞", "卡住", "进度", "风险", "优先", "需要",
+                         "unfinished", "outstanding", "blocked", "progress",
+                         "risk", "priorit", "open goals", "attention")
+    #: Phrases that select ``focus=goals`` / ``focus=attention``.
+    _PORTFOLIO_GOALS = ("未完成", "未结束", "没完成", "还在跑", "未达成", "遗留",
+                        "目标", "unfinished", "open goals", "outstanding", "goals")
+    _PORTFOLIO_ATTENTION = ("需要我", "要我处理", "需要人工", "待我", "处理什么",
+                            "介入", "阻塞", "卡住", "blocked", "needs me",
+                            "attention")
+
     #: Interrogative markers (CJK and English).  Presence of any of these means
     #: the turn asks something; it can never be executed as an instruction.
     _QUESTION_MARKS = ("?", "？", "吗", "呢", "么", "是不是", "有没有", "如何",
@@ -392,7 +458,17 @@ class HeuristicIntentRouter:
                 and goal_id):
             return self._intent("resume_goal", project_id=project_id,
                                 goal_id=goal_id, reason="keyword: resume")
-        # 2. A question about a verb is answered by reading state, never by
+        # 2. A cross-project request is a read that needs *no* single project.
+        #    Checked before the question branch because these requests are
+        #    usually phrased as questions ("所有项目有哪些未完成目标？") and the
+        #    question branch would otherwise answer them as a clarification or
+        #    as one project's status.  Only fires when no project resolved: an
+        #    explicit "ACP-Development 的汇总" stays a single-project read.
+        if self.is_portfolio_request(message) and not project_id:
+            return self._intent(
+                "portfolio_status", reason="aggregation over all projects",
+                parameters={"focus": self._portfolio_focus(message)})
+        # 3. A question about a verb is answered by reading state, never by
         #    creating work.  This is the P0-1 fix.
         if is_question:
             return self._read_for_question(message, project_id=project_id,
@@ -590,6 +666,32 @@ class HeuristicIntentRouter:
                                reason="question about goal progress")
         return cls._intent("project_status", project_id=project_id,
                            reason="question about project status")
+
+    @classmethod
+    def is_portfolio_request(cls, message: str) -> bool:
+        """True when the sentence asks about several projects at once.
+
+        Deliberately requires either a strong aggregation word or a weak one
+        *plus* a second signal: "现在有哪些项目" is a registry question, while
+        "所有项目有哪些未完成目标" is a portfolio question.  Treating the former
+        as a portfolio request would replace a two-line list with a full report.
+        """
+        lowered = (message or "").lower()
+        if any(word in lowered for word in cls._PORTFOLIO_STRONG):
+            return True
+        return (any(word in lowered for word in cls._PORTFOLIO_WEAK)
+                and any(word in lowered for word in cls._PORTFOLIO_SECOND))
+
+    @classmethod
+    def _portfolio_focus(cls, message: str) -> str:
+        lowered = (message or "").lower()
+        if any(word in lowered for word in cls._PORTFOLIO_ATTENTION):
+            return "attention"
+        if any(word in lowered for word in cls._PORTFOLIO_GOALS):
+            return "goals"
+        if "优先" in lowered or "priorit" in lowered:
+            return "priority"
+        return "summary"
 
     @staticmethod
     def _intent(kind: str, *, reason: str, project_id=None, task_id=None,
@@ -1149,6 +1251,7 @@ class LDChat:
                   confirmed_stage: bool = False) -> dict[str, Any]:
         handlers = {
             ChatIntentKind.LIST_PROJECTS: self._list_projects,
+            ChatIntentKind.PORTFOLIO_STATUS: self._portfolio_status,
             ChatIntentKind.PROJECT_STATUS: self._project_status,
             ChatIntentKind.EXPLAIN_BLOCKERS: self._explain_blockers,
             ChatIntentKind.GOAL_STATUS: self._goal_status,
@@ -1196,12 +1299,15 @@ class LDChat:
             intent = replace(intent, project_id=project_id)
         elif (routing.source == "ambiguous"
                 and intent.intent is not ChatIntentKind.CLARIFY
-                and not (intent.intent is ChatIntentKind.LIST_PROJECTS
-                         and _is_registry_question(message))):
+                and not _is_portfolio_answer(intent.intent, message)):
             # A read also cannot be answered when the sentence points at several
             # projects: any single-project answer would be about a project the
-            # human may not have meant.  Asking for the registry itself is exempt
-            # because that answer is not about one project at all.
+            # human may not have meant.  Two kinds of answer are exempt because
+            # they are not about one project at all: a genuine registry question,
+            # and a portfolio report (whose subject *is* every project).  The
+            # registry exemption stays conditional on the wording — an ambiguous
+            # sentence that merely got classified as ``list_projects`` must still
+            # be refused, or ambiguity would silently become a project list.
             answer = (
                 "这一句可能指向多个项目："
                 f"{', '.join(routing.candidates)}。我没有读取或创建任何东西。"
@@ -1272,21 +1378,315 @@ class LDChat:
         lines = ["Current projects (all figures derived from the ledger):", ""]
         rows = []
         for item in projects:
-            progress = self._safe("get_project_progress",
-                                  lambda pid=item["project_id"]:
-                                  self._tools.get_project_progress(pid), None)
-            counts = (progress or {}).get("counts") or {}
+            metrics = self._project_metrics(item["project_id"])
+            counts = metrics["counts"]
+            blocked = metrics["blocked_workitems"]
+            abnormal = metrics["abnormal_verdict_workitems"]
+            # Three separate numbers, because they mean three separate things.
+            # The old single "needing attention" number read only
+            # ``blocked_tasks``, so a rejected task and a stopped goal were both
+            # invisible here even though the single-project view reported them.
             lines.append(
                 f"- {item.get('name')} ({item['project_id']})"
                 f"{'' if item.get('active') else ' [disabled]'}: "
-                f"{counts.get('total', item.get('task_count', 0))} tasks, "
-                f"{counts.get('verified', item.get('verified', 0))} verified, "
-                f"{counts.get('rejected', item.get('rejected', 0))} rejected, "
-                f"{len((progress or {}).get('blocked_tasks') or [])} needing attention")
+                f"{counts.get('total', item.get('task_count', 0))} tasks "
+                f"({counts.get('verified', 0)} verified, "
+                f"{counts.get('rejected', 0)} rejected, "
+                f"{counts.get('inconclusive', 0)} inconclusive), "
+                f"{len(blocked)} blocked, "
+                f"{len(abnormal)} abnormal verdict, "
+                f"{len(metrics['needs_human_goals'])} goals needing a human")
             rows.append({"project_id": item["project_id"], "name": item.get("name"),
                          "active": item.get("active"), "counts": counts,
-                         "blocked": len((progress or {}).get("blocked_tasks") or [])})
+                         "blocked": len(blocked),
+                         "abnormal_verdict": len(abnormal),
+                         "needs_human_goals": len(metrics["needs_human_goals"]),
+                         "truncated": metrics["truncated"]})
         return "\n".join(lines), {"projects": rows}, [], None
+
+    def _portfolio_status(self, intent, conversation, message):
+        """Cross-project, read-only report.  Facts first, then judgement.
+
+        The split is the point of this handler.  Everything under "Facts" is a
+        ledger row read deterministically; everything under "Judgement" is
+        marked as such and is derived from a fixed, stated rule, so a reader can
+        disagree with the recommendation without doubting the numbers.  Where the
+        ledger cannot support a conclusion the text says so instead of inventing
+        a dependency or a severity.
+
+        This intent needs no single project: it is exempt from the
+        ``source=none`` → ``clarify`` rule by construction (see
+        ``PORTFOLIO_INTENTS``), because "not about one project" is its subject.
+        It creates nothing, resumes nothing, dispatches nothing.
+        """
+        projects = self._tools.list_projects()
+        if not projects:
+            return ("No projects are registered yet, so there is nothing to "
+                    "summarise. Add one with "
+                    "`controlplane project add <name> <root>`."), \
+                {"projects": [], "portfolio": True}, [], None
+
+        portfolio = []
+        for item in projects:
+            metrics = self._project_metrics(item["project_id"])
+            portfolio.append({"project": item, "metrics": metrics})
+
+        facts = self._portfolio_facts(portfolio)
+        judgement = self._portfolio_judgement(portfolio)
+
+        lines = ["跨项目只读汇总（全部数值来自 Ledger 确定性读取）", ""]
+        lines.append("一、事实")
+        lines.extend(facts["lines"])
+        lines.append("")
+        lines.append("二、判断（依据上面事实的固定规则，可被质疑）")
+        lines.extend(judgement["lines"])
+        if facts["unknowns"]:
+            lines.append("")
+            lines.append("三、暂无法判断")
+            lines.extend(f"- {item}" for item in facts["unknowns"])
+        lines.append("")
+        lines.append("本次为只读汇总：未创建 Goal，未恢复任何 Goal，"
+                     "未提交 WorkItem。")
+
+        return "\n".join(lines), {
+            "portfolio": True,
+            "projects": [{"project_id": entry["project"]["project_id"],
+                          "name": entry["project"].get("name"),
+                          "active": entry["project"].get("active"),
+                          "counts": entry["metrics"]["counts"],
+                          "blocked": len(entry["metrics"]["blocked_workitems"]),
+                          "abnormal_verdict": len(
+                              entry["metrics"]["abnormal_verdict_workitems"]),
+                          "needs_human_goals": len(
+                              entry["metrics"]["needs_human_goals"]),
+                          "goal_status_counts": entry["metrics"][
+                              "goal_status_counts"],
+                          "truncated": entry["metrics"]["truncated"]}
+                         for entry in portfolio],
+            "totals": facts["totals"],
+            "priorities": judgement["priorities"],
+            "unknowns": facts["unknowns"],
+        }, [], None
+
+    def _portfolio_facts(self, portfolio: list[dict]) -> dict:
+        """Every number a portfolio answer may state, and nothing else."""
+        lines: list[str] = []
+        unknowns: list[str] = []
+        totals = {"projects": len(portfolio), "work_items": 0, "verified": 0,
+                  "rejected": 0, "inconclusive": 0, "blocked": 0,
+                  "abnormal_verdict": 0, "needs_human_goals": 0,
+                  "unfinished_goals": 0, "truncated_projects": []}
+
+        for entry in portfolio:
+            project = entry["project"]
+            metrics = entry["metrics"]
+            counts = metrics["counts"]
+            name = project.get("name")
+            pid = project["project_id"]
+            totals["work_items"] += counts.get("total", 0)
+            totals["verified"] += counts.get("verified", 0)
+            totals["rejected"] += counts.get("rejected", 0)
+            totals["inconclusive"] += counts.get("inconclusive", 0)
+            totals["blocked"] += len(metrics["blocked_workitems"])
+            totals["abnormal_verdict"] += len(
+                metrics["abnormal_verdict_workitems"])
+            totals["needs_human_goals"] += len(metrics["needs_human_goals"])
+            totals["unfinished_goals"] += len(metrics["unfinished_goals"])
+            if metrics["truncated"]:
+                totals["truncated_projects"].append(pid)
+
+            lines.append("")
+            lines.append(f"【{name}】{pid}"
+                         f"{'' if project.get('active') else ' [已停用]'}")
+            lines.append(
+                f"  任务 {counts.get('total', 0)} 个："
+                f"verified {counts.get('verified', 0)}、"
+                f"rejected {counts.get('rejected', 0)}、"
+                f"inconclusive {counts.get('inconclusive', 0)}、"
+                f"active {counts.get('active', 0)}、"
+                f"awaiting approval {counts.get('needs_approval', 0)}")
+            if metrics.get("read_error"):
+                lines.append(
+                    f"  ⚠ 读取任务明细失败（{metrics['read_error']}）："
+                    "下面的阻塞/异常列表不完整，请以计数为准。")
+                unknowns.append(
+                    f"{name} 的任务明细未能读取（{metrics['read_error']}），"
+                    "无法判断其阻塞与异常验收明细。")
+            if metrics["truncated"]:
+                lines.append(
+                    f"  ⚠ WorkItem 明细达到读取上限 {MAX_REPORTED_WORK_ITEMS}，"
+                    "列表可能不完整（计数仍然正确）。")
+            goal_counts = metrics["goal_status_counts"]
+            if goal_counts:
+                rendered = "、".join(f"{key} {value}"
+                                     for key, value in sorted(goal_counts.items()))
+                lines.append(f"  Goal {sum(goal_counts.values())} 个：{rendered}")
+            else:
+                lines.append("  Goal 0 个")
+
+            if metrics["blocked_workitems"]:
+                lines.append("  阻塞（现在就需要人决定）：")
+                for task in metrics["blocked_workitems"]:
+                    flags = ", ".join(task.get("attention_flags") or []) or "unknown"
+                    lines.append(f"    - {task['task_id']} "
+                                 f"state={task.get('state')} "
+                                 f"verdict={task.get('verdict')} flags={flags}")
+            else:
+                lines.append("  阻塞：无")
+
+            if metrics["abnormal_verdict_workitems"]:
+                lines.append("  异常验收（历史结论，不必然是当前待办）：")
+                for task in metrics["abnormal_verdict_workitems"]:
+                    lines.append(f"    - {task['task_id']} "
+                                 f"verdict={task.get('verdict')} "
+                                 f"{(task.get('title') or '')[:60]}")
+
+            if metrics["unfinished_goals"]:
+                lines.append("  未完成 Goal：")
+                for goal in metrics["unfinished_goals"]:
+                    text = (goal.get("goal_text") or "").replace("\n", " ")
+                    lines.append(f"    - {goal['goal_id']} [{goal['status']}] "
+                                 f"{text[:100]}")
+                    stop = goal.get("stop_reason")
+                    if stop:
+                        lines.append(f"      停止原因：{stop[:120]}")
+                    if goal.get("max_decisions") is not None:
+                        lines.append(
+                            f"      预算：decisions "
+                            f"{goal.get('model_decision_count', 0)}/"
+                            f"{goal.get('max_decisions')}、tasks "
+                            f"{goal.get('task_count', 0)}/{goal.get('max_tasks')}")
+            else:
+                lines.append("  未完成 Goal：无")
+
+            # What the ledger genuinely cannot tell us.
+            for task in metrics["blocked_workitems"]:
+                if task.get("state") == "unknown" or "dispatch" in str(
+                        task.get("attention_flags") or ""):
+                    unknowns.append(
+                        f"{task['task_id']}（{name}）处于 {task.get('state')} / "
+                        f"{task.get('queue_status')}：Ledger 未记录该作业是否真的"
+                        "创建成功，需要查 Worker 侧日志才能定案。")
+
+        lines.insert(0, (
+            f"共 {totals['projects']} 个项目、{totals['work_items']} 个 WorkItem："
+            f"verified {totals['verified']}、rejected {totals['rejected']}、"
+            f"inconclusive {totals['inconclusive']}；"
+            f"当前阻塞 {totals['blocked']} 项、异常验收 {totals['abnormal_verdict']} 项、"
+            f"待人工 Goal {totals['needs_human_goals']} 个、"
+            f"未完成 Goal {totals['unfinished_goals']} 个。"))
+        if totals["truncated_projects"]:
+            lines.insert(1, (
+                f"注意：{'、'.join(totals['truncated_projects'])} 的 WorkItem 数"
+                f"达到读取上限 {MAX_REPORTED_WORK_ITEMS}，上述计数可能不完整。"))
+        return {"lines": lines, "totals": totals, "unknowns": unknowns}
+
+    def _portfolio_judgement(self, portfolio: list[dict]) -> dict:
+        """Priorities derived from the facts above by an explicit rule.
+
+        The rule is stated in the output so the reader can audit it.  It only
+        ranks *what the ledger shows*; it never asserts a dependency between
+        projects, because the ledger records no such edge.
+        """
+        priorities: list[dict] = []
+        for entry in portfolio:
+            project = entry["project"]
+            metrics = entry["metrics"]
+            name = project.get("name")
+            blocked = metrics["blocked_workitems"]
+            needs_human = metrics["needs_human_goals"]
+            abnormal = metrics["abnormal_verdict_workitems"]
+
+            # Collect *reasons* first, then emit one entry per project at the most
+            # urgent rank.  Emitting one entry per rule let a project appear twice
+            # with contradictory priorities ("P3 budget" and "P4 history" for the
+            # same project), which makes a ranking unusable.
+            reasons: list[tuple[int, str, str]] = []
+
+            # 1: an execution whose outcome is genuinely unknown outranks
+            # everything else — acting on it twice may duplicate real work.
+            uncertain = [task for task in blocked
+                         if task.get("state") == "unknown"
+                         or any("dispatch" in str(flag)
+                                for flag in task.get("attention_flags") or [])]
+            if uncertain:
+                reasons.append((
+                    1,
+                    f"{len(uncertain)} 个任务状态未定"
+                    f"（{', '.join(t['task_id'] for t in uncertain)}）："
+                    "可能已创建作业但未被观测到，重复处理有重复投入风险",
+                    "state=unknown / dispatch_unknown 且 queue_status 非 complete"))
+
+            # 2: goals that stopped because the model asked for a human.  These
+            # are decidable by a person reading the recorded stop reason.
+            requested = [goal for goal in needs_human
+                         if "request_human" in str(goal.get("last_action") or "")
+                         or "human_required" in str(
+                             goal.get("last_next_state") or "")]
+            if requested:
+                reasons.append((
+                    2,
+                    f"{len(requested)} 个 Goal 在等一个具体决定"
+                    f"（{', '.join(g['goal_id'] for g in requested)}）",
+                    "status=needs_human 且 last_decision.action=request_human"))
+
+            # 3: goals stopped on exhausted budget.  Flagged as "do not simply
+            # resume": resuming spends the same exhausted budget again.
+            exhausted = [goal for goal in needs_human
+                         if goal["goal_id"] not in
+                         {g["goal_id"] for g in requested}]
+            if exhausted:
+                reasons.append((
+                    3,
+                    f"{len(exhausted)} 个 Goal 因预算耗尽停止"
+                    f"（{', '.join(g['goal_id'] for g in exhausted)}）："
+                    "恢复会再次耗尽同一预算，应先判断目标是否还值得继续",
+                    "status=needs_human 且 last_decision.stop 含 budget"))
+
+            if abnormal and not blocked:
+                reasons.append((
+                    4,
+                    f"{len(abnormal)} 个任务验收未通过但当前不阻塞："
+                    "属历史结论，是否重做由你决定",
+                    "verdict in (rejected, inconclusive) 且不在 blocked_tasks"))
+
+            if not reasons:
+                continue
+            # One entry per project: the most urgent rule wins, and the other
+            # findings stay visible as extra bullets instead of a second rank.
+            reasons.sort(key=lambda item: item[0])
+            rank, why, basis = reasons[0]
+            extra = [text for _, text, _ in reasons[1:]]
+            priorities.append({
+                "rank": f"P{rank}",
+                "project_id": project["project_id"],
+                "project": name,
+                "why": why,
+                "basis": basis,
+                "also": extra,
+            })
+
+        lines: list[str] = []
+        if not priorities:
+            lines.append("- 按当前规则没有需要排序的事项：Ledger 中没有阻塞、"
+                         "没有待人工 Goal、没有异常验收。")
+            return {"lines": lines, "priorities": []}
+
+        lines.append("规则：先看「执行结果未知」（可能重复投入），再看「等一个具体"
+                     "决定」，再看「预算耗尽（不要直接恢复）」，最后看「历史异常验收」。")
+        lines.append("Ledger 未记录项目之间的依赖关系，因此这里不做跨项目依赖排序。")
+        # Sort by rank *and return the sorted list*: the text was ordered while
+        # the structured payload kept insertion order, so a console rendering the
+        # data would show a different priority than the answer text.  Ranks are
+        # zero-padded on comparison so "P10" would still sort after "P9".
+        ordered = sorted(priorities,
+                         key=lambda entry: int(str(entry["rank"])[1:]))
+        for item in ordered:
+            lines.append(f"- [{item['rank']}] {item['project']}：{item['why']}")
+            lines.append(f"    依据：{item['basis']}")
+            for also in item.get("also") or []:
+                lines.append(f"    同时存在：{also}")
+        return {"lines": lines, "priorities": ordered}
 
     def _project_status(self, intent, conversation, message):
         project_id = intent.project_id
@@ -2008,22 +2408,130 @@ class LDChat:
         if self._fault_hook is not None:
             self._fault_hook("after_chat_turn")
 
-    def _attention_items(self, progress: dict) -> list[dict]:
-        """Everything a human should look at: attention flags *and* bad verdicts.
+    def _project_metrics(self, project_id: str) -> dict:
+        """One project's ledger state, classified into three disjoint buckets.
 
-        ``ProjectService.get_project_progress()['blocked_tasks']`` covers tasks
-        that need a decision (approval, dispatch_unknown, lost, ...).  A
-        ``rejected`` or ``inconclusive`` verdict is not "blocking" in that sense
-        — nothing is waiting on a queue — but a project owner asking "what needs
-        me?" must still be told about it.  Both are derived from the ledger;
-        nothing here is inferred from chat history.
+        The three buckets answer three *different* questions, and conflating them
+        produced the defect this replaces (a global list that said "0 needing
+        attention" while rejected work and stopped goals were sitting there):
+
+        * ``blocked_workitems``      — execution is stuck or waiting on a human
+          decision now (approval, ``dispatch_unknown``, suspected lost, a
+          permission/auth refusal).  Something is *queued or undecidable*.
+        * ``abnormal_verdict_workitems`` — the artifact was not accepted
+          (``rejected`` / ``inconclusive``).  Historical unless it also blocks;
+          re-submission is an owner's decision, not a queue state.
+        * ``needs_human_goals``      — goals parked for a human.
+
+        A work item appears in at most one of the two task buckets: a task whose
+        verdict is bad *and* which is also blocked (the real
+        ``inconclusive`` + ``needs_human`` overlap in this ledger) is reported
+        once, as blocked, and its bad verdict is carried on the same record as
+        ``verdict``.  Nothing is dropped; nothing is double counted.
+
+        Every number comes from a deterministic ledger read.  The task scan is
+        bounded by :data:`MAX_REPORTED_WORK_ITEMS` and reports ``truncated``
+        rather than silently presenting a partial count as complete — reading
+        only the newest 10 (``recent_tasks``) is what used to hide older
+        rejections.
         """
+        progress = self._safe(
+            "get_project_progress",
+            lambda: self._tools.get_project_progress(project_id), None) or {}
+        counts = progress.get("counts") or {}
+
+        # Full project task list, not ``recent_tasks`` (which is capped at 10).
+        # A failure here is *reported*, never silently turned into "no tasks":
+        # swallowing it produced a report that said "0 tasks" for a project with
+        # rejected work, which is exactly the class of wrong number this fix is
+        # about.  ``read_error`` makes the uncertainty visible instead.
+        tasks: list[dict] = []
+        read_error: str | None = None
+        try:
+            tasks = self._tools.get_project_tasks(
+                project_id, limit=MAX_REPORTED_WORK_ITEMS) or []
+        except Exception as exc:  # noqa: BLE001 - reported, not swallowed
+            read_error = f"{type(exc).__name__}: {exc}"
+        truncated = len(tasks) >= MAX_REPORTED_WORK_ITEMS
+
+        # ``blocked_tasks`` carries the flags the service considers blocking;
+        # merge them onto the full task records so one record has everything.
+        blocked_ids = {task.get("task_id")
+                       for task in progress.get("blocked_tasks") or []}
+        flags_by_id = {task.get("task_id"): list(task.get("attention_flags") or [])
+                       for task in progress.get("blocked_tasks") or []}
+        blocked: list[dict] = []
+        abnormal: list[dict] = []
+        for task in tasks:
+            task_id = task.get("task_id")
+            verdict = task.get("verdict")
+            is_blocked = task_id in blocked_ids
+            if is_blocked:
+                blocked.append({
+                    "task_id": task_id,
+                    "title": task.get("title"),
+                    "state": task.get("state"),
+                    "verdict": verdict,
+                    "queue_status": task.get("queue_status"),
+                    "attention_flags": flags_by_id.get(task_id) or [],
+                })
+            elif verdict in ABNORMAL_VERDICTS:
+                abnormal.append({
+                    "task_id": task_id,
+                    "title": task.get("title"),
+                    "state": task.get("state"),
+                    "verdict": verdict,
+                    "queue_status": task.get("queue_status"),
+                    "attention_flags": [f"verdict:{verdict}"],
+                })
+
+        goals = self._goal_rows(project_id, include_completed=True)
+        unfinished = [goal for goal in goals
+                      if goal["status"] not in TERMINAL_GOAL_STATUSES]
+        needs_human = [goal for goal in goals if goal["status"] == "needs_human"]
+        goal_status_counts: dict[str, int] = {}
+        for goal in goals:
+            key = str(goal["status"])
+            goal_status_counts[key] = goal_status_counts.get(key, 0) + 1
+
+        return {
+            "project_id": project_id,
+            "counts": counts,
+            "truncated": truncated,
+            "read_error": read_error,
+            "work_items_total": counts.get("total", len(tasks)),
+            "blocked_workitems": blocked,
+            "abnormal_verdict_workitems": abnormal,
+            "needs_human_goals": needs_human,
+            "unfinished_goals": unfinished,
+            "goals": goals,
+            "goal_status_counts": goal_status_counts,
+        }
+
+    def _attention_items(self, progress: dict) -> list[dict]:
+        """Everything a human should look at for one project, de-duplicated.
+
+        Kept for the single-project handlers, which already hold a ``progress``
+        dict.  It reads the *full* task list through :meth:`_project_metrics`
+        when it knows the project, because ``progress['recent_tasks']`` is capped
+        at 10 and would silently drop an older rejection.
+
+        Order is deliberate: things waiting on a human *now* come first, then
+        bad verdicts that are history.
+        """
+        project_id = progress.get("project_id") or progress.get("id")
+        if project_id:
+            metrics = self._project_metrics(project_id)
+            return metrics["blocked_workitems"] + metrics[
+                "abnormal_verdict_workitems"]
+        # Fallback for callers that only have a progress dict: still merge the
+        # two buckets and de-duplicate, but note that ``recent_tasks`` is short.
         items = [dict(task, attention_flags=list(task.get("attention_flags") or []))
                  for task in progress.get("blocked_tasks") or []]
         seen = {task.get("task_id") for task in items}
         for task in progress.get("recent_tasks") or []:
             verdict = task.get("verdict")
-            if verdict not in ("rejected", "inconclusive"):
+            if verdict not in ABNORMAL_VERDICTS:
                 continue
             if task.get("task_id") in seen:
                 continue
