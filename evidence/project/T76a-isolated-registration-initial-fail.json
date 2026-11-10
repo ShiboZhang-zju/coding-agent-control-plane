@@ -1,0 +1,514 @@
+{
+  "task": "T76-isolated-registration-closed-loop",
+  "schema_version": "t76.registration.v1",
+  "result": "FAIL",
+  "checked_at": "2026-11-10T20:09:06",
+  "checks": {
+    "isolated_ledger_is_not_production": true,
+    "valid_registration_http_200": true,
+    "isolated_adapter_matches_registered_project": true,
+    "registration_created_project_and_workspace": true,
+    "registration_uses_fixed_server_side_policy": true,
+    "workspace_bound_to_registered_root": true,
+    "reregistration_is_idempotent": true,
+    "refresh_persists_in_new_sessions": true,
+    "browser_reload_keeps_project": true,
+    "restart_persists_rows_and_route": true,
+    "ld_lists_the_new_project": false,
+    "ld_aggregates_the_new_project": true,
+    "ld_routes_by_new_project_name": true,
+    "low_risk_goal_created_for_new_project": true,
+    "dashboard_does_not_dispatch_workitems": true,
+    "runner_created_exactly_one_workitem": true,
+    "workitem_bound_to_new_project_workspace": true,
+    "workitem_is_low_risk_no_approval": true,
+    "dispatch_lands_in_the_new_repository": true,
+    "cross_workspace_dispatch_refused": true,
+    "production_business_data_unchanged": true,
+    "production_services_unchanged": true,
+    "production_adapter_matches_registration_policy": true
+  },
+  "failed": [
+    "ld_lists_the_new_project"
+  ],
+  "detail": {
+    "environment": {
+      "isolated_ledger": "<REPO>\\.poc-state\\t76-isolated\\0f4565488ba64cf18687a17181fbde39\\isolated.db",
+      "temporary_repos": [
+        "<REPO>\\.poc-state\\t76-isolated\\0f4565488ba64cf18687a17181fbde39\\repos\\existing",
+        "<REPO>\\.poc-state\\t76-isolated\\0f4565488ba64cf18687a17181fbde39\\repos\\isolated"
+      ],
+      "production_ledger": "<ABS-PATH>",
+      "no_model": true,
+      "no_real_worker": true
+    },
+    "existing_project": {
+      "project_id": "prj-e9b6138f4e",
+      "workspace_id": "ws-f89119cb16"
+    },
+    "registration": {
+      "http_status": 200,
+      "response": {
+        "project": {
+          "project_id": "prj-080eca1e76",
+          "name": "T76-Isolated",
+          "root": "<REPO>\\.poc-state\\t76-isolated\\0f4565488ba64cf18687a17181fbde39\\repos\\isolated",
+          "active": true,
+          "created": true,
+          "dispatch_policy": "agent/worktree/acceptEdits (fixed; not caller-set)",
+          "next_step": "project_registered_no_work_dispatched"
+        },
+        "note": "项目已登记；未创建 Goal、未提交 WorkItem、未恢复历史 Goal。"
+      }
+    },
+    "registration_sql": {
+      "project": [
+        {
+          "id": "prj-080eca1e76",
+          "name": "T76-Isolated",
+          "root": "<REPO>\\.poc-state\\t76-isolated\\0f4565488ba64cf18687a17181fbde39\\repos\\isolated",
+          "default_adapter": "codebuddy",
+          "policy": "{\"mode\": \"agent\", \"isolation\": \"worktree\", \"permission_mode\": \"acceptEdits\", \"allow_unisolated_shell\": false, \"risk\": \"low\"}",
+          "concurrency_limit": 1,
+          "active": 1,
+          "created_at": 1794312500.4853747,
+          "updated_at": 1794312500.4853747
+        }
+      ],
+      "workspace": [
+        {
+          "id": "ws-96bfd72bca",
+          "project_id": "prj-080eca1e76",
+          "node_id": "local",
+          "local_root": "<REPO>\\.poc-state\\t76-isolated\\0f4565488ba64cf18687a17181fbde39\\repos\\isolated",
+          "adapter": "codebuddy",
+          "capabilities": "{\"execution\": \"local\", \"remote_dispatch\": false}",
+          "is_default": 1,
+          "active": 1,
+          "created_at": 1794312500.4853747,
+          "updated_at": 1794312500.4853747
+        }
+      ]
+    },
+    "reregistration": {
+      "http_status": 200,
+      "response": {
+        "project": {
+          "project_id": "prj-080eca1e76",
+          "name": "T76-Isolated",
+          "root": "<REPO>\\.poc-state\\t76-isolated\\0f4565488ba64cf18687a17181fbde39\\repos\\isolated",
+          "active": true,
+          "created": false,
+          "dispatch_policy": "unchanged (existing registration reused)",
+          "next_step": "registration_reused"
+        },
+        "note": "项目已登记；未创建 Goal、未提交 WorkItem、未恢复历史 Goal。"
+      }
+    },
+    "refresh": {
+      "chat_projects_status": 200,
+      "overview_status": 200,
+      "fresh_readonly_session_projects": [
+        "T76-Existing",
+        "T76-Isolated"
+      ],
+      "overview_project_ids": [
+        "prj-e9b6138f4e",
+        "prj-080eca1e76"
+      ],
+      "browser_nav_before": [
+        "全部项目 · 总览\n2 个",
+        "T76-Existing\n0 个任务\n·\n0 个目标\n无时间戳\n已启用",
+        "T76-Isolated\n0 个任务\n·\n0 个目标\n无时间戳\n已启用"
+      ],
+      "browser_nav_after": [
+        "全部项目 · 总览\n2 个",
+        "T76-Existing\n0 个任务\n·\n0 个目标\n无时间戳\n已启用",
+        "T76-Isolated\n0 个任务\n·\n0 个目标\n无时间戳\n已启用"
+      ]
+    },
+    "restart": {
+      "overview_status": 200,
+      "chat_projects_status": 200,
+      "reregister_status": 200,
+      "reregister_created": false,
+      "project_ids_after_restart": [
+        "prj-e9b6138f4e",
+        "prj-080eca1e76"
+      ]
+    },
+    "ld_recognition": [
+      {
+        "question": "现在有哪些项目？",
+        "http_status": 200,
+        "intent": "list_projects",
+        "intent_source": "heuristic_router",
+        "project_routing": {
+          "source": "none"
+        },
+        "portfolio_project_ids": [],
+        "answer_head": "Current projects (all figures derived from the ledger):\n\n- T76-Existing (prj-e9b6138f4e): 0 tasks (0 verified, 0 rejected, 0 inconclusive), 0 blocked, 0 abnormal verdict, 0 goals needing a human\n- T76",
+        "goal_ids": []
+      },
+      {
+        "question": "汇总所有项目目前的进度",
+        "http_status": 200,
+        "intent": "portfolio_status",
+        "intent_source": "heuristic_router",
+        "project_routing": {
+          "source": "none"
+        },
+        "portfolio_project_ids": [
+          "prj-e9b6138f4e",
+          "prj-080eca1e76"
+        ],
+        "answer_head": "跨项目只读汇总（全部数值来自 Ledger 确定性读取）\n\n一、事实\n共 2 个项目、0 个 WorkItem：verified 0、rejected 0、inconclusive 0；当前阻塞 0 项、异常验收 0 项、待人工 Goal 0 个、未完成 Goal 0 个。\n\n【T76-Existing】prj-e9b6138f4e\n  任务 0 个：verified 0、rejected 0、i",
+        "goal_ids": []
+      },
+      {
+        "question": "T76-Isolated 当前状态？",
+        "http_status": 200,
+        "intent": "project_status",
+        "intent_source": "heuristic_router",
+        "project_routing": {
+          "source": "named",
+          "project_id": "prj-080eca1e76"
+        },
+        "portfolio_project_ids": [],
+        "answer_head": "Project T76-Isolated (prj-080eca1e76)\n\nTasks: 0 total, 0 active, 0 verified, 0 rejected, 0 inconclusive, 0 awaiting approval.",
+        "goal_ids": []
+      }
+    ],
+    "low_risk_goal": {
+      "http_status": 200,
+      "published": {
+        "project_id": "prj-080eca1e76",
+        "goal_id": "goal-dc81cbc82ef4",
+        "goal_ref": "sha256:dc81cbc82ef476eb6298b8544bbb79e946950918876a77aff70c1ab51d2b0257",
+        "objective": "创建 hello.txt 文件",
+        "goal_chars": 15,
+        "status": "active",
+        "reused": false,
+        "created": true,
+        "next_step": "waiting_for_ld_runner",
+        "max_decisions_total": null,
+        "max_tasks_total": null,
+        "decision_count": 0,
+        "task_count": 0,
+        "current_task_id": null,
+        "forwarding_chain": [
+          "console -> LDChat.submit_goal (this call)",
+          "LDGoalRunner wakes the LD when the observed state changes",
+          "LD -> LDTools.submit_project_task -> ControlPlane",
+          "Runtime dispatches the WorkItem to the Worker",
+          "Ledger verdict is the only acceptance truth"
+        ],
+        "conversation_id": null,
+        "runner_liveness": "unknown",
+        "next_step_note": "Goal 已写入 Ledger。派工由 LD 在既有 LDGoalRunner 唤醒后执行，Dashboard 不会直接提交 WorkItem；Runner 存活状态无法从 Ledger 判断。"
+      },
+      "goal_rows": [
+        {
+          "goal_id": "goal-dc81cbc82ef4",
+          "project_id": "prj-080eca1e76",
+          "goal_text": "创建 hello.txt 文件",
+          "goal_ref": "sha256:dc81cbc82ef476eb6298b8544bbb79e946950918876a77aff70c1ab51d2b0257",
+          "status": "active",
+          "current_task_id": null,
+          "decision_count": 0,
+          "resume_count": 0,
+          "task_count": 0,
+          "last_decision": null,
+          "handoff_task_ids": "[]",
+          "claim_owner": null,
+          "claim_until": null,
+          "lease_token": "<redacted>",
+          "max_decisions_total": null,
+          "max_tasks_total": null,
+          "created_at": 1794312521.8031995,
+          "updated_at": 1794312521.8031995
+        }
+      ],
+      "workitems_before": 0,
+      "workitems_after": 0,
+      "approvals": []
+    },
+    "runner_sweep": {
+      "ok": true,
+      "checked": 1,
+      "advanced": [
+        {
+          "goal_id": "goal-dc81cbc82ef4",
+          "action": "advanced",
+          "reason": "LD advanced the goal",
+          "plan_reason": "state changed",
+          "goal_status": "waiting",
+          "decision_action": "submit_task",
+          "next_state": "task_submitted",
+          "task_id": "cp-3195e68bf217",
+          "continuation_pending": false,
+          "escalated_to_human": null,
+          "signature": "bd09f94844d6c920bff1766c63c74227"
+        }
+      ],
+      "waiting": [],
+      "skipped": [],
+      "failures": [],
+      "items": [
+        {
+          "goal_id": "goal-dc81cbc82ef4",
+          "action": "advanced",
+          "reason": "LD advanced the goal",
+          "plan_reason": "state changed",
+          "goal_status": "waiting",
+          "decision_action": "submit_task",
+          "next_state": "task_submitted",
+          "task_id": "cp-3195e68bf217",
+          "continuation_pending": false,
+          "escalated_to_human": null,
+          "signature": "bd09f94844d6c920bff1766c63c74227"
+        }
+      ]
+    },
+    "runner_diagnostics": {
+      "goal_rows_after_sweep": [
+        {
+          "goal_id": "goal-dc81cbc82ef4",
+          "project_id": "prj-080eca1e76",
+          "goal_text": "创建 hello.txt 文件",
+          "goal_ref": "sha256:dc81cbc82ef476eb6298b8544bbb79e946950918876a77aff70c1ab51d2b0257",
+          "status": "waiting",
+          "current_task_id": "cp-3195e68bf217",
+          "decision_count": 1,
+          "resume_count": 0,
+          "task_count": 1,
+          "last_decision": "{\"step\": 1, \"action\": \"submit_task\", \"next_state\": \"task_submitted\", \"task_id\": \"cp-3195e68bf217\", \"recovered\": null}",
+          "handoff_task_ids": "[]",
+          "claim_owner": null,
+          "claim_until": null,
+          "lease_token": "<redacted>",
+          "max_decisions_total": 4,
+          "max_tasks_total": 2,
+          "created_at": 1794312521.8031995,
+          "updated_at": 1794312522.2329674
+        }
+      ],
+      "workitem_count": 1,
+      "events_tail": [
+        {
+          "id": 1,
+          "work_item_id": "cp-3195e68bf217",
+          "attempt_id": null,
+          "type": "work_enqueued",
+          "payload": "{\"adapter\": \"codebuddy\", \"priority\": 0, \"queue_status\": \"ready\", \"risk\": \"low\", \"project_id\": \"prj-080eca1e76\", \"workspace_id\": \"ws-96bfd72bca\", \"context_version\": 0, \"context_entry_refs\": [], \"context_injected\": true}",
+          "created_at": 1794312522.1827009
+        }
+      ]
+    },
+    "workitems": [
+      {
+        "id": "cp-3195e68bf217",
+        "project_id": "prj-080eca1e76",
+        "workspace_id": "ws-96bfd72bca",
+        "cwd": "<REPO>\\.poc-state\\t76-isolated\\0f4565488ba64cf18687a17181fbde39\\repos\\isolated",
+        "queue_status": "ready",
+        "state": "queued",
+        "original_task": "创建 hello.txt 文件",
+        "policy": "{\"mode\": \"agent\", \"isolation\": \"worktree\", \"permission_mode\": \"acceptEdits\", \"allow_unisolated_shell\": false, \"risk\": \"low\"}",
+        "adapter": "codebuddy"
+      }
+    ],
+    "dispatch": {
+      "adapter_calls": [
+        {
+          "task_id": "cp-3195e68bf217",
+          "cwd": "<REPO>\\.poc-state\\t76-isolated\\0f4565488ba64cf18687a17181fbde39\\repos\\isolated",
+          "mode": "agent",
+          "isolation": "worktree",
+          "permission_mode": "acceptEdits"
+        }
+      ]
+    },
+    "cross_workspace_negative": {
+      "injected_workspace_id": "ws-f89119cb16",
+      "adapter_calls": [],
+      "queue_status_after": "needs_human",
+      "refusal_event_present": true
+    },
+    "production": {
+      "before": {
+        "business_hashes": {
+          "projects": {
+            "rows": 2,
+            "sha256": "d531ace0cea0dd6ba03496a9c5c213455855e826261511550f558a8c23e3f344"
+          },
+          "workspaces": {
+            "rows": 2,
+            "sha256": "4f14b524cb0c9faf7b0bebd952addfdb773a90ce3e8ccaf4fea8d731dff7d40a"
+          },
+          "work_items": {
+            "rows": 7,
+            "sha256": "7541a6bbe1a3b2ae92599eb4bb7503f25225c04b277c3d68d30865530ce2c18d"
+          },
+          "attempts": {
+            "rows": 7,
+            "sha256": "431be4daf88cbe99a0976af4ca22311c302401e79d51aaeb3d88cad7c24514f1"
+          },
+          "ld_goals": {
+            "rows": 7,
+            "sha256": "af11219021460a2ea333f9ee9b796509ced350ffac45fc5e259496bfd69a5bdf"
+          },
+          "ld_goal_decisions": {
+            "rows": 16,
+            "sha256": "cf4877b477f3eb98b7dd3096f5859ebead6589e73e90adfc570bc4cb11b6ce0c"
+          },
+          "approvals": {
+            "rows": 0,
+            "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "evidence": {
+            "rows": 0,
+            "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "session_references": {
+            "rows": 6,
+            "sha256": "500ead59d40b08c8fd4aaa4d17869fbfcf1755676843565a44750e2061743bed"
+          },
+          "project_context_entries": {
+            "rows": 19,
+            "sha256": "cff4ff0f43f36c11f4e39953013814e90cf09d2708d06216ad0b0ab007ff31cf"
+          },
+          "project_context_revisions": {
+            "rows": 0,
+            "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "context_update_receipts": {
+            "rows": 14,
+            "sha256": "e14eb4771b89fbe36ed54f7a45361b6dc9a717e99eb53ca7e545d6dc60f2c623"
+          }
+        },
+        "info_hashes": {
+          "events": {
+            "rows": 111,
+            "sha256": "d2011996bbc1da0824d4e3432d09b41bb760b8ce0d86ed623fa97e9a4ab007c4"
+          },
+          "ld_goal_runner": {
+            "rows": 7,
+            "sha256": "1f637514718f8396dd776832e2085ca6e5058baa3c691b524fddc8eb4838c57f"
+          },
+          "ld_conversations": {
+            "rows": 25,
+            "sha256": "3529bd59b0274213d74d56046ad592a83c93037071b9b5ef1a877327522cb18a"
+          },
+          "ld_messages": {
+            "rows": 112,
+            "sha256": "41d14da5881b306c0ae83eac1a159678d46206229cf1e76ba313862d36fc98e5"
+          }
+        },
+        "manager_head": "0b6e1958bd5a58bf055041a9ad32c91c744abfc6",
+        "worker_pid": 30284,
+        "dashboard_pid": 22660,
+        "ledger_bytes": 397312,
+        "workitem_adapters": [
+          "codebuddy"
+        ],
+        "project_default_adapters": [
+          "codebuddy"
+        ]
+      },
+      "after": {
+        "business_hashes": {
+          "projects": {
+            "rows": 2,
+            "sha256": "d531ace0cea0dd6ba03496a9c5c213455855e826261511550f558a8c23e3f344"
+          },
+          "workspaces": {
+            "rows": 2,
+            "sha256": "4f14b524cb0c9faf7b0bebd952addfdb773a90ce3e8ccaf4fea8d731dff7d40a"
+          },
+          "work_items": {
+            "rows": 7,
+            "sha256": "7541a6bbe1a3b2ae92599eb4bb7503f25225c04b277c3d68d30865530ce2c18d"
+          },
+          "attempts": {
+            "rows": 7,
+            "sha256": "431be4daf88cbe99a0976af4ca22311c302401e79d51aaeb3d88cad7c24514f1"
+          },
+          "ld_goals": {
+            "rows": 7,
+            "sha256": "af11219021460a2ea333f9ee9b796509ced350ffac45fc5e259496bfd69a5bdf"
+          },
+          "ld_goal_decisions": {
+            "rows": 16,
+            "sha256": "cf4877b477f3eb98b7dd3096f5859ebead6589e73e90adfc570bc4cb11b6ce0c"
+          },
+          "approvals": {
+            "rows": 0,
+            "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "evidence": {
+            "rows": 0,
+            "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "session_references": {
+            "rows": 6,
+            "sha256": "500ead59d40b08c8fd4aaa4d17869fbfcf1755676843565a44750e2061743bed"
+          },
+          "project_context_entries": {
+            "rows": 19,
+            "sha256": "cff4ff0f43f36c11f4e39953013814e90cf09d2708d06216ad0b0ab007ff31cf"
+          },
+          "project_context_revisions": {
+            "rows": 0,
+            "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "context_update_receipts": {
+            "rows": 14,
+            "sha256": "e14eb4771b89fbe36ed54f7a45361b6dc9a717e99eb53ca7e545d6dc60f2c623"
+          }
+        },
+        "info_hashes": {
+          "events": {
+            "rows": 111,
+            "sha256": "d2011996bbc1da0824d4e3432d09b41bb760b8ce0d86ed623fa97e9a4ab007c4"
+          },
+          "ld_goal_runner": {
+            "rows": 7,
+            "sha256": "1f637514718f8396dd776832e2085ca6e5058baa3c691b524fddc8eb4838c57f"
+          },
+          "ld_conversations": {
+            "rows": 25,
+            "sha256": "3529bd59b0274213d74d56046ad592a83c93037071b9b5ef1a877327522cb18a"
+          },
+          "ld_messages": {
+            "rows": 112,
+            "sha256": "41d14da5881b306c0ae83eac1a159678d46206229cf1e76ba313862d36fc98e5"
+          }
+        },
+        "manager_head": "0b6e1958bd5a58bf055041a9ad32c91c744abfc6",
+        "worker_pid": 30284,
+        "dashboard_pid": 22660,
+        "ledger_bytes": 397312,
+        "workitem_adapters": [
+          "codebuddy"
+        ],
+        "project_default_adapters": [
+          "codebuddy"
+        ]
+      },
+      "changed_business_tables": [],
+      "changed_info_tables": []
+    },
+    "adapter_prerequisite": {
+      "registration_fixes_default_adapter": "codebuddy",
+      "production_workitem_adapters": [
+        "codebuddy"
+      ],
+      "production_project_default_adapters": [
+        "codebuddy"
+      ],
+      "isolated_finding": "A submission service whose adapter name differs from the registered project's default_adapter parks the Goal in needs_human with ld_action_failed instead of creating a WorkItem"
+    }
+  },
+  "conclusion": "isolated closed loop FAILED; do not open production registration"
+}
