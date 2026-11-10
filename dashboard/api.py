@@ -54,6 +54,9 @@ from .ledger import (
     ReadOnlyLedger,
     SchemaIncompatible,
 )
+from controlplane.store import LedgerDegraded
+
+from .project_admin import ProjectRegistrationError, register_project
 from .projections import goal_handling, overview, project_detail
 
 #: Loopback names/addresses the server may bind.  ``0.0.0.0`` is not here on
@@ -353,6 +356,38 @@ class DashboardApp:
                            "The chat service cannot access the ledger right now."
                            ) from None
 
+    def handle_project_register_request(self, payload: Any) -> dict[str, Any]:
+        """Register a local Git root as a project (Human Owner operation).
+
+        Closed field set: exactly ``root`` and ``name``.  There is deliberately
+        no field for adapter, dispatch policy, concurrency, assertions, a Goal
+        or a command — the browser may choose *which* repository, never how work
+        in it is dispatched.  It creates no Goal, no WorkItem and no Approval;
+        it does not call the model, the LD, the GoalRunner or any Worker.
+
+        Authentication, exact same-origin and Host checks are applied by
+        :meth:`DashboardHandler._dispatch_write` before this handler runs.
+        """
+        self._require_chat()
+        if not isinstance(payload, dict):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_body",
+                           "The request body must be one JSON object.")
+        if set(payload) != {"root", "name"}:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "invalid_fields",
+                           "The project registration fields are invalid.")
+        try:
+            result = register_project(self.ledger.path, root=payload["root"],
+                                      name=payload["name"])
+        except ProjectRegistrationError as exc:
+            raise ApiError(HTTPStatus.BAD_REQUEST,
+                           "project_registration_rejected", str(exc)) from None
+        except (sqlite3.Error, OSError, LedgerDegraded):
+            raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "chat_unavailable",
+                           "The project registry cannot be written right now."
+                           ) from None
+        return {"project": result, "note":
+                "项目已登记；未创建 Goal、未提交 WorkItem、未恢复历史 Goal。"}
+
     def _require_chat(self) -> None:
         if self.chat is None:
             raise ApiError(HTTPStatus.NOT_FOUND, "chat_disabled",
@@ -519,6 +554,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         "/api/chat/messages": "handle_chat_message",
         "/api/chat/publish": "handle_publish_request",
         "/api/chat/goal-resume": "handle_goal_resume_request",
+        "/api/chat/project-register": "handle_project_register_request",
     }
 
     def _dispatch_write(self) -> None:
@@ -538,8 +574,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._audit_chat(result, payload.get("project_id"))
             elif handler_name == "handle_publish_request":
                 self._audit_publish(result, payload.get("project_id"))
-            else:
+            elif handler_name == "handle_goal_resume_request":
                 self._audit_goal_resume(result, payload.get("project_id"))
+            elif handler_name == "handle_project_register_request":
+                self._audit_project_register(result)
             self._send_json(HTTPStatus.OK, result, head_only=False)
         except ApiError as exc:
             self._send_error(exc)
@@ -653,6 +691,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "conversation_id": result.get("conversation_id"),
             "requires_confirmation": bool(result.get("requires_confirmation")),
             "resumed": False,
+        }
+        sys.stderr.write("[dashboard.audit] " + json.dumps(
+            event, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+    @staticmethod
+    def _audit_project_register(result: dict[str, Any]) -> None:
+        """Registration audit: ids and outcome only, never the local path.
+
+        A repository root is local-domain data.  It is returned to the
+        authenticated operator in the HTTP response, but must not be copied
+        into the process log alongside an event stream.
+        """
+        project = result.get("project") or {}
+        event = {
+            "event": "project_registered",
+            "project_id": project.get("project_id"),
+            "name": project.get("name"),
+            "created": bool(project.get("created")),
+            "work_items_dispatched": 0,
+            "goals_created": 0,
+            "goals_resumed": 0,
         }
         sys.stderr.write("[dashboard.audit] " + json.dumps(
             event, ensure_ascii=False, separators=(",", ":")) + "\n")

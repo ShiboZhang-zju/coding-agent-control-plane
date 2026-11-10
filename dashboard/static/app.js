@@ -44,6 +44,7 @@
       pendingAction: null,
       sending: false,
       publishing: false,
+      registering: false,
       connected: false,
       lastIntentSource: null,
       restored: false,
@@ -1714,6 +1715,74 @@
     }
   }
 
+  // ------------------------------------------------------------------ //
+  // project registration (authenticated operator management operation)
+  // ------------------------------------------------------------------ //
+  function registerStatus(text) {
+    $("registerStatus").textContent = text || "";
+  }
+
+  function suggestedProjectName(root) {
+    const cleaned = root.trim().replace(/[\\/]+$/, "");
+    const parts = cleaned.split(/[\\/]/);
+    return parts[parts.length - 1] || "";
+  }
+
+  function renderRegisterResult(result) {
+    const box = clear($("registerResult"));
+    if (!result) { box.hidden = true; return; }
+    box.hidden = false;
+    const project = result.project || {};
+    [
+      ["项目名称", project.name],
+      ["项目 ID", project.project_id],
+      ["仓库路径", project.root],
+      ["结果", project.created ? "新建登记" : "复用既有登记"],
+    ].forEach(function (pair) {
+      box.appendChild(el("div", { class: "kv-line" }, [
+        el("span", { class: "muted", text: pair[0] + "：" }),
+        el("span", { text: pair[1] === null || pair[1] === undefined
+          ? "—" : String(pair[1]) }),
+      ]));
+    });
+    if (result.note) {
+      box.appendChild(el("p", { class: "muted small", text: result.note }));
+    }
+  }
+
+  function registerProject() {
+    if (state.chat.registering) return;
+    const root = $("registerRoot").value.trim();
+    if (!root) { chatError(new Error("请填写本机仓库的绝对路径。")); return; }
+    let name = $("registerName").value.trim();
+    if (!name) name = suggestedProjectName(root);
+    if (!name) { chatError(new Error("无法从路径推断项目名称，请手动填写。")); return; }
+
+    state.chat.registering = true;
+    $("registerBtn").disabled = true;
+    registerStatus("正在校验并登记…");
+    chatError(null);
+    chatJson("/api/chat/project-register", {
+      method: "POST",
+      body: { root: root, name: name },
+    }).then(function (result) {
+      renderRegisterResult(result);
+      $("registerRoot").value = "";
+      $("registerName").value = "";
+      $("registerName").dataset.autoName = "";
+      registerStatus("");
+      // Project truth belongs to the read-only projection path, which also
+      // refreshes the publication target list and the left-hand rail.
+      refresh(true);
+    }).catch(function (error) {
+      registerStatus("");
+      chatError(error);
+    }).then(function () {
+      state.chat.registering = false;
+      $("registerBtn").disabled = false;
+    });
+  }
+
   //: A publication is confirmed in two steps: "发布给 LD" shows the exact
   //: target (project name, id, repository root) and only the explicit confirm
   //: sends the request.  Switching project invalidates the pending confirmation,
@@ -1909,6 +1978,9 @@
     $("chatAuthBox").hidden = state.chat.connected;
     $("chatControls").hidden = !state.chat.connected;
     $("publishBox").hidden = !state.chat.connected;
+    // Registration is a management write: it is only offered once the operator
+    // has supplied the local token, never on the read-only cockpit.
+    $("projectRegister").hidden = !state.chat.connected;
     $("publishBtn").disabled = state.chat.publishing || !state.chat.projectId;
     $("chatComposer").hidden = !state.chat.connected;
     $("chatConversationId").textContent = state.chat.conversationId
@@ -2315,6 +2387,27 @@
     });
     $("chatToken").addEventListener("keydown", function (event) {
       if (event.key === "Enter") connectChat();
+    });
+    $("registerBtn").addEventListener("click", registerProject);
+    ["registerRoot", "registerName"].forEach(function (id) {
+      $(id).addEventListener("keydown", function (event) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          registerProject();
+        }
+      });
+    });
+    $("registerRoot").addEventListener("input", function () {
+      const nameInput = $("registerName");
+      // Keep the suggested name in sync only while the operator has not typed
+      // a name of their own: never overwrite an explicit choice.
+      if (!nameInput.value.trim() || nameInput.dataset.autoName === "1") {
+        nameInput.value = suggestedProjectName($("registerRoot").value);
+        nameInput.dataset.autoName = "1";
+      }
+    });
+    $("registerName").addEventListener("input", function () {
+      $("registerName").dataset.autoName = "";
     });
     $("chatProject").addEventListener("change", function (event) {
       // This selects the *publication target* only.  It never rebinds the
