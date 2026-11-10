@@ -1241,3 +1241,344 @@ html, body {
   .btn { transition: none; }
   .btn:active { transform: none; }
 }
+
+/* ================================================================== *
+ * App-shell layout layer — ChatGPT-style workspace
+ *
+ * The previous three-column "everything on one screen" grid read like a
+ * spreadsheet.  This layer turns it into a two-surface workspace:
+ *
+ *   +----------------+------------------------------------------+
+ *   | brand          | thin toolbar                             |
+ *   |----------------+------------------------------------------+
+ *   | project /      | compact overview chips                   |
+ *   | conversation   +------------------------------------------+
+ *   | rail (fixed,   | PRIMARY: the LD conversation, centred,   |
+ *   | full height)   |          generous whitespace             |
+ *   |                +------------------------------------------+
+ *   |                | SECONDARY: read-only ledger tables       |
+ *   +----------------+------------------------------------------+
+ *
+ * Still CSS-only: no DOM change, no JS change, no id/class renamed.  The
+ * rail is taken out of flow with position:fixed, the remaining siblings are
+ * re-ordered with flex `order`, so `app.js` toggling `.hidden` and every
+ * `page.click('#...')` in the browser tests keep working unchanged.
+ * ================================================================== */
+
+/* -- shell ----------------------------------------------------------- */
+html, body { background: var(--bg); }
+/* The rail is position:fixed, so a long full-page scroll would otherwise show
+ * an abrupt colour change below the viewport.  This body-level band keeps the
+ * rail's surface continuous for the whole document height. */
+body {
+  padding-left: 272px;
+  background: linear-gradient(
+      to right,
+      var(--bg-sunken) 0, var(--bg-sunken) 272px,
+      var(--bg) 272px, var(--bg) 100%);
+}
+
+.topbar,
+#connectionBanner,
+.summary,
+.layout,
+.footer {
+  max-width: 1180px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.topbar {
+  justify-content: flex-end;
+  padding: 12px 28px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  box-shadow: none;
+  position: relative;
+  /* No z-index here: it would create a stacking context and trap the
+   * position:fixed brand (child) underneath the z-index:30 rail. */
+  z-index: auto;
+}
+.topbar-right { margin-left: auto; }
+
+/* Brand moves into the fixed rail header (no DOM change). */
+.brand {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 272px;
+  height: 64px;
+  padding: 0 18px;
+  z-index: 31;
+  background: var(--bg-sunken);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+.brand-mark { width: 30px; height: 30px; border-radius: 9px; }
+.brand-mark::after { inset: 9px; }
+.brand-text strong { font-size: 14px; }
+.brand-sub { font-size: 11.5px; }
+
+/* -- fixed left rail ------------------------------------------------- */
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 272px;
+  max-height: none;
+  padding-top: 64px;
+  border: none;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg-sunken);
+  box-shadow: none;
+  z-index: 30;
+}
+.sidebar-head {
+  padding: 18px 18px 10px;
+  border-bottom: none;
+}
+.sidebar-head h2 { font-size: 11.5px; letter-spacing: 0.1em; }
+.project-nav { padding: 6px 12px 12px; gap: 4px; }
+.nav-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border-color: transparent;
+}
+.nav-item:hover { background: var(--bg-raised); }
+.nav-item.is-active {
+  background: var(--bg-raised);
+  border-color: transparent;
+  box-shadow: inset 3px 0 0 var(--accent), var(--shadow-sm);
+}
+.nav-name { font-size: 13.5px; }
+.sidebar::after {
+  content: "本地只读 · SQLite Ledger";
+  margin-top: auto;
+  padding: 14px 18px 18px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* -- primary/secondary stack ----------------------------------------- */
+.layout,
+.layout:has(.chat-panel:not([hidden])) {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 20px;
+  padding: 20px 28px 40px;
+}
+.chat-panel { order: 1; }
+.content { order: 2; }
+
+.content::before {
+  content: "账本数据视图 · 只读";
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  padding: 6px 2px 0;
+}
+
+/* -- compact overview strip ------------------------------------------ */
+.summary { padding: 16px 28px 0; }
+.summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(146px, 1fr));
+  gap: 10px;
+}
+.summary-card {
+  min-height: 0;
+  padding: 10px 14px;
+  gap: 2px;
+  border-radius: 11px;
+  box-shadow: none;
+  background: var(--bg-raised);
+}
+.summary-label { font-size: 11.5px; }
+.summary-value { font-size: 21px; letter-spacing: -0.02em; }
+.summary-hint {
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.summary-extra { padding-top: 2px; font-size: 11.5px; }
+
+/* -- primary conversation surface ------------------------------------ */
+.chat-panel {
+  position: relative;
+  top: auto;
+  width: 100%;
+  max-height: none;
+  overflow: visible;
+  padding: 0 0 20px;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-sm);
+}
+.chat-head {
+  padding: 18px 26px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+.chat-head h2 { font-size: 17px; }
+.chat-head p { font-size: 12px; }
+.chat-auth,
+.chat-controls,
+.chat-confirmation,
+.chat-publish,
+.chat-composer {
+  margin: 16px 26px 0;
+  border-radius: 13px;
+}
+.chat-publish { max-height: 260px; overflow: auto; }
+.chat-messages {
+  flex: 0 1 auto;
+  min-height: 260px;
+  max-height: 52vh;
+  overflow: auto;
+  padding: 24px 26px;
+  gap: 18px;
+}
+/* Empty conversation → a centred, calm welcome instead of a large blank box. */
+.chat-messages:has(> .placeholder) {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+.chat-messages > .placeholder {
+  max-width: 44ch;
+  font-size: 13.5px;
+  line-height: 1.8;
+  color: var(--text-faint);
+}
+.chat-message {
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  align-self: stretch;
+}
+.chat-message-user {
+  align-self: flex-end;
+  max-width: 78%;
+  padding: 11px 15px;
+  border-radius: 16px 16px 4px 16px;
+  background: var(--muted-bg);
+}
+.chat-message-ld,
+.chat-message-system { align-self: flex-start; }
+.chat-message-meta {
+  font-size: 11px;
+  margin-bottom: 5px;
+  letter-spacing: 0.02em;
+}
+.chat-message-content {
+  font-size: 14px;
+  line-height: 1.8;
+}
+.chat-composer {
+  margin-bottom: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  box-shadow: 0 4px 18px rgba(16, 24, 40, 0.07);
+}
+.chat-composer textarea {
+  border: none;
+  background: transparent;
+  min-height: 62px;
+  padding: 4px 2px;
+  font-size: 14px;
+}
+.chat-composer textarea:focus { outline: none; }
+.chat-compose-actions { margin-top: 6px; }
+.chat-error { margin: 16px 26px 0; }
+.chat-confirmation { border-color: var(--warn); }
+
+/* -- secondary ledger tables: quieter than the conversation ---------- */
+.content .panel {
+  background: var(--bg-raised);
+  box-shadow: none;
+}
+.content .panel-head h2 { border-left-color: var(--border-strong); }
+.table th { color: var(--text-faint); }
+
+/* -- footer ---------------------------------------------------------- */
+.footer {
+  border-top: 1px solid var(--border);
+  padding: 14px 28px 26px;
+}
+
+/* -- responsive ------------------------------------------------------ */
+@media (max-width: 1400px) {
+  .layout,
+  .layout:has(.chat-panel:not([hidden])) { display: flex; flex-direction: column; }
+}
+@media (max-width: 1100px) {
+  body {
+    padding-left: 224px;
+    background: linear-gradient(
+        to right,
+        var(--bg-sunken) 0, var(--bg-sunken) 224px,
+        var(--bg) 224px, var(--bg) 100%);
+  }
+  .brand { width: 224px; }
+  .sidebar { width: 224px; }
+  .topbar, .summary, .layout, .footer, #connectionBanner {
+    max-width: none;
+  }
+}
+@media (max-width: 860px) {
+  body { padding-left: 0; background: var(--bg); }
+  .brand {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: 12px 16px;
+    border-right: none;
+  }
+  .topbar {
+    justify-content: space-between;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+  }
+  .sidebar {
+    position: static;
+    width: auto;
+    padding-top: 0;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar::after { display: none; }
+  .sidebar-head { padding: 12px 16px 6px; }
+  .project-nav { max-height: 180px; padding: 6px 12px 12px; }
+  .summary { padding: 14px 16px 0; }
+  .banner { padding: 10px 16px; }
+  .layout,
+  .layout:has(.chat-panel:not([hidden])) { padding: 14px 16px 30px; }
+  .footer { padding: 14px 16px 22px; }
+  .chat-head { padding: 14px 16px; }
+  .chat-auth, .chat-controls, .chat-confirmation,
+  .chat-publish, .chat-composer { margin: 12px 16px 0; }
+  .chat-messages { padding: 16px; }
+  .chat-error { margin: 12px 16px 0; }
+  .chat-panel { width: 100%; }
+}
+@media (max-width: 560px) {
+  .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .summary-card { padding: 8px 10px; }
+  .summary-value { font-size: 18px; }
+  .summary-hint { display: none; }
+  .chat-message-user { max-width: 90%; }
+  .topbar-right { gap: 8px; }
+}
