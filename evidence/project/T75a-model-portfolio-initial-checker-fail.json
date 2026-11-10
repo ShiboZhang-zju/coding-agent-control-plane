@@ -1,0 +1,398 @@
+{
+  "task": "T75-model-portfolio",
+  "schema_version": "ui4-model-portfolio.v1",
+  "result": "FAIL",
+  "checks": {
+    "six_http_200": true,
+    "six_all_portfolio_status": true,
+    "six_intent_source_is_honest": true,
+    "six_no_model_calls": true,
+    "six_numbers_match_ledger": true,
+    "six_report_every_project": true,
+    "six_create_nothing": true,
+    "model_never_emits_empty_string_focus": true,
+    "model_direct_output_all_parses": true,
+    "model_direct_all_portfolio": true,
+    "model_direct_focus_is_closed_set": true,
+    "registry_question_is_list_projects": true,
+    "negative_questions_use_model": true,
+    "single_project_not_widened": true,
+    "mixed_write_not_widened": true,
+    "negative_create_nothing": false,
+    "injection_empty_focus_not_executed": true,
+    "injection_illegal_focus_rejected": true,
+    "injection_unavailable_not_executed": true,
+    "injections_do_not_write": true,
+    "global_submit_goal_still_staged": true,
+    "cross_project_confirmation_rejected": true,
+    "confirmation_still_creates_one_goal": true,
+    "only_goal_table_changed_by_confirmation": true,
+    "workitems_approvals_resume_unchanged": true
+  },
+  "failed": [
+    "negative_create_nothing"
+  ],
+  "detail": {
+    "six_questions": [
+      {
+        "question": "汇总所有项目目前的进度",
+        "http_status": 200,
+        "intent": "portfolio_status",
+        "intent_source": "heuristic_router",
+        "model_calls": 0,
+        "goal_ids": [],
+        "requires_confirmation": false,
+        "totals": {
+          "work_items": 3,
+          "verified": 1,
+          "rejected": 1,
+          "inconclusive": 1,
+          "blocked": 1,
+          "abnormal_verdict": 1,
+          "needs_human_goals": 1
+        },
+        "projects_in_answer": [
+          true,
+          true
+        ],
+        "answer_head": "跨项目只读汇总（全部数值来自 Ledger 确定性读取）\n\n一、事实\n共 2 个项目、3 个 WorkItem：verified 1、rejected 1、inconclusive 1；当前阻塞 1 项、异常验收 1 项、待人工 Goal 1 个、未完成 Goal 1 个。\n\n【ACP-Alpha】prj-cae8e7"
+      },
+      {
+        "question": "所有项目有哪些未完成目标？",
+        "http_status": 200,
+        "intent": "portfolio_status",
+        "intent_source": "heuristic_router",
+        "model_calls": 0,
+        "goal_ids": [],
+        "requires_confirmation": false,
+        "totals": {
+          "work_items": 3,
+          "verified": 1,
+          "rejected": 1,
+          "inconclusive": 1,
+          "blocked": 1,
+          "abnormal_verdict": 1,
+          "needs_human_goals": 1
+        },
+        "projects_in_answer": [
+          true,
+          true
+        ],
+        "answer_head": "跨项目只读汇总（全部数值来自 Ledger 确定性读取）\n\n一、事实\n共 2 个项目、3 个 WorkItem：verified 1、rejected 1、inconclusive 1；当前阻塞 1 项、异常验收 1 项、待人工 Goal 1 个、未完成 Goal 1 个。\n\n【ACP-Alpha】prj-cae8e7"
+      },
+      {
+        "question": "两个项目各自有哪些需要我处理的？",
+        "http_status": 200,
+        "intent": "portfolio_status",
+        "intent_source": "heuristic_router",
+        "model_calls": 0,
+        "goal_ids": [],
+        "requires_confirmation": false,
+        "totals": {
+          "work_items": 3,
+          "verified": 1,
+          "rejected": 1,
+          "inconclusive": 1,
+          "blocked": 1,
+          "abnormal_verdict": 1,
+          "needs_human_goals": 1
+        },
+        "projects_in_answer": [
+          true,
+          true
+        ],
+        "answer_head": "跨项目只读汇总（全部数值来自 Ledger 确定性读取）\n\n一、事实\n共 2 个项目、3 个 WorkItem：verified 1、rejected 1、inconclusive 1；当前阻塞 1 项、异常验收 1 项、待人工 Goal 1 个、未完成 Goal 1 个。\n\n【ACP-Alpha】prj-cae8e7"
+      },
+      {
+        "question": "现在所有项目加起来有哪些未完成目标？",
+        "http_status": 200,
+        "intent": "portfolio_status",
+        "intent_source": "heuristic_router",
+        "model_calls": 0,
+        "goal_ids": [],
+        "requires_confirmation": false,
+        "totals": {
+          "work_items": 3,
+          "verified": 1,
+          "rejected": 1,
+          "inconclusive": 1,
+          "blocked": 1,
+          "abnormal_verdict": 1,
+          "needs_human_goals": 1
+        },
+        "projects_in_answer": [
+          true,
+          true
+        ],
+        "answer_head": "跨项目只读汇总（全部数值来自 Ledger 确定性读取）\n\n一、事实\n共 2 个项目、3 个 WorkItem：verified 1、rejected 1、inconclusive 1；当前阻塞 1 项、异常验收 1 项、待人工 Goal 1 个、未完成 Goal 1 个。\n\n【ACP-Alpha】prj-cae8e7"
+      },
+      {
+        "question": "给出各项目的优先级建议",
+        "http_status": 200,
+        "intent": "portfolio_status",
+        "intent_source": "heuristic_router",
+        "model_calls": 0,
+        "goal_ids": [],
+        "requires_confirmation": false,
+        "totals": {
+          "work_items": 3,
+          "verified": 1,
+          "rejected": 1,
+          "inconclusive": 1,
+          "blocked": 1,
+          "abnormal_verdict": 1,
+          "needs_human_goals": 1
+        },
+        "projects_in_answer": [
+          true,
+          true
+        ],
+        "answer_head": "跨项目只读汇总（全部数值来自 Ledger 确定性读取）\n\n一、事实\n共 2 个项目、3 个 WorkItem：verified 1、rejected 1、inconclusive 1；当前阻塞 1 项、异常验收 1 项、待人工 Goal 1 个、未完成 Goal 1 个。\n\n【ACP-Alpha】prj-cae8e7"
+      },
+      {
+        "question": "汇总所有项目的阻塞、异常验收和待人工 Goal",
+        "http_status": 200,
+        "intent": "portfolio_status",
+        "intent_source": "heuristic_router",
+        "model_calls": 0,
+        "goal_ids": [],
+        "requires_confirmation": false,
+        "totals": {
+          "work_items": 3,
+          "verified": 1,
+          "rejected": 1,
+          "inconclusive": 1,
+          "blocked": 1,
+          "abnormal_verdict": 1,
+          "needs_human_goals": 1
+        },
+        "projects_in_answer": [
+          true,
+          true
+        ],
+        "answer_head": "跨项目只读汇总（全部数值来自 Ledger 确定性读取）\n\n一、事实\n共 2 个项目、3 个 WorkItem：verified 1、rejected 1、inconclusive 1；当前阻塞 1 项、异常验收 1 项、待人工 Goal 1 个、未完成 Goal 1 个。\n\n【ACP-Alpha】prj-cae8e7"
+      }
+    ],
+    "model_direct_probe": [
+      {
+        "question": "汇总所有项目目前的进度",
+        "raw_intent": "portfolio_status",
+        "focus_present": true,
+        "focus": "summary",
+        "parse_ok": true,
+        "parsed_intent": "portfolio_status",
+        "focus_in_closed_set": true
+      },
+      {
+        "question": "所有项目有哪些未完成目标？",
+        "raw_intent": "portfolio_status",
+        "focus_present": true,
+        "focus": "goals",
+        "parse_ok": true,
+        "parsed_intent": "portfolio_status",
+        "focus_in_closed_set": true
+      },
+      {
+        "question": "两个项目各自有哪些需要我处理的？",
+        "raw_intent": "portfolio_status",
+        "focus_present": true,
+        "focus": "attention",
+        "parse_ok": true,
+        "parsed_intent": "portfolio_status",
+        "focus_in_closed_set": true
+      },
+      {
+        "question": "现在所有项目加起来有哪些未完成目标？",
+        "raw_intent": "portfolio_status",
+        "focus_present": true,
+        "focus": "goals",
+        "parse_ok": true,
+        "parsed_intent": "portfolio_status",
+        "focus_in_closed_set": true
+      },
+      {
+        "question": "给出各项目的优先级建议",
+        "raw_intent": "portfolio_status",
+        "focus_present": true,
+        "focus": "priority",
+        "parse_ok": true,
+        "parsed_intent": "portfolio_status",
+        "focus_in_closed_set": true
+      },
+      {
+        "question": "汇总所有项目的阻塞、异常验收和待人工 Goal",
+        "raw_intent": "portfolio_status",
+        "focus_present": true,
+        "focus": "attention",
+        "parse_ok": true,
+        "parsed_intent": "portfolio_status",
+        "focus_in_closed_set": true
+      }
+    ],
+    "model_describe": {
+      "endpoint_configured": true,
+      "timeout_s": 180.0,
+      "max_tokens": 1024,
+      "contract": "m4-d.intent.v1"
+    },
+    "model_direct_calls": 6,
+    "negative": [
+      {
+        "question": "现在有哪些项目？",
+        "http_status": 200,
+        "intent": "list_projects",
+        "intent_source": "model",
+        "model_calls": 1,
+        "portfolio_present": false,
+        "goal_ids": [],
+        "expect": "list_projects"
+      },
+      {
+        "question": "汇总 ACP-Alpha 目前的进度",
+        "http_status": 200,
+        "intent": "project_status",
+        "intent_source": "model",
+        "model_calls": 1,
+        "portfolio_present": false,
+        "goal_ids": [
+          "goal-7dc0072387ef"
+        ],
+        "expect": "not_portfolio"
+      },
+      {
+        "question": "汇总所有项目目前的进度，并提交一个新目标",
+        "http_status": 200,
+        "intent": "clarify",
+        "intent_source": "model",
+        "model_calls": 1,
+        "portfolio_present": false,
+        "goal_ids": [],
+        "expect": "not_portfolio"
+      }
+    ],
+    "injections": [
+      {
+        "case": "focus_empty",
+        "model_calls": 1,
+        "ledger_unchanged": true,
+        "error": null,
+        "intent": "clarify",
+        "intent_source": "invalid_model_intent",
+        "goal_ids": []
+      },
+      {
+        "case": "focus_illegal",
+        "model_calls": 1,
+        "ledger_unchanged": true,
+        "error": "ChatPolicyError: unsupported portfolio focus: everything; allowed: summary, goals, attention, priority",
+        "intent": null,
+        "intent_source": null,
+        "goal_ids": []
+      },
+      {
+        "case": "model_unavailable",
+        "model_calls": 1,
+        "ledger_unchanged": true,
+        "error": null,
+        "intent": "clarify",
+        "intent_source": "model_unavailable",
+        "goal_ids": []
+      }
+    ],
+    "write_gates": {
+      "staged_requires_confirmation": true,
+      "staged_goal_ids": [],
+      "mismatch_intent_source": "human_confirmation_project_mismatch",
+      "mismatch_goal_ids": [],
+      "confirmed_intent_source": "human_confirmation",
+      "confirmed_goal_ids": [
+        "goal-e1eb1c8daf31"
+      ]
+    },
+    "ledger_snapshot_before": {
+      "projects": {
+        "rows": 2,
+        "sha256": "32ddf7e87d5a70a5dca69fed8ce53a3b03a441a9041bd547a35a44034940f501"
+      },
+      "workspaces": {
+        "rows": 2,
+        "sha256": "67f88e030c8719359ea8b741bf91c78419a38731b8688171212fd5bbe32ac864"
+      },
+      "work_items": {
+        "rows": 3,
+        "sha256": "7029318d7d43016a54a2bf83d7db9f5d6ee14631d23865d6f3bc692def010a27"
+      },
+      "attempts": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "ld_goals": {
+        "rows": 1,
+        "sha256": "fd14fd6809f9837f15bdeadd6d9bea71f70e78dc8fc7ec5846a88204714e39cb"
+      },
+      "ld_goal_decisions": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "approvals": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "ld_goal_runner": "ERR:no such table: ld_goal_runner"
+    },
+    "ledger_snapshot_after": {
+      "projects": {
+        "rows": 2,
+        "sha256": "32ddf7e87d5a70a5dca69fed8ce53a3b03a441a9041bd547a35a44034940f501"
+      },
+      "workspaces": {
+        "rows": 2,
+        "sha256": "67f88e030c8719359ea8b741bf91c78419a38731b8688171212fd5bbe32ac864"
+      },
+      "work_items": {
+        "rows": 3,
+        "sha256": "7029318d7d43016a54a2bf83d7db9f5d6ee14631d23865d6f3bc692def010a27"
+      },
+      "attempts": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "ld_goals": {
+        "rows": 2,
+        "sha256": "95895267729879f91024e2056001d1423f4533988ee50a360c42a6e692d002c3"
+      },
+      "ld_goal_decisions": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "approvals": {
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "ld_goal_runner": "ERR:no such table: ld_goal_runner"
+    },
+    "ledger_truth": {
+      "work_items": 3,
+      "verified": 1,
+      "rejected": 1,
+      "inconclusive": 1,
+      "blocked": 1,
+      "needs_human_goals": 1
+    },
+    "changed_tables": [
+      "ld_goals"
+    ]
+  },
+  "environment": {
+    "ledger": "independent throwaway Ledger under .poc-state/t75",
+    "model": "the deployed loopback intent model (config read locally)",
+    "model_call_shape": {
+      "endpoint_configured": true,
+      "timeout_s": 180.0,
+      "max_tokens": 1024,
+      "contract": "m4-d.intent.v1"
+    },
+    "console": "real dashboard HTTP chat surface on a free loopback port",
+    "production": "not contacted, not modified"
+  }
+}

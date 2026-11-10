@@ -268,8 +268,12 @@ def chat_intent_schema() -> dict[str, Any]:
             "portfolio_status": {
                 "parameters": {"focus": list(PORTFOLIO_FOCUS)},
                 "note": ("a cross-project, read-only report derived from the "
-                         "ledger; it must not name a project and it never "
-                         "creates, resumes or dispatches anything"),
+                         "ledger; project_id, task_id and goal_id must all be "
+                         "null; parameters.focus is OPTIONAL and may be omitted "
+                         "when the emphasis is unclear, but when present it must "
+                         "be one of the four values above - never an empty "
+                         "string, null or any other value; it never creates, "
+                         "resumes or dispatches anything"),
             },
             "project_status": {"requires_project_id": True, "parameters": {}},
             "explain_blockers": {"requires_project_id": True, "parameters": {}},

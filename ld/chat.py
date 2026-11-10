@@ -256,6 +256,19 @@ MAX_REPORTED_WORK_ITEMS = 200
 #: five stopped goals were sitting in the ledger.
 ABNORMAL_VERDICTS = ("rejected", "inconclusive")
 
+#: State-changing vocabulary used ONLY to exclude a sentence from the
+#: deterministic cross-project *read* fast path (:meth:`LDChat._classify`).
+#: A false positive merely sends the turn back through the normal model +
+#: strict-validation path, which is the safe direction.  ``完成`` is deliberately
+#: absent: it is a substring of the read-only phrase ``未完成`` ("unfinished"),
+#: so including it would reject the most common portfolio question.
+_PORTFOLIO_WRITE_MARKERS = (
+    "提交", "创建", "新建", "发起", "派发", "恢复", "解封", "确认", "同意",
+    "批准", "审批", "推进", "实现", "开始做", "submit", "create", "resume",
+    "unblock", "approve", "deny", "dispatch", "implement", "build", "continue",
+    "start",
+)
+
 #: Goal statuses that are finished, so they are not "unfinished work".
 TERMINAL_GOAL_STATUSES = ("completed", "cancelled", "failed")
 
@@ -1131,6 +1144,33 @@ class LDChat:
     # ------------------------------------------------------------------ #
     # classification
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _is_deterministic_portfolio_read(message: str,
+                                         routing: ProjectRouting) -> bool:
+        """Whether this turn is an unambiguous, cross-project *read*.
+
+        This is a pre-route for one narrow class of question, **not** a fallback
+        that repairs bad model output.  It deliberately requires all of:
+
+        * no single project resolved for the turn — ``routing`` keeps its full
+          authority, so a named/bound/selected project is never widened into a
+          global report;
+        * an unambiguous aggregation read per :class:`HeuristicIntentRouter`;
+        * no imperative submission, and no write/confirmation vocabulary, so a
+          mixed "summarise everything, then also create X" sentence cannot use a
+          read-only shortcut to skip authorization or confirmation.
+
+        Anything else keeps the existing model + strict validation path.
+        """
+        if routing.project_id is not None:
+            return False
+        if not HeuristicIntentRouter.is_portfolio_request(message):
+            return False
+        if HeuristicIntentRouter.is_imperative_submission(message):
+            return False
+        lowered = (message or "").lower()
+        return not any(word in lowered for word in _PORTFOLIO_WRITE_MARKERS)
+
     def _classify(self, message: str, conversation_id: str,
                   routing: ProjectRouting) -> tuple[ChatIntent, str]:
         projects = self._safe("list_projects", self._tools.list_projects, [])
@@ -1251,6 +1291,26 @@ class LDChat:
             raw = HeuristicIntentRouter().classify(local_input)
             return (parse_intent(raw),
                     "local_only" if withheld else "heuristic_router")
+
+        # A cross-project read is decided by the ledger-shaped router, not by an
+        # intent model.  The deployed classifier could not produce a valid
+        # ``parameters.focus`` for ``portfolio_status``, which turned a purely
+        # deterministic question into "clarify" and made the console's global
+        # overview unreachable.  This is a pre-route on the *message*: invalid,
+        # unavailable or inexact model answers still fail closed for every
+        # other intent, and are never silently replaced by a router guess.
+        if self._is_deterministic_portfolio_read(message, routing):
+            local_input = dict(chat_input, message=message)
+            raw = HeuristicIntentRouter().classify(local_input)
+            if (isinstance(raw, Mapping)
+                    and raw.get("intent") == "portfolio_status"
+                    and not raw.get("project_id")
+                    and not raw.get("task_id")
+                    and not raw.get("goal_id")):
+                try:
+                    return parse_intent(raw), "heuristic_router"
+                except (ChatValidationError, ChatPolicyError):
+                    pass  # fall through; the fast path is never widened
         try:
             raw = (self._model.classify(chat_input)
                    if hasattr(self._model, "classify") else self._model(chat_input))
