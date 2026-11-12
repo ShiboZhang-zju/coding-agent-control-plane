@@ -11,6 +11,8 @@ evidence/environment/*serve*.log.*
 
 # Control-plane local state / detached test logs (machine specific)
 .poc-state/
+# Worker worktrees and local tool data (never committed; not a cache to delete)
+.codebuddy/
 
 # Local credentials (never committed)
 .env
